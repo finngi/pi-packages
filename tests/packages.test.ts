@@ -211,26 +211,29 @@ test(
       );
       assert.equal(codemode.status, 0, codemode.stdout + codemode.stderr);
 
-      const packedE2e = spawnSync(
-        process.execPath,
-        [join(root, "packages/pi-security/test/extensions-e2e.mjs")],
-        {
-          cwd: directory,
-          encoding: "utf8",
-          timeout: 90_000,
-          env: { ...process.env, PI_PACKAGED_ROOT: join(directory, "node_modules") },
-        },
-      );
-      assert.equal(packedE2e.status, 0, packedE2e.stdout + packedE2e.stderr);
-      assert.match(packedE2e.stdout, /"background":\{"insideWrite":true/);
-      assert.match(
-        packedE2e.stdout,
-        /"packagedEntrypoints":\{"security":"[^"\n]+node_modules\/pi-security\/dist\/src\/extension\.js","background":"[^"\n]+node_modules\/pi-bg\/dist\/extensions\/background-process\.js"\}/,
-      );
-      assert.match(
-        packedE2e.stdout,
-        /"packagedHostEntrypoints":\{"codingAgent":"[^"\n]+node_modules\/@earendil-works\/pi-coding-agent\/dist\/index\.js","aiCompat":"[^"\n]+node_modules\/@earendil-works\/pi-ai\/dist\/compat\.js"\}/,
-      );
+      // Writable kernel integration is supported by the macOS backend only.
+      if (process.platform === "darwin") {
+        const packedE2e = spawnSync(
+          process.execPath,
+          [join(root, "packages/pi-security/test/extensions-e2e.mjs")],
+          {
+            cwd: directory,
+            encoding: "utf8",
+            timeout: 90_000,
+            env: { ...process.env, PI_PACKAGED_ROOT: join(directory, "node_modules") },
+          },
+        );
+        assert.equal(packedE2e.status, 0, packedE2e.stdout + packedE2e.stderr);
+        assert.match(packedE2e.stdout, /"background":\{"insideWrite":true/);
+        assert.match(
+          packedE2e.stdout,
+          /"packagedEntrypoints":\{"security":"[^"\n]+node_modules\/pi-security\/dist\/src\/extension\.js","background":"[^"\n]+node_modules\/pi-bg\/dist\/extensions\/background-process\.js"\}/,
+        );
+        assert.match(
+          packedE2e.stdout,
+          /"packagedHostEntrypoints":\{"codingAgent":"[^"\n]+node_modules\/@earendil-works\/pi-coding-agent\/dist\/index\.js","aiCompat":"[^"\n]+node_modules\/@earendil-works\/pi-ai\/dist\/compat\.js"\}/,
+        );
+      }
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

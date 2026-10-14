@@ -430,7 +430,14 @@ test("host wrapping uses ordinary PATH and authentication while sandbox wrapping
   assert.equal(host.argv[0], "/bin/bash");
   assert.equal(host.env.PATH, process.env.PATH);
   assert.equal(host.env.PI_SECURITY_HOST_CAPABILITIES, undefined);
-  const constrained = await wrapShellAsync("printf safe", { write: false, network: [] }, f.loaded);
-  assert.notEqual(constrained.profile, "");
-  assert.equal(constrained.execution, undefined);
+  // This assertion exercises the Seatbelt backend; Linux has its own executor suite.
+  if (process.platform === "darwin") {
+    const constrained = await wrapShellAsync(
+      "printf safe",
+      { write: false, network: [] },
+      f.loaded,
+    );
+    assert.notEqual(constrained.profile, "");
+    assert.equal(constrained.execution, undefined);
+  }
 });

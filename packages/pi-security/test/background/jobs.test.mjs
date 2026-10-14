@@ -9,77 +9,84 @@ import { createBackgroundJobs } from "../../src/background-jobs.ts";
 import { wrapShell } from "../../src/wrap-shell.ts";
 import { loadPolicy } from "../../src/policy.ts";
 import { policy } from "../skeleton/fixture.mjs";
-test("background wrapShell writes own scope, refuses outside, retains lease and cancels", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "pi-security-background-")),
-    saved = { ...process.env };
-  let jobs;
-  try {
-    const project = path.join(root, "project"),
-      tmp = path.join(root, "tmp"),
-      home = path.join(root, "home");
-    await Promise.all([project, tmp, home].map((p) => mkdir(p)));
-    Object.assign(process.env, { HOME: home, TMPDIR: tmp + "/" });
-    const file = path.join(root, "policy.json");
-    await writeFile(file, JSON.stringify(policy()));
-    const loaded = await loadPolicy(file, { project, tmp });
-    let releases = 0;
-    jobs = createBackgroundJobs({
-      prepare: async ({ command, decision }) => ({
-        ...wrapShell(command, decision.permissions, loaded),
-        release: async () => {
-          releases++;
-        },
-      }),
-    });
-    const decision = { verdict: "allow", permissions: { write: true, network: [] } };
-    const one = await jobs.start({ command: "touch own-marker", cwd: project, decision });
-    assert.equal(releases, 0);
-    assert.equal((await one.done).exitCode, 0);
-    assert.equal(await readFile(path.join(project, "own-marker"), "utf8"), "");
-    assert.equal(releases, 1);
-    const two = await jobs.start({
-      command: `touch '${path.join(root, "outside-marker")}'`,
-      cwd: project,
-      decision,
-    });
-    const result = await two.done;
-    assert.notEqual(result.exitCode, 0);
-    assert.match(result.stderr, /permitted|Permission/);
-    await assert.rejects(readFile(path.join(root, "outside-marker")), { code: "ENOENT" });
-    const three = await jobs.start({ command: "sleep 30", cwd: project, decision });
-    assert.equal(jobs.status(three.id).state, "running");
-    await jobs.cancel(three.id);
-    assert.equal(jobs.status(three.id).state, "done");
-    assert.equal(releases, 3);
-    const controller = new AbortController();
-    const four = await jobs.start({
-      command: "sleep 0.2; printf retained > turn-abort-marker",
-      cwd: project,
-      decision,
-      signal: controller.signal,
-    });
-    controller.abort();
-    assert.equal(jobs.status(four.id).state, "running");
-    assert.equal(releases, 3, "The process keeps its confinement lease after the turn ends");
-    assert.equal((await four.done).exitCode, 0);
-    assert.equal(await readFile(path.join(project, "turn-abort-marker"), "utf8"), "retained");
-    assert.equal(releases, 4);
-    assert.equal(jobs.list().length, 4);
-    const five = await jobs.start({ command: "sleep 30", cwd: project, decision, timeout: 0.05 });
-    assert.notEqual((await five.done).exitCode, 0, "Explicit timeout stops the owned process");
-    assert.equal(releases, 5);
-    await assert.rejects(
-      jobs.start({ command: "sleep 30", cwd: project, decision, timeout: -1 }),
-      /finite positive number/,
-    );
-    assert.throws(() => jobs.read("unknown"));
-    console.log(JSON.stringify({ fixture: root, inside: true, outsideEPERM: true, releases }));
-  } finally {
-    await jobs?.close();
-    process.env = saved;
-    await rm(root, { recursive: true, force: true });
-  }
-});
+test(
+  "background wrapShell writes own scope, refuses outside, retains lease and cancels",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pi-security-background-")),
+      saved = { ...process.env };
+    let jobs;
+    try {
+      const project = path.join(root, "project"),
+        tmp = path.join(root, "tmp"),
+        home = path.join(root, "home");
+      await Promise.all([project, tmp, home].map((p) => mkdir(p)));
+      Object.assign(process.env, { HOME: home, TMPDIR: tmp + "/" });
+      const file = path.join(root, "policy.json");
+      await writeFile(file, JSON.stringify(policy()));
+      const loaded = await loadPolicy(file, { project, tmp });
+      let releases = 0;
+      jobs = createBackgroundJobs({
+        prepare: async ({ command, decision }) => ({
+          ...wrapShell(command, decision.permissions, loaded),
+          release: async () => {
+            releases++;
+          },
+        }),
+      });
+      const decision = { verdict: "allow", permissions: { write: true, network: [] } };
+      const one = await jobs.start({ command: "touch own-marker", cwd: project, decision });
+      assert.equal(releases, 0);
+      assert.equal((await one.done).exitCode, 0);
+      assert.equal(await readFile(path.join(project, "own-marker"), "utf8"), "");
+      assert.equal(releases, 1);
+      const two = await jobs.start({
+        command: `touch '${path.join(root, "outside-marker")}'`,
+        cwd: project,
+        decision,
+      });
+      const result = await two.done;
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /permitted|Permission/);
+      await assert.rejects(readFile(path.join(root, "outside-marker")), { code: "ENOENT" });
+      const three = await jobs.start({ command: "sleep 30", cwd: project, decision });
+      assert.equal(jobs.status(three.id).state, "running");
+      await jobs.cancel(three.id);
+      assert.equal(jobs.status(three.id).state, "done");
+      assert.equal(releases, 3);
+      const controller = new AbortController();
+      const four = await jobs.start({
+        command: "sleep 0.2; printf retained > turn-abort-marker",
+        cwd: project,
+        decision,
+        signal: controller.signal,
+      });
+      controller.abort();
+      assert.equal(jobs.status(four.id).state, "running");
+      assert.equal(releases, 3, "The process keeps its confinement lease after the turn ends");
+      assert.equal((await four.done).exitCode, 0);
+      assert.equal(await readFile(path.join(project, "turn-abort-marker"), "utf8"), "retained");
+      assert.equal(releases, 4);
+      assert.equal(jobs.list().length, 4);
+      const five = await jobs.start({ command: "sleep 30", cwd: project, decision, timeout: 0.05 });
+      assert.notEqual((await five.done).exitCode, 0, "Explicit timeout stops the owned process");
+      assert.equal(releases, 5);
+      await assert.rejects(
+        jobs.start({ command: "sleep 30", cwd: project, decision, timeout: -1 }),
+        /finite positive number/,
+      );
+      assert.throws(() => jobs.read("unknown"));
+      console.log(JSON.stringify({ fixture: root, inside: true, outsideEPERM: true, releases }));
+    } finally {
+      await jobs?.close();
+      for (const key of Object.keys(process.env)) {
+        if (!(key in saved)) delete process.env[key];
+      }
+      Object.assign(process.env, saved);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 test("cancellation reaches pending preparation before a background process starts", async () => {
   const controller = new AbortController();
   let received;
@@ -695,7 +702,7 @@ test("approved host background execution has no profile and retains cleanup and 
       execution: "host",
       profile: "",
       argv: ["/bin/bash", "--noprofile", "--norc", "-c", command],
-      env: { PATH: "/usr/bin:/bin", TMPDIR: "/private/tmp" },
+      env: { PATH: "/usr/bin:/bin", TMPDIR: os.tmpdir() },
       release: () => {
         releases++;
       },
@@ -706,16 +713,16 @@ test("approved host background execution has no profile and retains cleanup and 
       verdict: "allow",
       permissions: { execution: "host", write: true, network: [["*"]] },
     };
-    const one = await jobs.start({ command: "printf host-ready", cwd: "/private/tmp", decision });
+    const one = await jobs.start({ command: "printf host-ready", cwd: os.tmpdir(), decision });
     assert.equal((await one.done).stdout, "host-ready");
     assert.equal(releases, 1);
-    const two = await jobs.start({ command: "sleep 30", cwd: "/private/tmp", decision });
+    const two = await jobs.start({ command: "sleep 30", cwd: os.tmpdir(), decision });
     await jobs.cancel(two.id);
     assert.equal(jobs.status(two.id).state, "done");
     assert.equal(releases, 2);
     const three = await jobs.start({
       command: "sleep 30",
-      cwd: "/private/tmp",
+      cwd: os.tmpdir(),
       decision,
       timeout: 0.05,
     });

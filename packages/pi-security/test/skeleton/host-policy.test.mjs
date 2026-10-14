@@ -76,39 +76,43 @@ test("host policy supports confined toolchains, controls, fixed-host search and 
   }
 });
 
-test("host policy kernel denies protected credential reads and runtime writes inside project scope", async () => {
-  validatePolicy(structuredClone(template));
-  const result = await runKernelTrial({
-    setup: async (p) => {
-      await writeFile(path.join(p.project, "credential"), "fixture-only");
-      await writeFile(path.join(p.project, "runtime"), "original");
-      await mkdir(path.join(p.project, "nested", ".pi"), { recursive: true });
-      await writeFile(path.join(p.project, "nested", ".pi", "mcp.json"), "nested-token-fixture");
-    },
-    profile: (p) =>
-      compileProfile(
-        {
-          filesystem: {
-            writeAllow: [p.project, p.tmp],
-            writeDeny: [path.join(p.project, "runtime")],
-            readDeny: [path.join(p.project, "credential")],
+test(
+  "host policy kernel denies protected credential reads and runtime writes inside project scope",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    validatePolicy(structuredClone(template));
+    const result = await runKernelTrial({
+      setup: async (p) => {
+        await writeFile(path.join(p.project, "credential"), "fixture-only");
+        await writeFile(path.join(p.project, "runtime"), "original");
+        await mkdir(path.join(p.project, "nested", ".pi"), { recursive: true });
+        await writeFile(path.join(p.project, "nested", ".pi", "mcp.json"), "nested-token-fixture");
+      },
+      profile: (p) =>
+        compileProfile(
+          {
+            filesystem: {
+              writeAllow: [p.project, p.tmp],
+              writeDeny: [path.join(p.project, "runtime")],
+              readDeny: [path.join(p.project, "credential")],
+            },
           },
-        },
-        { write: true, network: [] },
-      ),
-    argv: [
-      "/bin/bash",
-      "--noprofile",
-      "--norc",
-      "-c",
-      "cat credential; cat nested/.pi/mcp.json; printf bad > runtime",
-    ],
-  });
-  assert.equal(result.setupFailure, null);
-  assert.notEqual(result.process.exitCode, 0);
-  assert.doesNotMatch(result.process.stdout, /fixture-only|nested-token-fixture/);
-  assert.equal(
-    result.effects.changed.some((e) => e.path === "project/runtime"),
-    false,
-  );
-});
+          { write: true, network: [] },
+        ),
+      argv: [
+        "/bin/bash",
+        "--noprofile",
+        "--norc",
+        "-c",
+        "cat credential; cat nested/.pi/mcp.json; printf bad > runtime",
+      ],
+    });
+    assert.equal(result.setupFailure, null);
+    assert.notEqual(result.process.exitCode, 0);
+    assert.doesNotMatch(result.process.stdout, /fixture-only|nested-token-fixture/);
+    assert.equal(
+      result.effects.changed.some((e) => e.path === "project/runtime"),
+      false,
+    );
+  },
+);

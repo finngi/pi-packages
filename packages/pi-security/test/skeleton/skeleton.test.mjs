@@ -65,42 +65,46 @@ test("policy rejects timeouts that Node would clamp instead of waiting", () => {
   assert.doesNotThrow(() => validatePolicy(boundary));
 });
 
-test("compiled profile refuses outside and protected writes", async () => {
-  assert.throws(() => sbplString("/tmp/evil\n(allow default)"), /unsafe/);
-  const outside = await runKernelTrial({
-    profile: (p) =>
-      compileProfile(
-        { filesystem: { writeAllow: [p.project, p.tmp], writeDeny: [], readDeny: [] } },
-        { write: true, network: [] },
-      ),
-    argv: ["/bin/bash", "--noprofile", "--norc", "-c", "echo nope > ../outside/nope"],
-  });
-  assert.equal(outside.setupFailure, null, JSON.stringify(outside.setupFailure));
-  assert.notEqual(outside.process.exitCode, 0);
-  assert.equal(
-    outside.effects.created.some((x) => x.path === "outside/nope"),
-    false,
-  );
-  assert.match(outside.refusal || outside.process.stderr, /not permitted|denied/i);
-  const protectedWrite = await runKernelTrial({
-    setup: async (p) => {
-      await mkdir(path.join(p.project, "nested", ".git"), { recursive: true });
-      await writeFile(path.join(p.project, "nested", ".git", "config"), "safe");
-    },
-    profile: (p) =>
-      compileProfile(
-        { filesystem: { writeAllow: [p.project, p.tmp], writeDeny: [], readDeny: [] } },
-        { write: true, network: [] },
-      ),
-    argv: ["/bin/bash", "--noprofile", "--norc", "-c", "echo bad > nested/AGENTS.md"],
-  });
-  assert.equal(protectedWrite.setupFailure, null, JSON.stringify(protectedWrite.setupFailure));
-  assert.notEqual(protectedWrite.process.exitCode, 0);
-  assert.equal(
-    protectedWrite.effects.changed.some((x) => x.path === "project/nested/AGENTS.md"),
-    false,
-  );
-});
+test(
+  "compiled profile refuses outside and protected writes",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    assert.throws(() => sbplString("/tmp/evil\n(allow default)"), /unsafe/);
+    const outside = await runKernelTrial({
+      profile: (p) =>
+        compileProfile(
+          { filesystem: { writeAllow: [p.project, p.tmp], writeDeny: [], readDeny: [] } },
+          { write: true, network: [] },
+        ),
+      argv: ["/bin/bash", "--noprofile", "--norc", "-c", "echo nope > ../outside/nope"],
+    });
+    assert.equal(outside.setupFailure, null, JSON.stringify(outside.setupFailure));
+    assert.notEqual(outside.process.exitCode, 0);
+    assert.equal(
+      outside.effects.created.some((x) => x.path === "outside/nope"),
+      false,
+    );
+    assert.match(outside.refusal || outside.process.stderr, /not permitted|denied/i);
+    const protectedWrite = await runKernelTrial({
+      setup: async (p) => {
+        await mkdir(path.join(p.project, "nested", ".git"), { recursive: true });
+        await writeFile(path.join(p.project, "nested", ".git", "config"), "safe");
+      },
+      profile: (p) =>
+        compileProfile(
+          { filesystem: { writeAllow: [p.project, p.tmp], writeDeny: [], readDeny: [] } },
+          { write: true, network: [] },
+        ),
+      argv: ["/bin/bash", "--noprofile", "--norc", "-c", "echo bad > nested/AGENTS.md"],
+    });
+    assert.equal(protectedWrite.setupFailure, null, JSON.stringify(protectedWrite.setupFailure));
+    assert.notEqual(protectedWrite.process.exitCode, 0);
+    assert.equal(
+      protectedWrite.effects.changed.some((x) => x.path === "project/nested/AGENTS.md"),
+      false,
+    );
+  },
+);
 
 test("host capabilities are selected by trusted launch configuration rather than policy fields", () => {
   const p = policy();

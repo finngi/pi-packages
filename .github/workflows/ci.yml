@@ -1,5 +1,8 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 permissions:
   contents: read
 concurrency:
@@ -19,14 +22,18 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Install Linux kernel and file helpers
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep fd-find
+        if: runner.os == 'Linux'
+      - name: Install macOS file helpers
+        run: brew install ripgrep fd
+        if: runner.os == 'macOS'
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm run check
       - run: npm run check:boundary
       - run: npm run check:docs
       - run: npm test
-      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
-        if: runner.os == 'Linux'
       - run: npm run test:linux --workspace=pi-security
         if: runner.os == 'Linux'
       - run: npm run test:packages

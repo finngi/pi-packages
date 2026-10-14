@@ -24,6 +24,10 @@ npm test
 | Local prompt rendering | `npm run test:e2e --workspace=pi-local-context` | Pi 1.2.0 prompt/reload/lazy skills/personal excludes, no model calls |
 | Search capability adapter | `npm run test:e2e --workspace=pi-codex-search` | Actual security extension, synthetic OAuth, scripted HTTP; monorepo sibling path resolves automatically |
 
+CI installs `ripgrep` and `fd` (`fd-find` on Ubuntu) before running the suites.
+Seatbelt kernel tests run only on macOS; Linux has a separate read-only bubblewrap kernel suite.
+Packed resource and stock-Pi checks run on both systems; the packed writable Seatbelt check runs on macOS.
+
 The supported macOS host needs Node 24 and `/usr/bin/sandbox-exec`; the file client resolves `rg` and `fd`/`fdfind` from policy-selected executable directories. The offline toolchain fixture needs its Cargo/rustc prerequisites. Linux kernel tests require a host that permits bubblewrap namespaces; a successful typecheck or protocol fixture does not prove kernel confinement.
 
 Protocol and consumer fixtures use disposable HOME/agent directories, scripted providers, synthetic credentials, or scripted HTTP. They do not make live model/search requests or establish real-model quality, live prices, or account behavior. They exercise the Pi 1.2.0 SDK entrypoints and subprocess boundaries rather than replacing the host with a mock.
