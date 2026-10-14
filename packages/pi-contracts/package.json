@@ -1,0 +1,36 @@
+{
+  "name": "pi-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-contracts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-contracts"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Versioned service contracts for Pi extensions"
+}

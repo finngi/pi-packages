@@ -1,0 +1,4 @@
+{
+  "files": ["extensions/background-process.ts"],
+  "extends": "../../tsconfig.base.json"
+}

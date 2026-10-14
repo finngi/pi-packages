@@ -1,0 +1,44 @@
+{
+  "name": "pi-resource-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-resource-browser"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-resource-browser"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Shared searchable resource picker for Pi extensions",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    "./search": {
+      "types": "./dist/resource-search.d.ts",
+      "default": "./dist/resource-search.js"
+    },
+    ".": {
+      "types": "./dist/resource-browser.d.ts",
+      "default": "./dist/resource-browser.js"
+    }
+  }
+}

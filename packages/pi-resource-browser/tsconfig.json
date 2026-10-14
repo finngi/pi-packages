@@ -1,0 +1,4 @@
+{
+  "files": ["lib/resource-browser.ts", "lib/resource-search.ts"],
+  "extends": "../../tsconfig.base.json"
+}

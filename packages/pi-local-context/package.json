@@ -1,0 +1,58 @@
+{
+  "name": "pi-local-context",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local context discovery and lazy Pi documentation",
+  "pi": {
+    "extensions": [
+      "./extensions/context.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/**/*.test.ts'",
+    "test:e2e": "node context-check.mjs",
+    "typecheck": "tsc -p tsconfig.context.json",
+    "build": "node ../../scripts/build.mjs --package pi-local-context"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/extensions/context.d.ts",
+      "default": "./dist/extensions/context.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pi-runtime": "0.1.0",
+    "pi-resource-browser": "0.1.0",
+    "proper-lockfile": "4.1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-local-context"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  }
+}

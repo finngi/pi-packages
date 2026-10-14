@@ -1,0 +1,13 @@
+node_modules/
+.worktrees/
+/docs/inputs/experiments/critic-exp2/e1/proj/
+/docs/inputs/experiments/policy-experiments/seatbelt/exfil/proj/
+/docs/inputs/experiments/policy-experiments/seatbelt/fixtures/git-repo/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-misc/g/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-misc/g2/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-readonly-sb/bare/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-readonly-sb/sb/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-readonly-sbx/bare/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-readonly-sbx/sb/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-readonly-srt/idx/
+/docs/inputs/experiments/policy-experiments/seatbelt/results/work-sidefx/r/

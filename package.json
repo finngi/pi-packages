@@ -1,0 +1,58 @@
+{
+  "name": "pi-packages",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:packages": "node --test tests/packages.test.ts",
+    "pack": "npm run build && node scripts/pack.mjs",
+    "check:boundary": "node scripts/check-public-boundary.mjs",
+    "check:docs": "node scripts/check-doc-links.mjs",
+    "export:public": "node scripts/export-public-snapshot.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "packages/pi-security/src/extension.ts",
+      "packages/pi-bg/extensions/background-process.ts",
+      "packages/pi-subagents/extensions/subagent.ts",
+      "packages/pi-goal/extensions/goal.ts",
+      "packages/pi-local-context/extensions/context.ts",
+      "packages/pi-codex-search/extensions/search.ts"
+    ],
+    "skills": [
+      "packages/pi-local-context/skills"
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.5",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-mcp": "1.2.0",
+    "@earendil-works/pi-tui": "1.2.0",
+    "@types/node": "24.19.1",
+    "typescript": "5.9.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Independent Pi extensions and shared libraries"
+}

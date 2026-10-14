@@ -1,0 +1,74 @@
+{
+  "name": "pi-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./child-auth": {
+      "types": "./src/child-auth.ts",
+      "default": "./src/child-auth.ts"
+    },
+    "./processes": {
+      "types": "./src/processes.ts",
+      "default": "./src/processes.ts"
+    },
+    "./timers": {
+      "types": "./src/timers.ts",
+      "default": "./src/timers.ts"
+    },
+    "./semantic-id": {
+      "types": "./src/semantic-id.ts",
+      "default": "./src/semantic-id.ts"
+    },
+    "./usage": {
+      "types": "./src/usage.ts",
+      "default": "./src/usage.ts"
+    },
+    "./token-usage": {
+      "types": "./src/token-usage.ts",
+      "default": "./src/token-usage.ts"
+    },
+    "./provider-transfer": {
+      "types": "./src/provider-transfer.ts",
+      "default": "./src/provider-transfer.ts"
+    },
+    "./accounting": {
+      "types": "./src/accounting.ts",
+      "default": "./src/accounting.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "dependencies": {
+    "pi-contracts": "0.1.0",
+    "pi-resource-browser": "0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "typebox": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test 'test/**/*.test.ts'",
+    "build": "node ../../scripts/build.mjs --package pi-runtime"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-runtime"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Shared Pi extension runtime utilities"
+}

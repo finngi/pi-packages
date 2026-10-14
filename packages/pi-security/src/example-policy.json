@@ -1,0 +1,428 @@
+{
+  "version": 2,
+  "mode": "auto",
+  "resources": {
+    "write": ["${project}", "${tmp}"],
+    "denyRead": [],
+    "denyWrite": [],
+    "network": []
+  },
+  "classifier": {
+    "model": "none",
+    "timeoutSec": 5
+  },
+  "approvalTimeoutSec": 30,
+  "env": {
+    "path": [],
+    "assignAllow": []
+  },
+  "deny": [
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["cp", "install", "rsync", "ln"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["mv", "rm", "rmdir", "unlink", "touch", "mkdir", "tee", "truncate", "shred"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["chmod", "chown", "chgrp"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["dd"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["curl", "wget"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["sed", "perl"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "rm",
+          "mv",
+          "rmdir",
+          "unlink",
+          "shred",
+          "chmod",
+          "chown",
+          "chgrp",
+          "truncate",
+          "trash"
+        ]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["find"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["diskutil"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["dd"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["chmod"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["spctl"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["csrutil"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["dscl"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["visudo", "sudoedit"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["pi", "claude", "codex", "opencode"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "python",
+          "python3",
+          "perl",
+          "ruby",
+          "node",
+          "deno",
+          "bun",
+          "php",
+          "lua",
+          "julia",
+          "Rscript",
+          "osascript",
+          "tclsh"
+        ]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "python",
+          "python3",
+          "perl",
+          "ruby",
+          "node",
+          "deno",
+          "bun",
+          "php",
+          "lua",
+          "julia",
+          "Rscript",
+          "osascript",
+          "tclsh"
+        ]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["curl", "wget"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["nc", "ncat", "netcat", "socat", "telnet"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["nc", "ncat", "netcat"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["socat"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["dig", "nslookup", "host", "drill"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["ngrok", "cloudflared", "localtunnel", "bore"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["code", "code-insiders"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["security"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["gh"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["op", "pass", "vault", "bw", "lpass", "aws-vault"]
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": "git",
+        "subcommand": "push"
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": "git",
+        "subcommand": "credential"
+      }
+    }
+  ],
+  "allow": [
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "echo",
+          "printf",
+          "true",
+          "false",
+          ":",
+          "uname",
+          "whoami",
+          "id",
+          "pwd",
+          "seq",
+          "sleep",
+          "nproc",
+          "arch",
+          "uptime",
+          "users",
+          "who",
+          "w",
+          "groups",
+          "locale",
+          "sw_vers",
+          "getconf",
+          "which",
+          "type",
+          "tr"
+        ]
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "ls",
+          "cat",
+          "head",
+          "tail",
+          "wc",
+          "cut",
+          "nl",
+          "tac",
+          "rev",
+          "column",
+          "fold",
+          "paste",
+          "comm",
+          "diff",
+          "cmp",
+          "stat",
+          "file",
+          "du",
+          "df",
+          "readlink",
+          "realpath",
+          "dirname",
+          "basename",
+          "shasum",
+          "sha1sum",
+          "sha256sum",
+          "md5sum",
+          "md5",
+          "cksum",
+          "strings",
+          "od",
+          "hexdump",
+          "expand",
+          "unexpand",
+          "fmt",
+          "base64",
+          "base32",
+          "base58",
+          "ascii85",
+          "basenc"
+        ],
+        "paths": "read"
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["pytest", "py.test", "mypy", "pyright"],
+        "paths": "read"
+      },
+      "permissions": {
+        "write": true,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["shellcheck"],
+        "paths": "read"
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": [
+          "lsof",
+          "ss",
+          "netstat",
+          "ioreg",
+          "system_profiler",
+          "lsmod",
+          "kextstat",
+          "findmnt",
+          "smbstatus",
+          "dscacheutil",
+          "lsblk",
+          "vm_stat",
+          "free"
+        ]
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": "git",
+        "subcommand": "status"
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": "npm",
+        "subcommand": ["test", "t"]
+      },
+      "permissions": {
+        "write": true,
+        "network": []
+      }
+    },
+    {
+      "tool": "bash",
+      "match": {
+        "program": ["sh", "bash"],
+        "subcommand": "-c"
+      },
+      "permissions": {
+        "write": false,
+        "network": []
+      }
+    },
+    {
+      "tool": "read"
+    },
+    {
+      "tool": "write"
+    },
+    {
+      "tool": "edit"
+    },
+    {
+      "tool": "ls"
+    },
+    {
+      "tool": "find"
+    },
+    {
+      "tool": "grep"
+    }
+  ]
+}

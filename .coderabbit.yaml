@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-GB
+tone_instructions: "Use plain English. Prioritise concrete correctness, lifecycle and boundary issues. Prefer existing Pi mechanisms and the smallest complete fix; avoid speculative abstractions."
+reviews:
+  profile: chill
+  auto_review:
+    enabled: true
+    drafts: true
+  path_instructions:
+    - path: "**/*"
+      instructions: "Apply DESIGN.md and AGENTS.md. Trace callers and actual effects. Distinguish host permissions from confinement, resource discovery from activation, and fixture evidence from real provider behaviour. Report concrete cases and favour reuse."

@@ -1,0 +1,79 @@
+{
+  "name": "pi-security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:permissions": "node --test test/permissions.test.ts test/asks/classifier-output.test.mjs",
+    "smoke:permissions": "node test/permissions-stock.mjs",
+    "test:linux": "node --test test/linux-executor.test.mjs",
+    "test": "node --test test/permissions.test.ts test/profile-compiler.test.mjs test/profile-traversal.test.mjs test/permission-architecture.test.mjs test/kernel-helper.test.mjs test/file-helper.test.mjs test/file-client.test.mjs test/skeleton/skeleton.test.mjs test/matcher/matcher.test.mjs test/asks/resolver.test.mjs test/asks/classifier-output.test.mjs test/asks/write-grants.test.mjs test/fetch/proxy.test.mjs test/background/jobs.test.mjs test/subagents/modules.test.mjs test/mcp/native.test.mjs test/mcp/capability-policy.test.mjs test/mcp/cli.test.mjs test/mcp/codemode-stock.test.mjs test/skeleton/host-policy.test.mjs test/skeleton/tool-ownership.test.mjs test/skeleton/host-executables.test.mjs test/timer-bounds.test.mjs test/session-setup.test.ts",
+    "smoke:h": "node test/stock-pi-h.mjs",
+    "smoke:s": "node test/stock-pi-s.mjs",
+    "smoke:m": "node test/stock-pi-m.mjs --integrated",
+    "test:f": "node test/files/kernel.mjs",
+    "smoke:f": "node test/stock-pi-f.mjs --integrated",
+    "smoke:k": "node test/stock-pi-k.mjs",
+    "smoke:n": "node test/stock-pi-n.mjs --integrated",
+    "smoke:b": "node test/stock-pi-b.mjs",
+    "smoke:u": "node test/stock-pi-u.mjs --integrated",
+    "test:i": "node --test test/integration/*.test.mjs",
+    "test:escapes": "node test/escape-suite.mjs",
+    "smoke:packages": "node test/stock-pi-packages.mjs",
+    "test:e2e": "node test/extensions-e2e.mjs",
+    "test:resources": "node --test test/subagents/resources-stock.test.mjs test/subagents/auth-stock.test.mjs test/subagents/classifier-auth-stock.test.mjs test/search/capability.test.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-security"
+  },
+  "dependencies": {
+    "tree-sitter-bash": "0.25.0",
+    "web-tree-sitter": "0.25.10",
+    "pi-contracts": "0.1.0",
+    "pi-runtime": "0.1.0"
+  },
+  "bin": {
+    "pi-security": "src/cli.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-mcp": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    "./permissions": {
+      "types": "./src/permission-extension.ts",
+      "default": "./src/permission-extension.ts"
+    },
+    ".": {
+      "types": "./dist/src/extension.d.ts",
+      "default": "./dist/src/extension.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-security"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Policy-mediated effect tools and kernel confinement for Pi"
+}

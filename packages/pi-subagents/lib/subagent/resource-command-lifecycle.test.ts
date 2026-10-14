@@ -1,0 +1,607 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import type { ResourceBrowser } from "./resource-browser.ts";
+
+initTheme("dark", false);
+
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { SECURITY_PRESENCE } from "pi-contracts";
+import extension from "../../extensions/subagent.ts";
+
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "pi-subagent-command-lifecycle-"));
+  const project = join(root, "project");
+  const agentDir = join(root, "agent");
+  mkdirSync(join(project, ".pi"), { recursive: true });
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({}));
+
+  const commands = new Map<string, { handler: Function }>();
+  const tools = new Map<string, { execute: Function }>();
+  const handlers = new Map<string, Function>();
+  const eventListeners = new Map<string, Function[]>();
+  let started = false;
+  const loadedSkills: Array<{
+    name: string;
+    description: string;
+    source: string;
+    sourceInfo: { path: string; scope?: string };
+  }> = [];
+  const pi = {
+    on(name: string, handler: Function) {
+      const previous = handlers.get(name);
+      handlers.set(name, async (...args: any[]) => {
+        if (name === "session_start") started = true;
+        await previous?.(...args);
+        const result = await handler(...args);
+        if (name === "resources_discover" && result?.skillPaths)
+          for (const path of result.skillPaths) {
+            const text = readFileSync(path, "utf8"),
+              name = /^name: (.+)$/m.exec(text)?.[1];
+            if (name && !loadedSkills.some((skill) => skill.name === name))
+              loadedSkills.push({
+                name,
+                description: `${name} fixture skill`,
+                source: "skill",
+                sourceInfo: { path },
+              });
+          }
+        return result;
+      });
+    },
+    registerCommand(name: string, command: { handler: Function }) {
+      commands.set(name, {
+        handler: async (args: string, ctx: any) => {
+          if (!started) {
+            await handlers.get("session_start")?.({}, ctx);
+            await handlers.get("resources_discover")?.({}, ctx);
+          }
+          return command.handler(args, ctx);
+        },
+      });
+    },
+    registerFlag() {},
+    getFlag() {},
+    registerMessageRenderer() {},
+    registerTool(tool: { name: string; execute: Function }) {
+      tools.set(tool.name, tool);
+    },
+    appendEntry() {},
+    getActiveTools: () => ["read", "session_setup"],
+    getAllTools: () =>
+      ["read", "session_setup"].map((name) => ({ name, description: name, exposure: "direct" })),
+    setActiveTools() {},
+    getThinkingLevel: () => "low",
+    getCommands: () => loadedSkills,
+    events: {
+      on(name: string, handler: Function) {
+        eventListeners.set(name, [...(eventListeners.get(name) ?? []), handler]);
+      },
+      emit(name: string, value: { respond?: (present: boolean) => void }) {
+        if (name === SECURITY_PRESENCE) value.respond?.(false);
+        for (const listener of eventListeners.get(name) ?? []) listener(value);
+      },
+    },
+  };
+  extension(pi as any);
+
+  return {
+    root,
+    project,
+    agentDir,
+    commands,
+    tools,
+    handlers,
+    loadedSkills,
+    dispose() {
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function guardedContext(
+  project: string,
+  selections: string[] = [],
+  browserAction?: (browser: ResourceBrowser) => Promise<void>,
+) {
+  let stale = false;
+  let reloads = 0;
+  const notifications: string[] = [];
+  const selectionCalls: Array<{ title: string; choices: string[] }> = [];
+  const assertCurrent = () => {
+    if (stale) throw Error("stale context accessed after reload");
+  };
+  const ui = new Proxy(
+    {
+      setStatus() {},
+      notify(message: string) {
+        notifications.push(message);
+      },
+      async confirm() {
+        return true;
+      },
+      async select(title: string, choices: string[]) {
+        assertCurrent();
+        selectionCalls.push({ title, choices });
+        return selections.shift();
+      },
+      ...(browserAction
+        ? {
+            async custom(factory: Function) {
+              assertCurrent();
+              let finish!: (changed: boolean) => void;
+              const result = new Promise<boolean>((resolve) => {
+                finish = resolve;
+              });
+              const browser = await factory(
+                { terminal: { rows: 42 }, requestRender() {} },
+                {
+                  fg: (_color: string, text: string) => text,
+                  bg: (_color: string, text: string) => text,
+                  bold: (text: string) => text,
+                },
+                {},
+                finish,
+              );
+              try {
+                await browserAction(browser);
+                browser.handleInput("\x1b");
+                return await result;
+              } finally {
+                browser.dispose();
+              }
+            },
+          }
+        : {}),
+    },
+    {
+      get(target, property, receiver) {
+        assertCurrent();
+        return Reflect.get(target, property, receiver);
+      },
+    },
+  );
+  const target = {
+    cwd: project,
+    hasUI: true,
+    ui,
+    isProjectTrusted: () => true,
+    waitForIdle: async () => {},
+    reload: async () => {
+      reloads++;
+      stale = true;
+    },
+    model: { provider: "fixture", id: "fixture-model" },
+    modelRegistry: { getAvailableOfType: async () => [] },
+    sessionManager: {
+      getEntries: () => [],
+      getBranch: () => [],
+      getSessionId: () => "command-fixture",
+    },
+    isIdle: () => true,
+  };
+  const context = new Proxy(target, {
+    get(object, property, receiver) {
+      assertCurrent();
+      return Reflect.get(object, property, receiver);
+    },
+  });
+  return {
+    context: context as unknown as ExtensionCommandContext,
+    notifications,
+    selectionCalls,
+    get reloads() {
+      return reloads;
+    },
+  };
+}
+
+function addSkill(root: string, name: string) {
+  const skillDir = join(root, name);
+  mkdirSync(skillDir, { recursive: true });
+  const file = join(skillDir, "SKILL.md");
+  writeFileSync(file, `---\nname: ${name}\ndescription: ${name} fixture skill\n---\nInstructions.`);
+  return file;
+}
+
+async function withAgentDir<T>(agentDir: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+}
+
+test("agent selection is session-only until explicitly saved to the project", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      await f.commands.get("agents")!.handler("none", context.context);
+      assert.equal(context.reloads, 0);
+      assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+      await f.commands
+        .get("agents")!
+        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.agents, []);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("clearing a stale agent selection does not report the pre-repair error", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  writeFileSync(
+    join(f.project, ".pi/settings.json"),
+    JSON.stringify({ subagents: { agents: ["missing-agent"] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      await f.handlers.get("session_start")!({}, context.context);
+      await f.commands.get("agents")!.handler("none", context.context);
+
+      assert.ok(
+        !context.notifications.some((message) =>
+          message.includes("unknown or untrusted names: missing-agent"),
+        ),
+      );
+      await f.commands
+        .get("agents")!
+        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.agents, []);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("agent selection does not discard an ancestor trusted for the current session", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const source = join(f.root, ".agents", "agents");
+  mkdirSync(source, { recursive: true });
+  writeFileSync(
+    join(source, "reviewer.md"),
+    "---\nname: reviewer\ndescription: A trusted reviewer\n---\nPrivate instructions.",
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      await f.commands.get("agents")!.handler(`trust ${f.root}`, context.context);
+      await f.commands.get("agents")!.handler("enable reviewer", context.context);
+      await f.commands.get("agents")!.handler("inspect reviewer", context.context);
+      assert.equal(context.reloads, 0);
+      assert.ok(context.notifications.some((message) => message.includes("A trusted reviewer")));
+      assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+      await f.commands
+        .get("agents")!
+        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.agents, ["reviewer"]);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("re-trusting an ancestor restores a saved selection after session-start discovery", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const source = join(f.root, ".agents", "agents");
+  mkdirSync(source, { recursive: true });
+  writeFileSync(
+    join(source, "reviewer.md"),
+    "---\nname: reviewer\ndescription: A trusted reviewer\n---\nPrivate instructions.",
+  );
+  writeFileSync(
+    join(f.project, ".pi/settings.json"),
+    JSON.stringify({ subagents: { agents: ["reviewer"] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project, ["Done"]);
+      await f.handlers.get("session_start")!({}, context.context);
+      await f.commands.get("agents")!.handler(`trust ${f.root}`, context.context);
+
+      const chooser = context.selectionCalls.find((call) => call.title === "Agents");
+      assert.ok(chooser);
+      assert.ok(chooser.choices.includes("[x] reviewer"));
+      assert.equal(context.reloads, 0);
+      assert.ok(
+        !context.notifications.some((message) =>
+          message.includes("unknown or untrusted names: reviewer"),
+        ),
+      );
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("launch lookup repairs a cached missing-name selection and browse shows the new agent selected", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  writeFileSync(
+    join(f.project, ".pi/settings.json"),
+    JSON.stringify({ subagents: { agents: ["late-agent"] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project, ["Done"]);
+      await f.handlers.get("session_start")!({}, context.context);
+
+      const bundle = join(f.project, ".pi/agents/late-agent");
+      mkdirSync(bundle, { recursive: true });
+      writeFileSync(
+        join(bundle, "late-agent.md"),
+        "---\nname: late-agent\ndescription: Created during this session\n---\nInstructions.",
+      );
+
+      await assert.rejects(
+        f.tools
+          .get("subagent")!
+          .execute(
+            "call",
+            { agent: "late-agent", task: "task" },
+            undefined,
+            undefined,
+            context.context,
+          ),
+        /Could not inspect late-agent capabilities\. Run \/agents to inspect diagnostics\./,
+      );
+      await f.commands.get("agents")!.handler("", context.context);
+      assert.ok(
+        context.notifications.some((message) =>
+          message.includes("child model unavailable: fixture/fixture-model"),
+        ),
+        "the human-facing diagnostics retain the underlying launch failure",
+      );
+      const chooser = context.selectionCalls.find((call) => call.title === "Agents");
+      assert.ok(chooser);
+      assert.ok(chooser.choices.includes("[x] late-agent"));
+
+      assert.equal(context.reloads, 0);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.agents, ["late-agent"]);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("a direct public-skill change updates the session without a reload or settings write", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const catalogue = join(f.root, "catalogue");
+  const skillPath = addSkill(catalogue, "one");
+  writeFileSync(
+    join(f.agentDir, "settings.json"),
+    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      await f.commands.get("skills")!.handler("enable one", context.context);
+      assert.equal(context.reloads, 0);
+      assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+      await f.commands
+        .get("skills")!
+        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.skills, ["one"]);
+      assert.deepEqual(projectSettings.subagents.skillPaths, [skillPath]);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("skill inheritance restores saved defaults without changing their files or reloading", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const catalogue = join(f.root, "catalogue");
+  const skillPath = addSkill(catalogue, "one");
+  writeFileSync(
+    join(f.agentDir, "settings.json"),
+    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+  );
+  writeFileSync(
+    join(f.project, ".pi/settings.json"),
+    JSON.stringify({
+      theme: "dark",
+      skills: [skillPath],
+      subagents: { skills: ["one"], skillPaths: [skillPath], skillPathsCreatedSetting: true },
+    }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      await f.commands.get("skills")!.handler("inherit", context.context);
+      assert.equal(context.reloads, 0);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.equal(projectSettings.theme, "dark");
+      assert.deepEqual(projectSettings.subagents.skills, ["one"]);
+      assert.deepEqual(projectSettings.skills, [skillPath]);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("interactive skill changes reuse one context and save only explicitly", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const catalogue = join(f.root, "catalogue");
+  const alphaPath = addSkill(catalogue, "alpha");
+  const betaPath = addSkill(catalogue, "beta");
+  writeFileSync(
+    join(f.agentDir, "settings.json"),
+    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project, ["[ ] alpha", "[ ] beta", "Done"]);
+      await f.commands.get("skills")!.handler("", context.context);
+      assert.equal(context.reloads, 0);
+      assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+      await f.commands
+        .get("skills")!
+        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
+      const projectSettings = JSON.parse(
+        readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
+      );
+      assert.deepEqual(projectSettings.subagents.skills, ["alpha", "beta"]);
+      assert.deepEqual(projectSettings.subagents.skillPaths, [alphaPath, betaPath]);
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});
+
+test("custom skill browser keeps toggles in the session and Ctrl+S saves without reloading", async () => {
+  const f = fixture();
+  const previous = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const catalogue = join(f.root, "catalogue");
+  const alphaPath = addSkill(catalogue, "alpha"),
+    betaPath = addSkill(catalogue, "beta");
+  writeFileSync(
+    join(f.agentDir, "settings.json"),
+    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project, [], async (browser) => {
+        await browser.toggleCurrent();
+        assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+        browser.handleInput("\x1b[B");
+        await browser.toggleCurrent();
+        assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+        await browser.saveDefaults();
+        const saved = JSON.parse(readFileSync(join(f.project, ".pi/settings.json"), "utf8"));
+        assert.deepEqual(saved.subagents.skills, ["alpha", "beta"]);
+        assert.deepEqual(saved.skills, [alphaPath, betaPath]);
+        assert.equal(context.reloads, 0);
+      });
+      await f.commands.get("skills")!.handler("", context.context);
+      assert.equal(context.reloads, 0);
+      assert.equal(
+        context.selectionCalls.length,
+        0,
+        "the browser must not open nested selection dialogs",
+      );
+    });
+  } finally {
+    if (previous === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previous;
+    f.dispose();
+  }
+});
+
+test("custom agent browser saves only on Ctrl+S without changing context ownership", async () => {
+  const f = fixture();
+  const previous = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  mkdirSync(join(f.agentDir, "agents"));
+  writeFileSync(
+    join(f.agentDir, "agents/reviewer.md"),
+    "---\nname: reviewer\ndescription: Review connected code\n---\nRead callers first.",
+  );
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project, [], async (browser) => {
+        await browser.toggleCurrent();
+        assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+        await browser.saveDefaults();
+        const saved = JSON.parse(readFileSync(join(f.project, ".pi/settings.json"), "utf8"));
+        assert.deepEqual(saved.subagents.agents, []);
+        assert.equal(context.reloads, 0);
+      });
+      await f.commands.get("agents")!.handler("", context.context);
+      assert.equal(context.reloads, 0);
+      assert.equal(context.selectionCalls.length, 0);
+    });
+  } finally {
+    if (previous === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previous;
+    f.dispose();
+  }
+});
+
+test("native temporary skills stay selected in this session but are excluded from personal saves", async () => {
+  const f = fixture();
+  try {
+    const path = addSkill(f.root, "temporary-skill");
+    f.loadedSkills.push({
+      name: "temporary-skill",
+      description: "CLI-only skill",
+      source: "skill",
+      sourceInfo: { path, scope: "temporary" },
+    });
+    await withAgentDir(f.agentDir, async () => {
+      await f.commands
+        .get("skills")!
+        .handler(
+          "",
+          guardedContext(f.project, ["Save personal defaults (all projects)", "Done"]).context,
+        );
+      const personal = JSON.parse(readFileSync(join(f.agentDir, "settings.json"), "utf8"));
+      assert.deepEqual(personal.subagents.skills, []);
+      const inspected = guardedContext(f.project);
+      await f.commands.get("skills")!.handler("inspect temporary-skill", inspected.context);
+      assert(inspected.notifications.some((message) => message.includes("temporary-skill")));
+      assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+    });
+  } finally {
+    f.dispose();
+  }
+});

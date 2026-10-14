@@ -1,0 +1,34 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  packages:
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm run check
+      - run: npm run check:boundary
+      - run: npm run check:docs
+      - run: npm test
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        if: runner.os == 'Linux'
+      - run: npm run test:linux --workspace=pi-security
+        if: runner.os == 'Linux'
+      - run: npm run test:packages
+      - run: npm run test:e2e
+        if: runner.os == 'macOS'

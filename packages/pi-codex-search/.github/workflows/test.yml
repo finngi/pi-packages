@@ -1,0 +1,23 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Isolate configuration
+        run: |
+          fixture_home=$(mktemp -d)
+          mkdir -p "$fixture_home/agent" "$fixture_home/.config"
+          echo "HOME=$fixture_home" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$fixture_home/.config" >> "$GITHUB_ENV"
+          echo "PI_CODING_AGENT_DIR=$fixture_home/agent" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_GLOBAL=/dev/null" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_SYSTEM=/dev/null" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck

@@ -1,0 +1,9 @@
+{
+  "files": [
+    "extensions/context.ts",
+    "lib/local-context.ts",
+    "lib/frontmatter.ts",
+    "lib/local-ignore.ts"
+  ],
+  "extends": "../../tsconfig.base.json"
+}

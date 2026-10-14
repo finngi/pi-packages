@@ -1,0 +1,4 @@
+{
+  "files": ["extensions/subagent.ts"],
+  "extends": "../../tsconfig.base.json"
+}

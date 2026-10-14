@@ -1,0 +1,54 @@
+{
+  "name": "pi-goal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/goal.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "@earendil-works/pi-ai": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/**/*.test.ts'",
+    "test:standalone": "node --test lib/evaluator-stock.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-goal"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/extensions/goal.d.ts",
+      "default": "./dist/extensions/goal.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "pi-runtime": "0.1.0",
+    "pi-contracts": "0.1.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-goal"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Explicit goals, independent evaluation and continuation for Pi"
+}

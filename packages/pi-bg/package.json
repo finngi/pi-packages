@@ -1,0 +1,54 @@
+{
+  "name": "pi-bg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/background-process.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/**/*.test.ts' 'extensions/*.test.ts'",
+    "test:e2e": "node stock-check.mjs",
+    "test:standalone": "node stock-check.mjs --standalone",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-bg"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/extensions/background-process.d.ts",
+      "default": "./dist/extensions/background-process.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "pi-contracts": "0.1.0",
+    "pi-runtime": "0.1.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "directory": "packages/pi-bg"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi2/pi-packages/issues"
+  },
+  "description": "Session-owned background processes for Pi"
+}

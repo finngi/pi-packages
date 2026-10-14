@@ -1,0 +1,4 @@
+{
+  "files": ["extensions/goal.ts"],
+  "extends": "../../tsconfig.base.json"
+}
