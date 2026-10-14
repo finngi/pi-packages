@@ -69,8 +69,8 @@ test(
       tempIsolation: { base: root, own, launchDir },
       policy: { resources: { network: [] }, env: { path: ["/usr/local/bin", "/usr/bin", "/bin"] } },
     };
-    const run = (command, className = "read-only") => {
-      const prepared = wrapShell(command, className, loaded);
+    const run = (command) => {
+      const prepared = wrapShell(command, { write: false, network: [] }, loaded);
       return spawnSync(prepared.sandboxArgv[0], prepared.sandboxArgv.slice(1), {
         cwd: project,
         env: prepared.env,
@@ -175,7 +175,7 @@ test(
       task: "local executor conformance, no model request",
       tools: ["read", "write", "bash"],
       skills: [],
-      limits: { write: false, network: false },
+      permissions: { write: false, network: false },
     });
     const child = await loadChildLaunch({ env: launch.env, loadPolicy });
     assert.deepEqual(child.resources.tools, ["read", "write", "bash"]);
