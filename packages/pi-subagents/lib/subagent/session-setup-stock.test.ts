@@ -380,7 +380,7 @@ test(
       assert.equal(receipt.effectivePreviews[0].id, "worker");
       assert.equal(receipt.effectivePreviews[0].locked, false);
       assert.ok(receipt.effectivePreviews[0].tools.includes("read"));
-      assert.match(receipt.effects.children, /current parent-run snapshot/);
+      assert.match(receipt.effects.children, /last parent prompt until the parent runs again/);
       assert.ok(
         receipt.candidates
           .filter(

@@ -17,7 +17,7 @@ npm test
 | --- | --- | --- |
 | Combined macOS stack | `npm run test:e2e` | Context, search/security adapter, all-extension RPC integration, security integration, packed consumers |
 | Delegation/accounting without security | `npm run test --workspace=pi-subagents` | Real Pi 1.2.0 parent/child with scripted provider, scratch/project, messages, selected tools, usage, results |
-| Packed consumers | `npm run test:packages` | Builds/installs all nine tarballs in a fresh directory; checks manifests, licenses, emitted entrypoints, and compiled file helper |
+| Packed consumers | `npm run test:packages` | Builds and installs all ten tarballs in a fresh directory; checks manifests, licenses, emitted entrypoints, and compiled file helper |
 | Security resources/auth/search | `npm run test:resources --workspace=pi-security` | Protected child resources, auth adapters, classifiers, search capability |
 | Security host integration | `npm run test:i --workspace=pi-security` | Confined file/shell, protected ancestors, CLI/modes, ownership, offline Cargo/rustc |
 | Linux kernel executor | `npm run test:linux --workspace=pi-security` | Read-only bubblewrap confinement and writable-mode refusal; requires namespaces permitted by host/container |

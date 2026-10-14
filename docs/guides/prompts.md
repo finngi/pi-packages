@@ -12,7 +12,7 @@ For a focused Pi session, supply a system prompt and choose its tools:
 pi --system-prompt /absolute/path/lexical-search.md --tools read,bash
 ```
 
-A trusted project's `.pi/SYSTEM.md` can supply the prompt persistently. Pi 1.1.0 replaces its generic
+A trusted project's `.pi/SYSTEM.md` can supply the prompt persistently. Pi 1.2.0 replaces its generic
 preamble and omits its default textual tools, rules, and documentation sections when a custom prompt
 is supplied. Callable tools still carry their full schemas separately. Project instructions, selected
 skills, and extension sections can still be added; tool availability is a separate configuration.

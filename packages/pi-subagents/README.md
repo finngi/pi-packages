@@ -23,7 +23,7 @@ remove project settings. Selection does not reload Pi or stop children. Skills l
 resource-discovery hook and unselected `/skill:name` commands are refused. See
 [Browse project resources](../../docs/guides/delegation.md#browse-project-resources).
 
-Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-subagents` and `npm run typecheck --workspace=pi-subagents`. See [testing](../../docs/testing.md) for Pi 1.1.0 integration.
+Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-subagents` and `npm run typecheck --workspace=pi-subagents`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.
 
 Parents can select an authenticated worker with `subagent({agent: "general-purpose", task: "…", model: "openai-codex/gpt-6-luna:low"})` when the definition omits `model` or sets it to `inherit`. An explicit definition model is a user pin; conflicting requests fail before launch. Worker-model selection does not change the security classifier. See [configuration](../../docs/reference/configuration.md#agent-definitions) and [permission review](../../docs/guides/delegation.md#permission-review-in-child-sessions).
 

@@ -13,7 +13,7 @@ The development baseline is **Node 24 and Pi 1.2.0**. Use the Git checkout or bu
 - [Get started](docs/getting-started.md): build the checkout and launch a session.
 - [Documentation](docs/index.md): task guides, architecture, and technical reference.
 - [Package reference](docs/reference/packages.md): choose extensions and understand their dependencies.
-- [Thin-slice decisions](docs/decisions/native-thin-slices.md): independent capabilities, native resource discovery and the small opt-in permission gate.
+- [Independent packages](docs/decisions/native-thin-slices.md): independent capabilities, native resource discovery and the small opt-in permission gate.
 - [Contributing checks](docs/testing.md): test source, subprocess integration, and packed consumers.
 
 ```sh

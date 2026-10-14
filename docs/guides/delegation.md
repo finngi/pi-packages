@@ -208,7 +208,7 @@ The store is under the parent agent directory's `subagent-results/<session-id>/`
 
 After closing a project child, `directory` references the parent project and `owned` is false, `scope` is `project-reference`, and `files` is empty; inspect project changes directly. `discard: true` deletes an owned collected copy; it never deletes or rolls back direct project edits. Re-read needed retained files using the returned directory, because the original scratch path no longer exists after successful cleanup.
 
-Implementation and checks: [agent discovery](../../packages/pi-subagents/lib/subagent/agents.ts), [launcher](../../packages/pi-subagents/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.1.0 security-off integration](../../packages/pi-subagents/lib/subagent/unrestricted-stock.test.ts), and [live message delivery](../../packages/pi-subagents/lib/subagent/live-delivery-stock.test.ts).
+Implementation and checks: [agent discovery](../../packages/pi-subagents/lib/subagent/agents.ts), [launcher](../../packages/pi-subagents/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.2.0 security-off integration](../../packages/pi-subagents/lib/subagent/unrestricted-stock.test.ts), and [live message delivery](../../packages/pi-subagents/lib/subagent/live-delivery-stock.test.ts).
 
 ## Permission review in child sessions
 

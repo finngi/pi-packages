@@ -15,9 +15,9 @@ Trusted host configuration selects the extension set and policy. Agent metadata 
 | `--auto-mode-model` | Authenticated classifier ID | Overrides configured classifier selection |
 | `--security-codemode` | Explicit opt-in | Activates the owned Pi `builtin:codemode`; requires its entrypoint and preserves the unconfined `models.*` boundary. |
 | `--security-mcp` | Explicit opt-in | Enables the security-composed HTTP(S) MCP configuration. |
-| `--no-builtin-tools` | Pi 1.1.0 CLI option | Suppresses built-in tools by default; security registers replacement effect tools |
-| `--exclude-tools powershell` | Pi 1.1.0 CLI option | Excludes unsupported unconfined PowerShell; security also blocks its execution |
-| `--no-extensions` | Pi 1.1.0 CLI option | Disables discovery and built-in extensions; explicit `-e` paths still load |
+| `--no-builtin-tools` | Pi 1.2.0 CLI option | Suppresses built-in tools by default; security registers replacement effect tools |
+| `--exclude-tools powershell` | Pi 1.2.0 CLI option | Excludes unsupported unconfined PowerShell; security also blocks its execution |
+| `--no-extensions` | Pi 1.2.0 CLI option | Disables discovery and built-in extensions; explicit `-e` paths still load |
 
 Children launched without security have host permissions. The workspace selector defaults to scratch; project mode is allowed only when security is disabled. See [workspace semantics](../architecture.md#workspaces-and-private-configuration).
 
@@ -138,4 +138,4 @@ worker messages and tool results. Edit or resume starts a new scoped history. Se
 
 Policy files use `version: 2`, approval mode, resources, classifier settings, optional environment settings, and ordered deny/allow action rules. Each rule requires `tool`; `match` and diagnostic `id` are optional. Write and network permissions are independent; modes choose the approver without changing authority. Runtime validation is authoritative; TypeScript types alone do not admit effects. Use [host-policy.json](../../packages/pi-security/src/host-policy.json), [policy validation](../../packages/pi-security/src/policy.ts), and [types](../../packages/pi-security/src/types.ts) for exact keys. The [policy reference](security-policy.md) describes policy fields and enforcement; current source validation controls supported behavior.
 
-An SDK host must select peers, extensions, tools, trusted policy, and resource-loader options explicitly. Align its process working directory with its session working directory before loading security tool factories. Policy initializes with `ctx.cwd`, while effect-tool factories capture `process.cwd()`; inconsistent directories can resolve relative tools differently. See [SDK embedding](../guides/distribution.md#embed-with-the-pi-110-sdk).
+An SDK host must select peers, extensions, tools, trusted policy, and resource-loader options explicitly. Align its process working directory with its session working directory before loading security tool factories. Policy initializes with `ctx.cwd`, while effect-tool factories capture `process.cwd()`; inconsistent directories can resolve relative tools differently. See [SDK embedding](../guides/distribution.md#embed-with-the-pi-120-sdk).

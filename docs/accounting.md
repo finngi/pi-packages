@@ -33,7 +33,7 @@ immediately too. Add only the pending receipts: native totals already include re
 tool results. Both the ledger and forwarded IDs replay from persisted entries on resume. There is
 no separate extension-usage status line.
 
-Pi 1.1.0 exposes no standalone usage-append API to extensions; accounting does not fabricate a tool
+Pi 1.2.0 exposes no standalone usage-append API to extensions; accounting does not fabricate a tool
 result to force an update. Input, output, cache-read and cache-write remain separate categories.
 Reasoning is a subset of output and is not counted again. Costs are provider/catalog estimates,
 not invoices or an extra subscription charge. Missing receipts make the displayed amount a known
@@ -46,4 +46,4 @@ The goal budget counts parent-provider usage for main-model requests dispatched 
 - [Ledger validation and deduplication](../packages/pi-runtime/src/usage.ts) and [usage tests](../packages/pi-runtime/test/usage.test.ts).
 - [Accounting installation, replay, and forwarding](../packages/pi-runtime/src/accounting.ts).
 - [Child RPC reconciliation](../packages/pi-subagents/lib/subagent/rpc-dialogue.ts) and [dialogue tests](../packages/pi-subagents/lib/subagent/rpc-dialogue.test.ts).
-- [Pi 1.1.0 parent/child integration](../packages/pi-subagents/lib/subagent/unrestricted-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.
+- [Pi 1.2.0 parent/child integration](../packages/pi-subagents/lib/subagent/unrestricted-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.

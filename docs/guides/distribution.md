@@ -18,7 +18,10 @@ Pi 1.2.0 accepts a Git package source with an extension filter in its package se
 }
 ```
 
-Replace `<reviewed-commit>` with the revision you intend to run. The root manifest declares six extension entrypoints and the optional Pi-help skill. Package resource filters can select its skills independently of extensions. Selecting all of them also selects security, so prepare policy and tool activation deliberately rather than treating package discovery as a security configuration.
+Replace `<reviewed-commit>` with the revision you intend to run. The root manifest declares six
+extension entrypoints, including the sandbox, plus the optional
+`pi-help` skill. Filters can select skills independently of extensions. Follow the
+[security launch instructions](security.md) before enabling all six extensions.
 
 ## Build local tarballs
 

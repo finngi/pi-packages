@@ -52,8 +52,8 @@ Native `pi -e /absolute/package/path` loads that package for one invocation with
 default. Repeat `-e` for additional packages. Local dependencies are the author's responsibility;
 run `npm ci --ignore-scripts` and `npm run build` in the public checkout first.
 
-For the current machine, avoid the managed `pi` wrapper's old injected extensions. From the
-public checkout, the pinned stock CLI can start a minimal candidate directly:
+To try these packages without automatically loading other extensions, run the pinned CLI
+from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \

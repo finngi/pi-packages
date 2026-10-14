@@ -8,7 +8,7 @@ code, native Pi, the standard library and installed dependencies, in that order.
 is still missing. Finish the affected callers, fixtures and documentation; fewer lines do not
 justify a partial implementation. Avoid speculative package scaffolding and empty resource folders.
 
-- Start with a complete thin slice. Keep only the code needed for a real workflow.
+- Finish one usable workflow at a time.
 - Give each capability an explicit entrypoint and declared dependencies. Importing a library
   must not activate another extension, create a process or change permissions.
 - Keep executable extensions, resource content and personal preferences distinct. Package paths
@@ -29,6 +29,5 @@ These principles apply to the public packages and to personal packages developed
 This file is included in the public repository so independent contributors do not need a private
 parent workspace to understand them.
 
-Package maturity is explicit: these are experimental development packages, not published releases.
-Keep source manifests private until release is separately authorised. A local check is not a
-claim of production readiness, and a library dependency must not activate an extension.
+These packages are experimental and unreleased. Keep `"private": true` in source package
+manifests until a release is authorised. Local checks do not establish production readiness.
