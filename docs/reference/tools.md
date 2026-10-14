@@ -28,7 +28,9 @@ infer a requested destination from `path` and need no extra path parameter. See
 ### Session setup
 
 `session_setup` lets the parent choose registered resources for a task without writing project or
-user settings. It requires `pi-subagents`; package and instruction selection also require `pi-local-context`.
+user settings. Either `pi-local-context` or `pi-subagents` provides it. Available selections depend
+on the loaded contributors: `pi-local-context` supplies instructions; `pi-subagents` supplies
+agents, skills and package groups. Loading one does not activate the other.
 It searches trusted metadata using the same BM25 search as the resource picker. Skill bodies and
 agent-owned skills/scripts are not returned by this search.
 Manual-only skills are labelled; selecting one does not add its description to the native model

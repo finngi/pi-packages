@@ -178,7 +178,8 @@ test(
       permissions: { write: false, network: false },
     });
     const child = await loadChildLaunch({ env: launch.env, loadPolicy });
-    assert.deepEqual(child.resources.tools, ["read", "write", "bash"]);
+    // Linux writable execution is unavailable, so child discovery omits the write tool.
+    assert.deepEqual(child.resources.tools, ["read", "bash"]);
     const sample = path.join(launch.cwd, "sample.txt");
     await writeFile(sample, "child can read this");
     const prepared = wrapShell(`cat '${sample}'`, { write: false, network: [] }, child);
