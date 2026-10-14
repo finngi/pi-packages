@@ -25,6 +25,10 @@ npm test
 | Search capability adapter | `npm run test:e2e --workspace=pi-codex-search` | Actual security extension, synthetic OAuth, scripted HTTP; monorepo sibling path resolves automatically |
 
 CI installs `ripgrep` and `fd` (`fd-find` on Ubuntu) before running the suites.
+The Ubuntu 24.04 CI VM loads an executable-specific AppArmor user-namespace profile for
+`/usr/bin/bwrap`, following [Ubuntu’s per-application approach](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces).
+It does not disable the host-wide restriction. A real network-namespace launch is checked before tests.
+This is CI runner preparation, not a change to installed Pi or its sandbox policy.
 Seatbelt kernel tests run only on macOS; Linux has a separate read-only bubblewrap kernel suite.
 Packed resource and stock-Pi checks run on both systems; the packed writable Seatbelt check runs on macOS.
 
