@@ -49,10 +49,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
     "directory": "packages/pi-local-context"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   }
 }

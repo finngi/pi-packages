@@ -11,7 +11,7 @@ test("stock package loader accepts host SDK peer metadata without duplicate-runt
   try {
     const agent = join(root, "agent"),
       cwd = join(root, "project"),
-      cache = join(agent, "git/github.com/finngi2/pi-packages");
+      cache = join(agent, "git/github.com/finngi/pi-packages");
     await Promise.all([mkdir(dirname(cache), { recursive: true }), mkdir(cwd)]);
     const packageRoot = fileURLToPath(new URL("../../../..", import.meta.url));
     await symlink(packageRoot, cache);
@@ -25,7 +25,7 @@ test("stock package loader accepts host SDK peer metadata without duplicate-runt
     delete process.env.PI_POLICY_LAUNCH;
     delete process.env.PI_SUBAGENT;
     const sdk = await import("@earendil-works/pi-coding-agent");
-    const source = "git:https://github.com/finngi2/pi-packages@fixture";
+    const source = "git:https://github.com/finngi/pi-packages@fixture";
     const settings = sdk.SettingsManager.inMemory({ packages: [source] });
     const loader = new sdk.DefaultResourceLoader({
       cwd,

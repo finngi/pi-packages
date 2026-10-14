@@ -21,11 +21,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
     "directory": "packages/pi-resource-browser"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   },
   "description": "Shared searchable resource picker for Pi extensions",
   "publishConfig": {

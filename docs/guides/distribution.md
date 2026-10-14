@@ -10,7 +10,7 @@ Pi 1.2.0 accepts a Git package source with an extension filter in its package se
 
 ```json
 {
-  "source": "git:https://github.com/finngi2/pi-packages@<reviewed-commit>",
+  "source": "git:https://github.com/finngi/pi-packages@<reviewed-commit>",
   "extensions": [
     "packages/pi-bg/extensions/background-process.ts",
     "packages/pi-subagents/extensions/subagent.ts"
