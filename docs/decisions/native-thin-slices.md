@@ -2,55 +2,56 @@
 
 ## Decision
 
-Use stock Pi plus independently loadable packages. Remove the full OS sandbox, secured launcher,
-credential snapshots, parallel skill catalogue loader and old-format settings readers. Retain the
-small optional permission gate without any sandbox dependency.
+Use stock Pi plus packages that each load on their own. Remove the OS sandbox, the custom launcher,
+copied credentials, the second skill loader and readers for old settings formats. Keep a small
+optional permission package with no sandbox.
 
-The old design made agent launches, simple Bash and search depend on policy/resource transport
-machinery. The thin package experiment still imported that machinery and duplicated native
-resource/authentication behaviour. Renaming it did not remove those dependencies.
+Before this, launching an agent, running plain Bash and searching all depended on the sandbox's
+policy and transport code. An earlier attempt at thin packages still imported that code and
+repeated Pi's own resource and login handling. Renaming it did not remove the dependency.
 
-## Retained code and reason
+## What stayed, and why
 
-| Code | Why it remains |
+| Code | Why |
 |---|---|
-| `pi.agents` / `pi.instructions` metadata | Pi has no native types for these resources |
-| Child RPC adapter and message broker | Named child workflows and correlated dialogue are additional behaviour |
-| Selected tool/skill/model setup | A child needs an explicit launch configuration, including private skills |
-| Shared process manager | Background output, cancellation and session-owned cleanup |
-| Session selection records | Choices must survive resume without rewriting saved defaults |
-| Goal state machine and evaluator | Objective, budgets, waits and continuation are additional behaviour |
-| Usage receipts | Child/classifier/evaluator calls otherwise disappear from parent totals |
-| Artifact collection | Scratch files must survive child cleanup |
-| Optional gate | Deny/allow and automatic approval are useful without OS confinement |
+| `pi.agents` and `pi.instructions` reader | Pi has no resource types for these |
+| Child RPC adapter and message broker | Named child sessions and matched answers are new behaviour |
+| Child tool, skill and model setup | A child needs an explicit setup, including private skills |
+| Shared process manager | Background output, cancellation and cleanup per session |
+| Session selection records | Choices must survive resume without changing saved defaults |
+| Goal state machine and evaluator | Objectives, budgets, waits and continuation are new behaviour |
+| Usage records | Otherwise child, classifier and evaluator calls are missing from totals |
+| File collection | Scratch files must outlive the child |
+| Optional permission package | Deny and allow rules and automatic approval are useful without a sandbox |
 
-Native package resolution governs discovery; excluded skills are never reconstructed by another
-loader. Native authentication governs each process; selected model metadata can cross the RPC
-boundary, executable provider callbacks require a trusted extension source. There is one launcher.
+Pi's package resolution decides what is found, and no other loader brings back excluded skills.
+Each process logs in through Pi. Model settings can cross the RPC boundary, but provider callbacks
+need an extension the child can load. There is one launcher.
 
-The permission extension contributes its own child initialization through a small trusted launch
-event. This lets a hook-only package accompany delegated work without teaching delegation an OS
-sandbox. Genuine root-user messages remain separate from the worker-authored child task.
+The permission package adds its own start-up data to children through a small launch event, so
+delegation needs no knowledge of permissions. Your messages are passed separately from the task the
+parent agent writes.
 
-Personal code lives in ordinary private packages. Core-class UI patches are removed; supported
-native header/footer/tool rendering replaces them. Exact private viewport behaviour is not a
-reason to retain another harness loader.
+Personal code lives in ordinary private packages. Patches to Pi's core UI classes are gone; Pi's
+header, footer and tool rendering APIs replace them. Matching an old private layout exactly is not
+a reason to keep another loader.
 
-## Alternatives rejected
+## Rejected
 
-- Retaining the old sandbox as a library: imports still carry its dependency graph and policy types.
-- A second package registry: duplicates native installation, filtering and identity.
-- Serialized resolved login credentials: duplicates native refresh/locking and restricts providers.
-- Runtime compatibility readers: keep old semantics alive indefinitely. Convert saved configuration
-  once during local migration, preserve transcripts/artifacts, then use one current representation.
+- Keeping the sandbox as a library: importing it still pulls in its dependencies and policy types.
+- A second package registry: repeats Pi's installation, filtering and identity.
+- Passing resolved login credentials to children: repeats Pi's refresh and locking and limits
+  which providers work.
+- Readers for old settings: they keep old behaviour alive forever. Convert saved settings once
+  during local migration, keep transcripts and files, then use one format.
 
 ## Verification
 
-Check each package on stock Pi, then pack/install into a fresh consumer. Exercise child tools,
-private skills, model choice, permissions, accounting, goals and session resume. Local activation
-must use the same agent directory and verify that no legacy package or loader remains active.
-No npm publication is part of this migration.
+Test each package on stock Pi, then pack it and install it in a fresh project. Exercise child
+tools, private skills, model choice, permissions, accounting, goals and resume. Local activation
+must use the same agent directory and confirm no old package or loader is still active. Publishing
+to npm was not part of this change.
 
 See [package design](../package-design.md), [testing](../testing.md),
-[permissions](../../packages/pi-permissions/README.md) and the
-[upstream package contract](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md).
+[permissions](../../packages/pi-permissions/README.md) and Pi's
+[package docs](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md).

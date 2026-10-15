@@ -1,40 +1,44 @@
-# Package reference
+# Packages
 
-Ten workspaces share one lockfile: seven extensions and three libraries. Each extension can load
-independently on stock Pi 1.2.0. Packages are experimental and have not been published to npm.
+Ten workspaces share one lockfile: seven extensions and three libraries. Each extension loads on
+its own on stock Pi 1.2.0. The packages are experimental and not published to npm.
 
-| Package | Purpose | Optional integration |
+| Package | What it does | Works with |
 |---|---|---|
-| `pi-delegation` | Agent definitions, child bootstrap/resources, messages and artifacts | Background transport; permission launch contribution |
-| `pi-resources` | `/skills`, `/packages`; library APIs for discovery and selection | Context/delegation contribute instructions/agents |
-| `pi-context` | Selected behavior instructions and `AGENTS.local.md` overlays | Shared session setup |
-| `pi-background` | Managed Bash jobs, output and cancellation | Goal wait delivery |
-| `pi-goal` | Goals, separate evaluation, deadlines, budgets and continuation | Agent/job waits |
-| `pi-codex-search` | Search using Pi's native Codex authentication | Selected native tool in children |
-| `pi-permissions` | Tool-call approval by rule, by asking you, or by a classifier model | Passes settings to child agents |
-| `pi-contracts` | Shared interfaces and event constants | Library only |
-| `pi-runtime` | Shared process lifecycle, accounting, IDs, timers and provider helpers | Library only |
-| `pi-resource-browser` | Searchable native TUI resource browser | Library only |
+| `pi-delegation` | Agents, child start-up and resources, messages and collected files | Uses background jobs if loaded; receives permission settings for children |
+| `pi-resources` | `/skills` and `/packages`, plus library APIs for discovery and selection | Context and delegation add instructions and agents |
+| `pi-context` | Selected instructions and `AGENTS.local.md` files | Shared session setup |
+| `pi-background` | Background Bash jobs, output and cancellation | `/background` ends goal waits |
+| `pi-goal` | Goals, separate evaluation, deadlines, budgets and continuation | Waits on child answers |
+| `pi-codex-search` | Web search using Pi's Codex login | Can be passed to children |
+| `pi-permissions` | Checks tool calls by rule, by asking you, or with a classifier | Passes its settings to children |
+| `pi-contracts` | Shared interfaces and event names | Library only |
+| `pi-runtime` | Shared processes, accounting, IDs, timers and provider helpers | Library only |
+| `pi-resource-browser` | Searchable TUI resource picker | Library only |
 
-Extension entrypoints are declared by each `package.json.pi.extensions`. Shared libraries are
-ordinary npm dependencies and do not activate sibling extensions.
+Each extension's entrypoints are listed in its `package.json` `pi.extensions`. Libraries are
+ordinary npm dependencies and never load other extensions.
 
-The tested baseline is Node 24, Pi coding-agent/AI/TUI/MCP 1.2.0, TypeScript 5.9.3 and Biome 2.3.5.
-Host Pi modules are peers with `*` ranges; this does not promise compatibility with every release.
-Manifests and the root lockfile are the version source of truth. Run the installed-package checks
-when changing entrypoints or dependencies.
+## Who owns what
 
-`pi-codex-search` derives from Leechael/pi-codex-search v0.1.6 baseline
-`14e24ce6b593b865576d816cea0d1fc78aab3daa`; its upstream MIT notice is retained.
+`pi-runtime` depends only on `pi-contracts`, so jobs, goals and permissions never pull in resource
+selection or the browser through it. Child start-up and collected files live in delegation.
+Resource discovery, saving and session selection live in `pi-resources` library subpaths, separate
+from its extension. `pi-resource-browser` provides the shared search and TUI picker.
 
-## Ownership and installation
+Each local extension tarball bundles the unpublished workspace packages it depends on, using npm's
+`bundleDependencies`. Install one extension tarball next to stock Pi; no other extension needs
+installing or registering, and only that extension's entrypoint loads. Tests install each one in
+its own fresh project and exercise what it actually does.
 
-`pi-runtime` depends only on `pi-contracts`; jobs, goals and permissions do not acquire resource
-selection or the browser through it. Child setup and artifacts live in delegation. Resource
-discovery, persistence and session selection live in `pi-resources` library subpaths, separate
-from its extension entrypoint. `pi-resource-browser` supplies shared search/TUI rendering.
+## Versions
 
-Local extension tarballs bundle their declared unpublished workspace dependencies with npm's
-`bundleDependencies`. Install one extension artifact alongside the stock Pi host; no sibling
-extension registration is required. Only the chosen native entrypoint activates. Installed
-proof uses a separate fresh consumer per extension and exercises its actual behavior.
+Tested with Node 24, Pi coding-agent, AI, TUI and MCP 1.2.0, TypeScript 5.9.3 and Biome 2.3.5. Pi
+modules are peer dependencies with `*` ranges, which does not promise every Pi release works. The
+manifests and root lockfile hold the exact versions. Run the installed-package checks when you
+change entrypoints or dependencies.
+
+## Provenance
+
+`pi-codex-search` is based on Leechael/pi-codex-search v0.1.6, commit
+`14e24ce6b593b865576d816cea0d1fc78aab3daa`, and keeps its MIT notice.

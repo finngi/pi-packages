@@ -1,19 +1,36 @@
 # pi-codex-search
 
-Codex Responses web search for Pi using OAuth resolved at runtime through Pi's model registry. The tool returns provider answer text, actual URL citations, search calls, usage, and partial failures. It exposes search queries only, through a fixed backend protocol.
+Web search for Pi through the Codex Responses API, using the OpenAI Codex login Pi already has.
+Loading the package registers `codex_search`. It returns the provider's answer, the URLs it cited,
+its search calls, usage and any partial failures. It only sends search queries, to one fixed
+backend.
 
-Reported search tokens enter Pi’s normal totals through native tool-result usage, including
-nested calls. Model-catalogue prices supply estimates; missing receipts or prices produce explicit
-accounting warnings in results and `/costs` when the shared accounting extension is loaded.
-Costs remain estimates and do not establish a separate subscription charge.
+The login is looked up through Pi's model registry each time the tool runs. Requests stay on the
+fixed Codex backend. Redirects, cancellation, invalid logins and malformed replies end in short,
+clear errors. Load `pi-permissions` if you want calls checked first.
 
-Search resolves credentials directly through Pi's native model registry and follows native tool-call admission. Load the optional `pi-permissions` package to gate visible calls. HTTP requests stay at the fixed Codex backend origin; redirects, cancellation, invalid OAuth and malformed responses fail with bounded errors.
+Search usage is added to Pi's normal totals through the tool result, including when search runs
+inside another tool. Prices come from the model catalogue. Missing usage or prices show a warning
+in the result and in `/costs`, when shared accounting is loaded. Costs are estimates, not a separate
+subscription charge.
 
-Loading this package registers `codex_search`. `pi-delegation` children inherit it
-when selected in the parent and allowed by their agent tool list. They use the same native Codex
-authentication backing, independently of the worker model provider.
+Children of `pi-delegation` get `codex_search` when the parent has it selected and the agent's tool
+list allows it. They use the same Codex login, whatever model the child runs.
 
-- [Search parameters, outputs, and bounds](../../docs/reference/tools.md#search-tool).
-- [Upstream baseline and licence](../../docs/reference/packages.md#distribution-and-provenance); retained [MIT text](LICENSE.pi-codex-search).
+- [Parameters, results and limits](../../docs/reference/tools.md#search-tool)
+- [Upstream source and licence](../../docs/reference/packages.md#provenance), with the original
+  [MIT text](LICENSE.pi-codex-search)
 
-Source entrypoint: [extensions/search.ts](extensions/search.ts). From the repository root, run `npm run test --workspace=pi-codex-search`, `npm run typecheck --workspace=pi-codex-search`, and `npm run test:e2e --workspace=pi-codex-search`. The native SDK tests use synthetic OAuth and scripted HTTP, exercise direct and nested admission and accounting, and make no live search/model request. See [testing](../../docs/testing.md).
+## Tests
+
+From the repository root:
+
+```sh
+npm run test --workspace=pi-codex-search
+npm run typecheck --workspace=pi-codex-search
+npm run test:e2e --workspace=pi-codex-search
+```
+
+The SDK tests use a fake login and scripted HTTP. They cover direct and nested calls, permission
+checks and accounting, and make no real search or model requests. Entrypoint:
+[extensions/search.ts](extensions/search.ts). See [testing](../../docs/testing.md).

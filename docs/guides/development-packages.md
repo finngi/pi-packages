@@ -1,7 +1,7 @@
 # Development packages
 
-Experimental source packages, not published releases or a supported harness. Use Node 24 and
-the pinned stock Pi 1.2.0 checks. Source hosting, tests and live activation are separate steps.
+These are experimental source packages, not releases. Use Node 24 and the pinned Pi 1.2.0. Hosting
+the source, testing it and switching your own Pi over to it are separate steps.
 
 ## Layout
 
@@ -10,82 +10,72 @@ pi-packages/                  public repository
   AGENTS.md                  principles and contributor guidance
   .pi/skills/                package development and review skills
   package.json               development workspace
-  packages/<name>/            manifest, README, implementation and tests
+  packages/<name>/           manifest, README, code and tests
   docs/                      guides and decisions
-  scripts/                   existing build, pack and validation commands
-  tests/                     installed-package integration checks
+  scripts/                   build, pack and check commands
+  tests/                     installed-package checks
 ```
 
-Use native `extensions/`, `skills/`, `prompts/` and `themes/` folders when needed, or declare
-explicit paths in `package.json`. Keep the existing library `src/` layouts. Add no empty folders,
-package scaffolding or second loader. Agent bundles and their scripts stay together; our two
-capability extensions additionally recognise `pi.agents` and `pi.instructions` directories.
-See [the manifest example and boundaries](../decisions/native-thin-slices.md#resource-location-and-cross-extension-behaviour).
+Use Pi's `extensions/`, `skills/`, `prompts/` and `themes/` folders where you need them, or list
+paths in `package.json`. Libraries keep their `src/` layout. Do not add empty folders, scaffolding
+or a second loader. Keep agent bundles and their scripts together. Two extensions also read
+`pi.agents` and `pi.instructions` directories. See
+[the manifest example](../decisions/thin-slice-resources.md#decision).
 
-The private repository keeps `packages/personal-interactive` and `packages/personal-extensions`.
-Credentials, sessions and machine preferences stay in Pi's native user configuration, outside
-both source repositories. Each source package currently remains `private: true`; no release
-workflow is needed during this experimental stage.
+A separate private repository holds `packages/personal-interactive` and
+`packages/personal-extensions`. Credentials, sessions and machine preferences live in Pi's user
+configuration, outside both repositories. Every package is `private: true`, and there is no
+release workflow at this stage.
 
-## Interactive choices
+## Which packages to load
 
-| Needed behaviour | Load |
+| You want | Load |
 | --- | --- |
-| Stock interactive Pi | Nothing extra |
-| Selected instructions, `/instructions` and instruction session setup | `pi-context` |
+| Plain interactive Pi | Nothing extra |
+| Selected instructions and `/instructions` | `pi-context` |
 | Child agents and `/agents` | `pi-delegation` |
 | `/skills`, `/packages` and session skill filtering | `pi-resources` |
-| Personal tool presentation and available themes | Private `personal-interactive` |
-| Model-facing timestamps, including print/RPC | Private `personal-extensions`; enable `modelTime` separately |
+| Personal tool rendering and themes | Private `personal-interactive` |
+| Timestamps in model context, including print and RPC | Private `personal-extensions`, with `modelTime` enabled |
 
-For our resource-selection workflow, load **`pi-resources`**, adding `pi-context` for instructions
-and `pi-delegation` for child agents. Each works independently.
-Libraries (`pi-runtime`, `pi-contracts`, `pi-resource-browser`) resolve through dependencies;
-do not select them as extensions. `pi-background`, `pi-goal` and `pi-codex-search` are optional features.
-Agents do not require `pi-background`. `pi-permissions` is optional and reviews tool calls without
-OS confinement. All capabilities load through their native package manifests.
+For choosing resources, load `pi-resources`, plus `pi-context` for instructions and
+`pi-delegation` for agents. Each works on its own. `pi-runtime`, `pi-contracts` and
+`pi-resource-browser` are libraries pulled in as dependencies; do not load them as extensions.
+`pi-background`, `pi-goal`, `pi-codex-search` and `pi-permissions` are optional. Agents do not
+need `pi-background`. `pi-permissions` checks calls but does not sandbox them.
 
-## Local paths, without publishing
+## Try local packages
 
-Native `pi -e /absolute/package/path` loads that package for one invocation without saving a
-default. Repeat `-e` for additional packages. Local dependencies are the author's responsibility;
-run `npm ci --ignore-scripts` and `npm run build` in the public checkout first.
+`pi -e /absolute/package/path` loads a package for one run without saving anything. Repeat `-e`
+for more packages. You handle the package's dependencies: run `npm ci --ignore-scripts` and
+`npm run build` in the checkout first.
 
-To try these packages without automatically loading other extensions, run the pinned CLI
-from the repository root:
+To try packages without other extensions, run the pinned CLI from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \
   -e ./packages/pi-resources -e ./packages/pi-context -e ./packages/pi-delegation
 ```
 
-`--no-extensions` excludes automatically discovered and built-in extensions; explicit `-e`
-entries still load. Native authentication and project context continue to apply. Existing
-processes and saved package settings are unchanged.
+`--no-extensions` skips discovered and built-in extensions; `-e` entries still load. Your login and
+project context still apply. Running processes and saved settings are not touched.
 
-For future sessions, native `pi install /absolute/package/path` saves personal defaults;
-`pi install --local /absolute/package/path` saves a trusted project's defaults.
+Packages that contain only agents or instructions work with `-e` too, from any directory, with no
+saved registration, placeholder extension or extra profile.
 
-## Inside an open session
+To keep a package for future sessions, use `pi install /absolute/package/path` for personal
+settings or `pi install --local /absolute/package/path` for the current trusted project.
 
-`/packages` and `session_setup` select skills, agents and instructions already discovered by
-the session. They do not install packages, activate/unload executable extensions or change
-permissions. UI/theme-only packages do not appear as resource groups there; use `/theme` for
-loaded themes. Picker changes are session-only; Ctrl+S saves project defaults and Ctrl+Shift+S
-saves personal defaults. Resumed sessions retain recorded choices.
+## Inside a running session
 
-New executable packages need native installation/configuration and an idle `/reload` for
-ordinary changes. Runtime replacement with already-running children needs a controlled
-restart. Existing children keep their launched configuration.
+`/packages` and `session_setup` choose among skills, agents and instructions the session already
+found. They do not install packages, load or unload code, or change permissions. Packages with
+only UI or themes do not appear there; use `/theme` for themes. Picker changes last for the
+session. Ctrl+S saves project defaults and Ctrl+Shift+S saves personal defaults. These save
+selections, not package registrations. Resumed sessions keep their recorded choices.
 
-Configured and temporary `-e` packages containing only agents/instructions are discoverable.
-Pass each package explicitly with `-e` to try it from any directory without saved registrations.
-No fake extension, alternate profile or particular project directory is required.
+New code needs Pi's normal install or configuration, then an idle `/reload` or a new session.
+Replacing code while children run needs a planned restart. Running children keep their setup.
 
-`/packages` selects available guidance; it does not add package registrations. Ctrl+S saves
-resource-selection defaults, not executable loading. To register a source for future starts,
-use native `pi install SOURCE --local` for the current project or `pi install SOURCE` for personal
-settings. Ordinary extension changes need an idle `/reload` or a new session.
-
-See [session setup](../reference/tools.md#session-setup),
-[distribution](distribution.md) and [checks](../testing.md).
+See [session setup](../reference/tools.md#session-setup), [distribution](distribution.md) and
+[testing](../testing.md).

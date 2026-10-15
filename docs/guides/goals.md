@@ -1,26 +1,48 @@
-# Keep work on a goal
+# Goals
 
-Use `pi-goal` to keep Pi working toward one objective and its acceptance criteria. The working model
-performs the task. A separate goal evaluator checks the evidence when the working model stops,
-then the runtime decides whether to continue, complete the goal, or report a blocker.
+`pi-goal` keeps Pi working toward one objective until its criteria are met. The working model does
+the task. Each time it stops, a separate evaluator model checks the evidence. Then the extension
+continues, marks the goal complete or reports a blocker.
 
-## Start work
-
-Set a goal and the objective starts immediately:
+## Start a goal
 
 ```text
 /goal Build a CSV parser that passes the tests and has a usage README.
 ```
 
-The command records and authorizes the objective, then queues it as the working model's user message.
-`/goal start`, `/goal edit`, and `/goal resume` likewise queue the authorized objective so work
-starts or continues without a second prompt. `create_goal(...)` is different: it authorizes a goal
-within the current run and does not enqueue another user message.
+This saves the objective and sends it as your next message, so work starts at once.
+`/goal start`, `/goal edit` and `/goal resume` also send the objective, so you never need a second
+prompt. Prompt-template expansion is off for that message.
 
-## Limit a goal by time
+The model can also propose a goal with `create_goal(...)`. You confirm the exact objective first.
+That starts the goal within the current run without sending another message.
 
-Put `--for` before the objective to set a deadline. Relative durations start when the command runs;
-timestamps must include a timezone.
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `/goal <objective>` | Start or replace the goal and begin work on that exact objective |
+| `/goal` or `/goal status` | Show status, criteria, evaluator assessments and usage |
+| `/goal edit <objective>` | Replace the objective and clear earlier assessments; budget and usage stay |
+| `/goal pause` | Stop automatic work. A deadline keeps running |
+| `/goal resume` | Allow automatic work again, with a fresh evaluation history, and continue |
+| `/goal resume --for <duration-or-timestamp>` | Give an expired goal a new deadline and resume |
+| `/goal resume --no-deadline` | Remove an expired goal's deadline and resume |
+| `/goal clear` | Drop the goal |
+
+`start`, `edit`, `pause`, `resume`, `clear` and `status` are commands when they come first after
+`/goal`. If your objective starts with one of those words, use `/goal start <objective>`.
+
+When you type an objective, that text is the approval. A typed objective is the goal's single
+criterion. Custom criteria, from `create_goal`, are fixed when the goal is approved.
+
+Limits: up to 12 criteria. The objective and each criterion can be up to 12,000 characters, and
+together up to 24,000 characters and 4,096 tokens by Pi's estimate. This keeps the whole goal in
+the evaluator's view.
+
+## Set a deadline
+
+Put `--for` before the objective:
 
 ```text
 /goal start --for 2h Build the CSV parser and document it.
@@ -28,137 +50,115 @@ timestamps must include a timezone.
 /goal resume --for 30m
 ```
 
-`--for` accepts a positive duration such as `30m`, `2h`, or `1d`, or an RFC 3339 timestamp with an
-explicit timezone. Durations resolve once to an absolute timestamp, no more than 3,650 days away. A
-new goal without `--for` has no deadline. Editing or resuming without a deadline option preserves
-the current deadline. Use `/goal edit --no-deadline <objective>` to remove one, or
-`/goal resume --no-deadline` to reopen an expired goal without a deadline.
+`--for` takes a duration such as `30m`, `2h` or `1d`, or an RFC 3339 timestamp with a timezone. A
+duration is turned into a fixed time when you run the command, at most 3,650 days ahead. A new goal
+without `--for` has no deadline. Editing or resuming without a deadline option keeps the current
+one. `/goal edit --no-deadline <objective>` removes it.
 
-The absolute deadline keeps elapsing while the goal is paused or Pi is closed. If Pi is closed when
-the deadline passes, `pi-goal` records the goal as expired when the next session opens or goal state
-is synchronized. Expiry cancels an active goal-owned wait call and prevents future automatic goal
-continuation. A model turn already in progress may finish; its wait result is withheld, while child
-and background processes continue independently. This deadline stops new goal-driven continuations;
-it does not forcibly terminate work already running. Resume the same objective with a new `--for`
-duration or `--no-deadline`; use `/goal clear` first to discard it and start an unrelated objective.
-The TUI status shows the local due time and a compact remaining interval while the goal is unfinished.
-A completed goal keeps its due time without a frozen countdown. Model context includes the fixed
-absolute timestamp, not a changing countdown.
+The clock keeps running while the goal is paused and while Pi is closed. If the deadline passes
+while Pi is closed, the goal is marked expired when the next session opens.
 
-| Action | Behavior |
-| --- | --- |
-| `/goal <objective>` | Starts or replaces the goal, then begins work on that exact objective. |
-| `/goal` or `/goal status` | Shows status, criteria, evaluator assessments, and accounting. |
-| `/goal clear` | Removes the goal and revokes its pending waits, evaluation and automatic continuation. |
-| `/goal pause` / `/goal resume` | Stops or reauthorizes automatic work. Resume starts a new scoped evaluation history and continues the objective. Deadlines keep running while paused. |
-| `/goal resume --for <duration-or-timestamp>` | Extends an expired goal and resumes it. |
-| `/goal resume --no-deadline` | Removes the deadline and resumes an expired goal. |
-| `create_goal({objective, criteria?, budget?, deadline?})` | Requests confirmation of the exact objective, optional criteria, budget, and deadline; trusted embedding code can supply matching authorization. |
+When a goal expires:
 
-A typed objective directly authorizes that text. Custom criteria are fixed when authorized together
-with the objective. Editing replaces the criterion and clears earlier assessments, while preserving
-budget and accounting. Starting, editing, or resuming queues a normal user message containing the
-authorized objective, with prompt-template expansion disabled.
+- No new goal-driven turns start.
+- An active goal wait is cancelled and its result is held back.
+- A turn already running may finish.
+- Children and background jobs keep running.
 
-Use up to 12 concrete criteria. The objective and each criterion can be at most 12,000 characters;
-their combined evaluator evidence must fit 24,000 characters and 4,096 Pi-estimated tokens. This
-keeps the full authorized scope available to the evaluator. It returns concise, evidence-backed
-results and clips oversized source output before adding it to its bounded context.
+To carry on, resume with a new `--for` or with `--no-deadline`. To start something unrelated, run
+`/goal clear` first.
 
-`start`, `edit`, `pause`, `resume`, `clear`, and `status` are control words when they appear first after `/goal`.
-Use `/goal start <objective>` for an objective beginning with one of those words.
+The status bar shows the local due time and how long is left. A completed goal shows its due time
+without a countdown. The model sees the fixed timestamp, not a countdown.
 
 ## Clear a goal
 
-Use `/goal clear` to abandon the current objective and return to ordinary interactive work.
-It records that no goal is active, revokes old wait handles and creation grants, and stops the
-current goal run and evaluator. Late responses cannot revive the goal. Child agents, their
-workspaces, conversation history and cost records continue independently. Clearing an absent goal
-is harmless; it also recovers a branch whose saved goal or waiter state is malformed. After clearing,
-`/goal <new objective>` starts fresh.
+`/goal clear` drops the current objective and returns to normal work. It stops the current goal run
+and evaluator and cancels old waits and pending `create_goal` approvals. Late replies cannot bring
+the goal back. Children, their files, the conversation and usage records are untouched. Clearing
+when there is no goal does nothing harmful, and it also repairs a branch whose saved goal state is
+broken. Afterwards, `/goal <new objective>` starts fresh.
 
-## Understand evaluation
+## How evaluation works
 
-When the worker finishes a run with no outstanding owned response wait, the evaluator receives the
-authorized objective, fixed criteria, initial request context, and recent worker/evaluator cycles.
-The history is bounded: oversized source evidence is truncated with a notice, and older whole cycles
-may be omitted from the evaluator request. Full evidence records remain in the session log, and
-omitted content cannot establish that a criterion is met.
+When the working model finishes a run and is not waiting on a child, the evaluator gets the
+objective, the criteria, the original request and recent rounds of work and assessment.
 
 ```mermaid
 flowchart TD
-  User["You authorize the objective and criteria"] --> Goal["Saved goal"]
-  Goal --> Worker["Working model performs the task"]
-  Worker --> Stop{"Worker settles"}
-  Stop -->|"Owned response pending"| Wait["Wait for the response"]
+  User["You approve the objective and criteria"] --> Goal["Saved goal"]
+  Goal --> Worker["Working model does the task"]
+  Worker --> Stop{"Worker stops"}
+  Stop -->|"Waiting on a child"| Wait["Wait for the answer"]
   Wait --> Worker
-  Stop -->|"No outstanding wait"| Eval["Goal evaluator reviews evidence"]
+  Stop -->|"Nothing pending"| Eval["Evaluator checks the evidence"]
   Eval --> Finished["finished: every criterion met"]
   Eval --> Incomplete["incomplete: continue with a short reason"]
-  Eval --> Blocked["blocked: unresolved dependency"]
-  Finished --> Complete["Complete the goal"]
+  Eval --> Blocked["blocked: something unresolved"]
+  Finished --> Complete["Goal complete"]
   Incomplete --> Worker
-  Blocked --> Count{"Same blocker three consecutive times?"}
+  Blocked --> Count{"Same blocker three times in a row?"}
   Count -->|"No"| Worker
-  Count -->|"Yes"| Halt["Record blocked and stop automatic work"]
+  Count -->|"Yes"| Halt["Mark blocked and stop"]
 ```
 
-The evaluator returns `finished`, `incomplete`, or `blocked`, a short reason, and an evidence-backed
-assessment for every criterion. `finished` is accepted only when every criterion is `met`. The
-runtime validates the response and scope; the evaluator's judgement is not independent proof of
-correctness. Tests and other task evidence still matter.
+The evaluator returns `finished`, `incomplete` or `blocked`, a short reason, and an assessment
+with evidence for every criterion. `finished` only counts if every criterion is `met`. The
+extension checks the reply's shape and scope, but the verdict is still the evaluator's judgement.
+Tests and other evidence still matter.
 
-Three consecutive fresh evaluations reporting the same unresolved blocker stop automatic work and
-record `blocked`. `incomplete` resets that count; a different blocker starts a new count. Waiting for
-an acknowledged child response does not count as a blocker evaluation. Resolve the dependency, then
-use `/goal resume` to continue. Resume resets the consecutive blocker count; a repeated condition
-then starts a fresh assessment streak.
+The same blocker three times in a row stops automatic work and marks the goal `blocked`. An
+`incomplete` verdict resets the count, and a different blocker starts a new one. Waiting on a child
+does not count. Fix the problem, then `/goal resume`; that also resets the count.
 
-If the evaluator returns a completed response that fails validation, Pi saves the raw response and
-validation error, then makes one corrective assessment request with the error and a bounded response
-excerpt. Both attempts share the original timeout. A second invalid response stops automatic
-continuation. Authentication, transport, timeout, aborted, truncated, and context-limit errors do
-not get a corrective retry. Manual messages remain available while automatic work is disarmed;
-those messages run without goal instructions. Use `/goal resume` to continue the objective after
-resolving the evaluator problem.
+The evaluator's input is bounded. Oversized evidence is cut with a notice, and older rounds may be
+left out. The full record stays in the session log, and the evaluator is told that missing evidence
+cannot prove completion. Editing or resuming starts a new evaluation history.
 
-Evaluator requests keep the authorized objective and original request context, then include recent
-worker/evaluator cycles within a bounded input budget. Oversized evidence is truncated with a notice;
-older whole cycles may be omitted from the request, while full records remain in the session. The
-evaluator is told that omitted evidence cannot prove completion. Resume and edit create a new
-scoped evaluation history.
+If the evaluator's reply is malformed, Pi saves it with the error and asks once more, sending the
+error and a short excerpt. Both tries share the original timeout. A second bad reply stops
+automatic work. Login, network, timeout, abort, truncation and context-limit errors are not
+retried.
 
-## Select the evaluator
+While automatic work is stopped you can still send messages; they run without goal instructions.
+`/goal resume` continues the goal once the evaluator problem is fixed.
 
-Select an authenticated evaluator explicitly with `--goal-evaluator-model`. No provider is selected by default. Choose a model
-and timeout at launch. The positive timeout defaults to 30 seconds and cannot exceed 2,147,483.647 seconds:
+## Choose the evaluator
+
+There is no default evaluator model. Choose a logged-in model when you start Pi:
 
 ```sh
 pi --goal-evaluator-model provider/model \
    --goal-evaluator-timeout 30
 ```
 
-The worker exposes `create_goal`, `get_goal`, and `wait_for_goal_event`. It does not set progress,
-completion, or blocker status through an `update_goal` tool. See the [goal reference](../reference/goals.md)
-for output validation, history, accounting, and lifecycle details.
+The timeout is in seconds. It defaults to 30 and can be at most 2,147,483.647 seconds. You can
+also set both in [settings](../reference/configuration.md#goal-evaluator-settings).
+
+The working model has `create_goal`, `get_goal` and `wait_for_goal_event`. It has no tool to mark
+progress, completion or blockers itself. See the [goal reference](../reference/goals.md) for
+validation, history, accounting and lifecycle details.
 
 ## Understand the budget
 
-An explicit token budget counts worker input, output, cache reads, and cache writes across dispatched
-main-model requests, including tool loops. One dispatched request can overshoot the remaining amount.
-Missing or incomplete worker usage stops automatic continuation under an explicit budget.
+A token budget counts the working model's input, output, cache reads and cache writes across its
+requests, including tool loops. One request can go past what is left. If usage is missing or
+incomplete, automatic work stops when a budget is set.
 
-An omitted budget means unlimited. Goal state shown to the worker then omits accumulated usage totals;
-`/goal` still shows accounting. Evaluator calls are recorded separately in `/costs` and are outside the
-explicit worker budget. These budgets are separate from provider context windows and account limits.
+With no budget there is no limit, and the model is not shown running totals; `/goal` still shows
+them. Evaluator calls appear in `/costs` and are not part of the budget. Budgets are separate from
+context windows and account limits.
 
 ## Wait for a child response
 
-Do useful independent work before calling `wait_for_goal_event` with the exact `wait_id` returned by
-an acknowledged delegation or message. The wait owns that pending response and avoids repeated model
-requests. `/background` or a steering message yields the foreground wait but leaves the same
-`wait_id` and pending result available; it does not cancel the child or discard its response. Inspect
-and integrate the result before finishing the task. The status footer shows `waiting` while a
-foreground wait is active and `N wait handles pending` after the wait yields; `/goal status` reports
-the same pending-handle count. The count is owned wait handles, which may refer to the same response.
-See [owned response waits](../reference/goals.md#owned-response-waits) and [shell job handoff](background-processes.md).
+When the working model delegates or messages a child during a goal, the reply can include a
+`wait_id`. Do other useful work first, then call `wait_for_goal_event` with that ID. The wait owns
+the pending answer, so the model does not have to keep polling.
+
+`/background` or a steering message ends the wait but keeps the same `wait_id` and the pending
+answer. It does not cancel the child. Review and use the answer before finishing.
+
+The status bar shows `waiting` during a wait and `N wait handles pending` after it ends;
+`/goal status` shows the same count. Several handles can point at the same answer. See
+[owned response waits](../reference/goals.md#owned-response-waits) and
+[shell jobs](background-processes.md).

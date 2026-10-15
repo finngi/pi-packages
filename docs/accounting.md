@@ -1,54 +1,83 @@
-# Usage and cost accounting
+# Usage and costs
 
-Accounting records provider-reported usage for child, permission-classifier, and goal-evaluator calls separately from the parent model's calls. A child task can involve many tool-loop responses: its final answer's usage is only one call, not the task total. Reply delivery and usage collection are separate, so a goal wait, ordinary notification, or explicit check observes the same recorded work.
+Pi counts the parent model's calls. These packages also record provider usage from children, the
+permission classifier and the goal evaluator, and add it to Pi's totals once.
 
-## Collect and reconcile usage
+One child task can make many model calls in its tool loop. The usage shown on its final answer is
+one of those calls, not the task total. Usage is collected separately from answer delivery, so a
+goal wait, a normal notification and `subagent_check` all see the same recorded work.
 
-Child assistant `message_end` events travel over RPC. Each provider call contributes a stable usage record. Permission-classifier and goal-evaluator adapters report each actual call separately; a cached permission decision contributes no new provider call.
+## How usage is collected
 
-The dialogue queries Pi's `get_session_stats` RPC at settlement and before closure. It adds only positive differences from usage already observed, covering compaction, summaries, and other session usage. A cumulative statistics snapshot is reconciled, not repeatedly summed. A stats timeout does not terminate the worker.
+Each child `message_end` event travels over RPC, and each provider call adds one usage record. The
+classifier and evaluator report each real call separately. A cached permission decision adds
+nothing, because no provider call was made.
 
-On interruption, known usage remains and an incomplete marker is recorded. Provider-internal retries or failed calls without reported usage cannot be reconstructed from elapsed time or an estimate. Missing usage is unknown, not zero.
+When a child settles, and again before it closes, the parent asks it for Pi's
+`get_session_stats`. Only increases over what was already recorded are added. This picks up
+compaction, summaries and other session usage without counting a running total twice. If the stats
+request times out, the child keeps running.
 
-## Persist and forward once
+If a child is interrupted, its known usage stays and the record is marked incomplete. Retries or
+failed calls that the provider never reported cannot be rebuilt from elapsed time. Missing usage
+is unknown, not zero.
 
-Usage records are saved as `pi-runtime.usage.v1` custom session entries. A record identifies its kind (`child`, `classifier`, or `evaluator`), source, label, model, and validated numeric usage when available. Late known usage can upgrade a missing record for the same call; duplicate receipts and reads do not add another charge.
+## How usage is saved and forwarded
 
-Known unreported usage is attached once to a top-level tool result through Pi's `usage` field. `details.piUsageIds` records which entries were forwarded, so session replay does not forward them again. Nested tool results do not also drain those records. The extension neither fabricates assistant messages nor bypasses the read-only session manager.
+Records are saved as `pi-runtime.usage.v1` custom session entries. Each one names its kind
+(`child`, `classifier` or `evaluator`), source, label and model, plus validated numbers when the
+provider reported them. A late report can fill in a missing record for the same call. Duplicate
+reports and repeated reads do not add another charge.
 
-Native tools can attach reported usage directly to their result. Codex search uses this path;
-those receipts are already included in normal session totals and are not added to the ledger
-again. Its missing-receipt or unknown-price warnings persist with the tool result and appear in
-`/costs`, including when search runs inside a nested tool.
+Unforwarded usage is attached once to a top-level tool result through Pi's `usage` field.
+`details.piUsageIds` lists the records forwarded, so replaying the session does not forward them
+again. Nested tool results do not forward the same records. Nothing fakes assistant messages or
+writes around Pi's read-only session manager.
 
-Accounting installation is owned by the current Pi event bus. Separate installed library copies can share that one in-process owner. Parent and child Pi processes each have their own bus; child reports cross the RPC boundary before entering the parent's ledger.
+Native tools can attach usage to their own result. Codex search does this, so its usage is already
+in Pi's totals and is not added again. Its warnings about missing usage or unknown prices are saved
+with the tool result and shown in `/costs`, including when search runs inside a nested tool.
 
-## Read the displays
+One accounting owner runs per Pi event bus, even if several copies of the library are installed.
+Parent and child processes each have their own bus. Child reports cross RPC before they reach the
+parent's records.
 
-| Display | Meaning |
+## Reading the totals
+
+| Where | Shows |
 | --- | --- |
-| Child result panel | Known cumulative child session usage at answer time |
-| `/costs` | Combined session total, parent calls/summaries, child agents, classifiers and evaluators; missing receipts and estimation limits |
-| Pi session footer | Normal session usage includes extension receipts forwarded through tool results |
+| Child result panel | Known child session usage when the answer arrived |
+| `/costs` | Session total, parent calls and summaries, children, classifier and evaluator, plus anything missing |
+| Pi footer | Pi's normal totals, including usage forwarded through tool results |
 
-Asynchronous usage, including a final evaluator call, can arrive after the last tool result.
-`/costs` includes it immediately. Custom footers can add
-`replayUsageLedger(sessionEntries).pending().usage` to Pi's native totals so those records appear
-immediately too. Add only the pending receipts: native totals already include receipts attached to
-tool results. Both the ledger and forwarded IDs replay from persisted entries on resume. There is
-no separate extension-usage status line.
+Some usage, such as a final evaluator call, arrives after the last tool result. `/costs` includes
+it straight away. A custom footer can add `replayUsageLedger(sessionEntries).pending().usage` to
+Pi's totals to show it too. Add only the pending records, because Pi's totals already include the
+forwarded ones. The records and forwarded IDs are rebuilt from the session on resume. There is no
+separate status line for extension usage.
 
-Pi 1.2.0 exposes no standalone usage-append API to extensions; accounting does not fabricate a tool
-result to force an update. Input, output, cache-read and cache-write remain separate categories.
-Reasoning is a subset of output and is not counted again. Costs are provider/catalog estimates,
-not invoices or an extra subscription charge. Missing receipts make the displayed amount a known
-lower bound; accounting incompleteness does not describe goal or task completion.
+Pi 1.2.0 has no API for extensions to add usage on their own, and we do not fake a tool result to
+force one. Input, output, cache-read and cache-write stay separate. Reasoning is part of output and
+is not counted again. Costs are estimates from the provider or model catalogue, not invoices or an
+extra subscription charge. When records are missing, the total is a lower bound. That says nothing
+about whether a goal or task is complete.
 
-The goal budget counts parent-provider usage for main-model requests dispatched under the active goal authority, including each provider call in a tool loop. The run retains that authority through goal completion or blocking, so another tool-loop request is stopped before provider dispatch. Future independent user runs while a goal is paused or completed have no goal authority and are not charged to it. The counter includes cached and repeated input, output, cache reads, and cache writes; child, permission-classifier, goal-evaluator, summary, and cache-warming calls are excluded. A dispatched request remains attributed to the scope that authorized it if the goal is paused or edited before its response arrives. Aborted or failed responses retain reported token categories and are marked incomplete; incomplete usage stops continuation under an explicit budget. An omitted budget is unlimited. See [goal budgets](guides/goals.md#understand-the-budget) and the [request admission contract](reference/events.md#goal-services).
+## Goal budgets
 
-## Source and verification
+A goal budget counts the parent's main-model requests made while the goal is active, including
+every call in a tool loop. It includes cached and repeated input, output, cache reads and cache
+writes. Calls by children, the classifier, the evaluator, summaries and cache warming are not
+counted. Runs you start while a goal is paused or complete are not counted either.
 
-- [Ledger validation and deduplication](../packages/pi-runtime/src/usage.ts) and [usage tests](../packages/pi-runtime/test/usage.test.ts).
-- [Accounting installation, replay, and forwarding](../packages/pi-runtime/src/accounting.ts).
-- [Child RPC reconciliation](../packages/pi-delegation/lib/subagent/rpc-dialogue.ts) and [dialogue tests](../packages/pi-delegation/lib/subagent/rpc-dialogue.test.ts).
-- [Pi 1.2.0 parent/child integration](../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.
+A request belongs to the goal that sent it, even if the goal is paused or edited before the reply
+arrives. A failed or aborted reply keeps its reported tokens and is marked incomplete. Incomplete
+usage stops automatic continuation when a budget is set. With no budget, there is no limit. See
+[goal budgets](guides/goals.md#understand-the-budget) and the
+[goal reference](reference/goals.md#usage-and-budget).
+
+## Source and tests
+
+- [Record validation and deduplication](../packages/pi-runtime/src/usage.ts) and [tests](../packages/pi-runtime/test/usage.test.ts).
+- [Accounting setup, replay and forwarding](../packages/pi-runtime/src/accounting.ts).
+- [Child RPC reconciliation](../packages/pi-delegation/lib/subagent/rpc-dialogue.ts) and [tests](../packages/pi-delegation/lib/subagent/rpc-dialogue.test.ts).
+- [Pi 1.2.0 parent and child test](../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of test cost, and the parent's tool results receive that usage once. This tests transport and accounting, not real models or prices.

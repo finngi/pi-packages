@@ -1,12 +1,16 @@
 # Install and distribute
 
-Choose between loading the source checkout, selecting extensions from Git, and producing local package tarballs. All paths use the host Pi SDK; shared libraries do not install or activate Pi for you.
+You can load the packages from this checkout, from Git, or from local tarballs. In every case your
+Pi provides the SDK. The shared libraries never install or start Pi for you.
 
-## Load source entrypoints
+## Load from the checkout
 
-Run the pinned CLI as shown in [getting started](../getting-started.md), or pass absolute entrypoint paths to an existing Pi 1.2.0 installation. Explicit paths make the selected extension set visible.
+Run the pinned CLI as in [getting started](../getting-started.md), or pass absolute entrypoint
+paths to an existing Pi 1.2.0. Listing paths explicitly makes clear which extensions are on.
 
-Pi 1.2.0 accepts a Git package source with an extension filter in its package settings:
+## Load from Git
+
+Pi 1.2.0 accepts a Git source with an extension filter in its package settings:
 
 ```json
 {
@@ -18,9 +22,9 @@ Pi 1.2.0 accepts a Git package source with an extension filter in its package se
 }
 ```
 
-Replace `<reviewed-commit>` with the revision you intend to run. The aggregate manifest offers
-six extension entrypoints and the optional Pi-help skill. Select individual capabilities through
-native filters, or load their package directories. The permission gate is a separate opt-in package.
+Replace `<reviewed-commit>` with the commit you want to run. The root manifest offers six
+extension entrypoints and the optional `pi-help` skill. Pick what you need with Pi's filters, or
+load package directories. The permission package is separate and is not in the root manifest.
 
 ## Build local tarballs
 
@@ -32,35 +36,45 @@ npm run pack
 npm run test:packages
 ```
 
-`pack` builds ten tarballs in `.artifacts/packages`: seven extensions and three shared libraries.
-It does not publish. Each includes emitted JavaScript, declarations, README and licenses. Each extension artifact bundles the unpublished workspace dependencies it declares using npm's
-`bundleDependencies`. Install just that artifact alongside stock Pi; npm resolves ordinary public
-dependencies and host peers. No sibling tarball preinstallation or custom package installer is
-required. Bundled dependencies remain ordinary libraries and do not activate sibling extensions.
+`pack` builds ten tarballs in `.artifacts/packages`: seven extensions and three libraries. It does
+not publish anything. Each tarball has the built JavaScript, type declarations, README and
+licences. Each extension tarball bundles the unpublished workspace packages it depends on, using
+npm's `bundleDependencies`. Install just that tarball next to stock Pi; npm fetches public
+dependencies and Pi supplies the peers. You do not need to install sibling tarballs first. Bundled
+libraries are still only libraries and load no other extension.
 
-`test:packages` installs one extension artifact into each fresh stock-Pi consumer, verifies that
-only its entrypoint activates, and exercises the package's actual behavior. A separate combined
-integration check exercises compiled child tools across packages. Sharing a download cache is
-allowed; sharing the consumers' `node_modules` is not. The three helper artifacts are ordinary
-npm libraries, verified through their public APIs; they are not registered as Pi extensions.
-Nothing is published by these checks.
+`test:packages` installs each extension tarball alone in a fresh project with stock Pi, checks that
+only its entrypoint loads, and exercises what it does. A separate combined check runs the compiled
+child tools across packages. The projects may share npm's download cache but never `node_modules`.
+The three library tarballs are checked through their public APIs; they are not Pi extensions.
+Nothing is published.
 
-Git checkouts can execute TypeScript helper sources with Node 24. Installed packages execute emitted JavaScript helpers from `node_modules`. See [package dependencies and SDK pins](../reference/packages.md).
+A Git checkout can run the TypeScript helpers directly with Node 24. Installed packages run the
+built JavaScript from `node_modules`. See [packages](../reference/packages.md) for dependencies and
+versions.
 
 ## Embed with the Pi 1.2.0 SDK
 
-Use `DefaultResourceLoader` with `noExtensions: true` and explicit `additionalExtensionPaths`, then reload it before `createAgentSession`. As on the CLI, this excludes discovered and built-in extensions; include a built-in explicitly only when required.
+Create a `DefaultResourceLoader` with `noExtensions: true` and explicit
+`additionalExtensionPaths`, and reload it before `createAgentSession`. As on the CLI, this skips
+discovered and built-in extensions. Add a built-in explicitly if you need it.
 
-When embedding, supply Pi's built-in extension factories through `extensionFactories` before using `builtin:` entrypoint aliases. The CLI supplies those factories automatically; a bare SDK resource loader does not. Use the factories from the pinned SDK's `dist/extensions/index.js`.
+To use `builtin:` entrypoint aliases, pass Pi's built-in extension factories through
+`extensionFactories`. The CLI does this for you; a bare SDK loader does not. Use the factories
+from the pinned SDK's `dist/extensions/index.js`.
 
-Peer dependency ranges are `*` because the running Pi host supplies its modules. This is not a compatibility claim for every SDK version: development and integration use Pi 1.2.0. Avoid installing an independent host copy inside each extension and creating conflicting tool or service owners.
+Pi modules are peer dependencies with `*` ranges because the running Pi supplies them. That is not
+a promise that every SDK version works; development and tests use Pi 1.2.0. Do not install a
+separate copy of Pi inside each extension, or tools and services will clash.
 
-Use native settings and ModelRuntime for authentication and model access. The optional permission
-gate reads its user-owned policy. Context overlay suppression is controlled by `--no-context-files`;
-an SDK embedder wanting no overlay should supply that argument as well as `noContextFiles`.
+Use Pi's settings and ModelRuntime for login and models. The permission package reads your
+personal settings. To turn off `pi-context`'s local files, pass `--no-context-files` in the host
+arguments as well as `noContextFiles`.
 
-The SDK is a trusted host. Custom provider callbacks need a trusted extension source to load in
-children; executable functions cannot be serialized. Native providers use the same user auth/model
-storage and its normal refresh/locking behaviour, without per-launch credential snapshots.
+The embedding code runs with full trust. Custom provider callbacks only work in children if they
+come from an extension children can load, because functions cannot be serialized. Built-in
+providers use the same auth and model storage, with Pi's normal refresh and locking, and no
+per-launch copy of credentials.
 
-Implementation: [root manifest](../../package.json), [packing script](../../scripts/pack.mjs), [build script](../../scripts/build.mjs), and [consumer tests](../../tests/packages.test.ts).
+Source: [root manifest](../../package.json), [pack script](../../scripts/pack.mjs),
+[build script](../../scripts/build.mjs) and [package tests](../../tests/packages.test.ts).

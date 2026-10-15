@@ -1,29 +1,82 @@
 # pi-goal
 
-`pi-goal` keeps Pi working toward an authorized objective and fixed acceptance criteria. The worker performs the task; a separate evaluator assesses the evidence when the worker stops. It returns `finished`, `incomplete` or `blocked`, and the extension completes the goal, continues work or stops after three consecutive assessments of the same blocker.
+Keeps Pi working toward an objective until its criteria are met. The working model does the task.
+When it stops, a separate evaluator model checks the evidence and returns `finished`, `incomplete`
+or `blocked`. The extension then completes the goal, carries on, or stops after the same blocker
+three times in a row.
 
-This native Pi package works on stock Pi without the delegation, background or permissions packages. It uses native session entries for state and native settlement hooks for continuation. Optional job, child-result and permission adapters do nothing unless a matching extension supplies them. Shared accounting utilities record evaluator usage; they do not activate another extension.
+It works on stock Pi without delegation, background jobs or permissions. State is saved in session
+entries and continuation uses Pi's settle hook. The job, child-answer and permission integrations do
+nothing unless those extensions are loaded. Shared accounting records evaluator usage without
+loading any other extension.
 
-Start with `/goal <objective>`; it submits the exact objective as a native user message and begins work immediately. Edits and resume also start work without a separate follow-up prompt. `/goal` shows status; `/goal edit`, `/goal pause`, `/goal resume` and `/goal clear` control the objective. `/goal clear` removes the goal and its wait ownership while leaving child agents, artifacts, history and costs unchanged. The worker can request exact goal authorization with `create_goal`, inspect it with `get_goal`, and await an acknowledged result with `wait_for_goal_event`. Goal completion is controlled by the evaluator, so the worker has no `update_goal` tool.
+## Use it
 
-Goals can have an optional wall-clock deadline: `/goal start --for 2h <objective>` or `/goal start --for 2026-10-11T15:00:00+01:00 <objective>`. `/goal edit` can replace the deadline; `/goal resume --for 30m` extends an expired goal, and `--no-deadline` explicitly removes a deadline. Pausing does not stop the clock. Expiry cancels an active goal-owned wait and prevents future goal-driven continuation; an existing worker turn may finish, and its child or background producer continues. See the [goal guide](../../docs/guides/goals.md#limit-a-goal-by-time) for details.
+```text
+/goal Build a CSV parser that passes the tests and has a usage README.
+```
 
-The evaluator uses an explicitly selected model from Pi’s registry and credentials. There is no provider-specific default. `--goal-evaluator-model provider/model` chooses the configured model; `--goal-evaluator-timeout 30` sets its timeout in seconds. Its structured output uses literal verdicts and validated criterion evidence. Provider-side strict sampling is requested when supported; host validation is always required. A malformed assessment gets one retry within the same timeout. Missing credentials, repeated invalid output or a timeout suspend automatic work with a visible error. Manual messages remain usable. `/goal resume` enables automatic work; an existing turn continues without starting a duplicate. Precise errors and invalid evaluator responses remain inspectable in session records.
+This sends the objective as your message and work starts at once; edits and resume do the same.
 
-The footer separates the saved `Goal` status from automatic continuation: `Auto: running`, `waiting`, or `stopped` with a short reason and next action. An active saved goal can have stopped automatic work. Evaluator and wait interruption reasons survive session reopening and are cleared by explicit resume, edits, or a new goal. `Deadline` shows the due time; `Remaining` labels the countdown. Paused, blocked, completed, expired, and budget-limited goals explain why continuation stopped.
+- `/goal` shows status.
+- `/goal edit`, `/goal pause` and `/goal resume` control the goal.
+- `/goal clear` drops the goal and its waits; children, files, history and costs stay.
+- `/goal start --for 2h <objective>` or `--for 2026-10-11T15:00:00+01:00` sets a deadline.
+  `/goal edit` can change it, `/goal resume --for 30m` extends an expired goal, and `--no-deadline`
+  removes it. Pausing does not stop the clock. On expiry no new goal turns start; a running turn
+  may finish and children or jobs keep going.
 
-Read the [goal guide](../../docs/guides/goals.md) for the command flow and [goal reference](../../docs/reference/goals.md) for evaluator history, authorization, budgets, persisted state and owned waits. [Tools](../../docs/reference/tools.md#goal-tools) and [events](../../docs/reference/events.md#goal-services) describe the integration contracts.
+The working model can ask for a goal with `create_goal`, read it with `get_goal` and wait for a
+child's answer with `wait_for_goal_event`. Only the evaluator decides when the goal is done, so
+there is no `update_goal` tool. A steering message or `/background` ends a wait but keeps its
+`wait_id`, so it can wait again later. The child keeps working and its answer is delivered once.
 
-Goal state and evaluator history are saved with the session branch. Evaluations keep the goal
-and recent evidence within a token limit; omitted evidence is reported and cannot establish
-completion. Child and evaluator usage is separate from the worker's goal budget. `/costs`
-includes evaluator usage immediately. See [accounting](../../docs/accounting.md) for forwarding
-usage to the footer without counting it twice.
+## Evaluator
 
-Timeouts above 2,147,483.647 seconds are rejected because Node.js cannot schedule a longer single timer.
+There is no default evaluator. Choose one from Pi's registry with
+`--goal-evaluator-model provider/model`, and set the timeout with `--goal-evaluator-timeout 30`
+(seconds, at most 2,147,483.647, the longest timer Node.js allows). To set them once, use
+`goal.evaluator.model` and `goal.evaluator.timeoutSec` in Pi's settings; the flags win when both
+are given.
 
-Steering human input or `/background` yields a foreground goal wait, retaining the same `wait_id` and result ownership for a later await. The delegated producer continues, and its actual result is delivered at most once.
+The evaluator's reply is validated. Strict output is requested when the provider supports it. A
+malformed reply gets one retry within the same timeout. Missing login, a second bad reply or a
+timeout stop automatic work with a visible error. You can still send messages. `/goal resume`
+turns automatic work back on without starting a duplicate turn. Errors and bad replies are kept in
+the session for inspection.
 
-Source entrypoint: [goal.ts](extensions/goal.ts). Run `npm run test --workspace=pi-goal` and `npm run typecheck --workspace=pi-goal`. Combined Pi integration checks are documented in [testing](../../docs/testing.md).
+Goal state and evaluator history are saved with the session branch. Each evaluation keeps the goal
+and recent evidence within a token limit; anything left out is noted and cannot prove completion.
+Child and evaluator usage do not count toward the goal's budget. `/costs` shows evaluator usage
+straight away; see [accounting](../../docs/accounting.md) for adding it to the footer without
+counting it twice.
 
-`npm run test:standalone --workspace=pi-goal` exercises this extension alone using stock Pi sessions and deterministic worker/evaluator providers. It covers continuation, malformed assessments, cancellation, steering, usage receipts and reopening an actual session file. It does not call a paid provider or touch installed sessions; it proves the integration and lifecycle rather than model judgment quality.
+## Footer
+
+The footer shows the saved `Goal` status separately from automatic work: `Auto: running`,
+`waiting` or `stopped`, with a short reason. A goal can be active while automatic work is stopped.
+Stop reasons survive reopening the session and clear on resume, edit or a new goal. `Deadline`
+shows the due time and `Remaining` the time left. Paused, blocked, completed, expired and
+over-budget goals say why they stopped.
+
+## More
+
+- [Goal guide](../../docs/guides/goals.md): commands and workflow.
+- [Goal reference](../../docs/reference/goals.md): evaluator history, approval, budgets, saved
+  state and waits.
+- [Tools](../../docs/reference/tools.md#goal-tools) and
+  [events](../../docs/reference/events.md#goal-services).
+
+## Tests
+
+```sh
+npm run test --workspace=pi-goal
+npm run typecheck --workspace=pi-goal
+npm run test:standalone --workspace=pi-goal
+```
+
+The standalone test runs this extension alone on stock Pi with scripted worker and evaluator
+replies. It covers continuation, bad assessments, cancellation, steering, usage records and
+reopening a real session file. It calls no paid provider and touches no installed sessions, so it
+tests the integration, not how well a model judges. Entrypoint: [goal.ts](extensions/goal.ts). See
+[testing](../../docs/testing.md).

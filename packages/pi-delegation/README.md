@@ -1,67 +1,90 @@
 # pi-delegation
 
-Named-agent delegation for Pi. It discovers trusted definitions, previews effective capabilities, launches native child Pi sessions over RPC, and routes messages and correlated results. Without `pi-background`, the extension owns its child-process transport; it reuses a loaded background service when present.
+Hand tasks to named agents that run as child Pi sessions. The extension finds agent definitions,
+shows what each one can do, launches children over RPC, and routes messages and answers. It uses
+`pi-background`'s process service when that is loaded, and its own otherwise.
 
-The default child workspace is scratch. `workspace: "project"` uses the parent project directly. Both run with ordinary host permissions. Closing/cancelling retains ordinary scratch files before cleanup; direct project references are never deleted by `discard`. Receipts label `scope` as `scratch-collection` or `project-reference` and `externalEffects` as `untracked`; they do not list all worker effects.
+## Agents
 
-`agent_message` accepts `kind: "progress" | "question" | "message"` (default `message`). Routine `progress` can only target the parent and never starts an idle parent turn; actionable questions/messages and completed results retain wakeups. A receipt confirms broker/RPC acceptance, not reading or acceptance of a revised task.
+An agent is a Markdown file, or a bundle folder with its own private skills and files. Use `/agents`
+to search agents, see their details and turn them on or off for this session. Ctrl+S saves project
+defaults; Ctrl+Shift+S saves personal defaults for new sessions. Project defaults win, even an empty
+selection. Resumed sessions keep their choices, `inherit` resets this session to saved defaults,
+and nothing reloads Pi or stops children. Agents from packages are off until selected.
 
-Agents can be flat definitions or directory bundles with private skills and relative resources.
-Children use saved personal/project guidance plus their bundle, never temporary parent guidance
-selections. Omitted skills or `skills: "*"` includes saved skills and all bundle skills; a named list
-selects native/bundle matches, `[]` selects none, and missing names warn and are omitted. Children also receive the parent's eager static context files, with source origins; their workspace remains a separate setting. They disable their own `AGENTS.md` and `CLAUDE.md` discovery, so workspace and ancestor files do not silently add instructions. See [Delegate work](../../docs/guides/delegation.md) for discovery, skill precedence, and context inheritance.
+## What a child gets
 
-- [Delegate work](../../docs/guides/delegation.md): definitions, trust, conversation, messaging, and retained files.
-- [Tool reference](../../docs/reference/tools.md#delegation-tools) and [events](../../docs/reference/events.md): exact calls and delivery contracts.
-- [Prompt context](../../docs/guides/prompts.md): capability summaries, optional skills, and conversation-based running state.
-- [Architecture](../../docs/architecture.md): parent/child processes and imported library code.
-- [Accounting](../../docs/accounting.md): all-call usage and estimates.
+- **Tools**: the parent's selected tools, including package tools, narrowed by the agent's `tools`
+  list. Selecting agents never grants tools or permissions.
+- **Skills**: saved personal and project skills plus all bundle skills by default. A named list
+  picks from the bundle and Pi's loaded skills, `[]` picks none, and missing names produce a
+  warning. Bundle skills and scripts stay private to the child.
+- **Instructions**: the parent's static context files, with their source paths, then saved
+  instruction choices, then the agent body. The parent's session-only choices are not passed on.
+  Children do not look for `AGENTS.md` or `CLAUDE.md` themselves.
+- **Model**: the agent's fixed model, or one the parent picks, for example
+  `subagent({agent: "general-purpose", task: "…", model: "openai-codex/gpt-6-luna:low"})` when
+  the agent has no `model` or sets `inherit`. Asking for a different model than a fixed one fails
+  before launch. This does not change the permission classifier's model.
+- **Login**: Pi's own auth, model and store files, with normal OAuth refresh and file locking. A
+  private launch file carries the provider and model settings needed for models only the parent
+  knows about; it carries no credentials or replacement stream adapter. Custom provider callbacks
+  need their extension entrypoint in `PI_SUBAGENT_PROVIDER_EXTENSION`.
 
-Use `/agents` to search available definitions with BM25, inspect the side panel,
-and toggle choices for this session. Ctrl+S saves this category as project defaults;
-Ctrl+Shift+S saves personal defaults for new sessions across projects. Project defaults take
-precedence over personal defaults, including an empty selection. Existing sessions retain their
-recorded choices on resume. `inherit` resets only that category to saved defaults; it does not
-remove project settings. Selection does not reload Pi or stop children. The optional
-[`pi-resources`](../pi-resources/README.md) extension owns `/skills`, `/packages` and parent skill
-filtering. Child skill defaults use saved personal/project choices, independently of the parent
-session selection, whether or not the picker extension is loaded. See
-[Browse project resources](../../docs/guides/delegation.md#browse-project-resources).
+MCP connections are not passed to children. The capability preview says so, and asking for an MCP
+tool fails before launch. Children never install packages or save defaults.
 
-Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-delegation` and `npm run typecheck --workspace=pi-delegation`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.
+## Workspaces and files
 
-Parents can select an authenticated worker with `subagent({agent: "general-purpose", task: "…", model: "openai-codex/gpt-6-luna:low"})` when the definition omits `model` or sets it to `inherit`. An explicit definition model is a user pin; conflicting requests fail before launch. Worker-model selection does not change the optional permission classifier. See [configuration](../../docs/reference/configuration.md#agent-definitions) and [permission review](../../docs/guides/delegation.md#permission-review-in-child-sessions).
+Children work in a scratch directory by default; `workspace: "project"` works in the parent's
+project. Both run with your normal user permissions. Closing or cancelling a child keeps its
+scratch files. `discard` never deletes project edits. Receipts mark `scope` as
+`scratch-collection` or `project-reference`, and `externalEffects` as `untracked`, because they do
+not list everything a child did.
 
-Native [resource packages](../pi-resources/README.md) add opt-in public skills and agents to the same
-pickers. Package agents are inactive when selection is omitted; their bundle-owned skills and scripts
-remain child-private. Selection does not grant tools or permissions. Existing native skill package
-loading is unchanged.
+## Messages
 
-For package and skill selection, load [`pi-resources`](../pi-resources/README.md) explicitly.
-Delegation contributes its available agent definitions to the shared setup service; it does not
-own package installation, package browsing or parent skill filtering.
+`agent_message` takes `kind: "progress" | "question" | "message"` (default `message`). `progress`
+goes only to the parent and never wakes it. Questions, messages and finished answers can. A receipt
+means the message was accepted for delivery, not read or acted on.
 
-For a task-specific selection, the parent can use
-`session_setup({op: "list", query: "evidence"})`, then `session_setup({op: "apply", ...})`.
-This writes only a native session entry: resume restores it, while new sessions use saved defaults.
-`session_setup({op: "reset"})` removes the override. Tools change immediately; selected instruction
-and skill prompt sections change on the next run. See [session setup](../../docs/reference/tools.md#session-setup)
-for package expansion, exact IDs, validation and the distinction between selection and permissions.
+## Permissions
 
-Children inherit selected native package tools through their registered source paths.
-An explicit agent tool list narrows that selection. Native Pi still loads extensions, filters tools,
-resolves authentication and owns RPC; children do not install packages or save defaults. See
-[child tool selection](../../docs/guides/delegation.md#use-private-skills-and-scripts) and the
-[launch decision](../../docs/decisions/native-child-tools.md) for the boundaries.
+With `pi-permissions` loaded, each child gets the parent's settings and your messages. The
+classifier sees the child's task as the parent agent's words, not yours. Approval prompts from a
+child appear in the parent's UI with the child's name. With no UI, a cancelled call or a stale
+session, the call is blocked. The permission package checks calls; it does not sandbox processes.
 
-Children resolve credentials through Pi's native auth/models/store files, including OAuth refresh and file locking. A private launch file carries native provider/model configuration needed to preserve parent-only models and headers; it carries no resolved credential fallback or replacement stream adapter. Executable provider callbacks require their trusted native extension entrypoint through `PI_SUBAGENT_PROVIDER_EXTENSION`.
+## What lives here
 
-The optional `pi-permissions` package passes its settings and the parent's user messages to each child. The classifier treats the child's task as the parent agent's words, not the user's. Approval prompts from a child use native RPC and appear in the parent's UI with the child's name; a headless parent, cancellation or stale session blocks the call. The package checks tool calls; it does not confine processes.
+Child start-up, provider settings for children, bundle and skill staging, and file collection are
+part of this package. `pi-delegation/child-rpc` is the child's entrypoint, and
+`pi-delegation/child-resources` prepares child resources without loading delegation. Resource
+selection comes from `pi-resources` library subpaths, which do not turn on the resources
+extension. From `pi-runtime` it uses only the shared process and accounting code.
 
-Live MCP connections are not transferred to children. The capability preview states this limit; requesting an unavailable MCP tool fails before launch. Native child extension entrypoints are supported.
+## Related
 
-Child bootstrap, native provider configuration, bundle/skill staging and artifact retention are
-owned here. `pi-delegation/child-rpc` is the prepared child entrypoint;
-`pi-delegation/child-resources` exports resource preparation without activating delegation.
-Resource selection imports use `pi-resources` library subpaths; importing them does not enable
-the resources extension. Shared `pi-runtime` helpers are limited to processes and accounting.
+[`pi-resources`](../pi-resources/README.md) adds `/skills`, `/packages` and parent skill filtering.
+Child skills follow saved choices whether or not it is loaded. The parent can also pick resources
+for a task with `session_setup({op: "list", query: "evidence"})` and `session_setup({op: "apply", ...})`,
+and undo it with `session_setup({op: "reset"})`. That writes only a session entry. Tools change at
+once; instruction and skill sections change on the next run.
+
+- [Delegate work](../../docs/guides/delegation.md): agents, trust, messages, answers and files.
+- [Tools](../../docs/reference/tools.md#delegation-tools) and [events](../../docs/reference/events.md).
+- [Configuration](../../docs/reference/configuration.md#agent-and-skill-selection): agent fields.
+- [Prompt context](../../docs/guides/prompts.md): the agent list and on-demand skills.
+- [Architecture](../../docs/architecture.md) and [accounting](../../docs/accounting.md).
+- [Session setup](../../docs/reference/tools.md#session-setup) and the
+  [child tools decision](../../docs/decisions/native-child-tools.md).
+
+## Tests
+
+```sh
+npm run test --workspace=pi-delegation
+npm run typecheck --workspace=pi-delegation
+```
+
+Entrypoint: [extensions/subagent.ts](extensions/subagent.ts). See [testing](../../docs/testing.md)
+for the Pi 1.2.0 integration tests.

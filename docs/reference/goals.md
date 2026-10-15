@@ -1,172 +1,226 @@
 # Goal reference
 
-This page defines goal authorization, assessment, provider accounting, persisted state, and owned response waits. See the [goal guide](../guides/goals.md) for the user workflow and [goal tools](tools.md#goal-tools) for tool parameters.
+This page covers how goals are approved, assessed, budgeted, saved and waited on. For everyday
+use, see the [goal guide](../guides/goals.md). Tool parameters are in
+[goal tools](tools.md#goal-tools).
 
-Here, the host is Pi's user interface or trusted code embedding Pi. A goal scope is its goal ID, revision, and selected branch—the path through Pi's conversation tree. Editing or resuming changes the revision. Creation grants and provider requests are also bound to their session.
+Terms used here:
 
-## Authorization
+- **Host**: Pi's user interface, or code that embeds Pi.
+- **Goal scope**: the goal ID, its revision, and the selected branch of Pi's conversation tree.
+  Editing or resuming creates a new revision. Approvals and provider requests also belong to one
+  session.
 
-| Caller | Route | Authorization |
+## Approval
+
+| Who | How | What approves the goal |
 | --- | --- | --- |
-| User | Type `/goal <objective>` | The exact typed objective authorizes a new goal or edits the unfinished goal. The objective becomes its single criterion. |
-| Main coding model | `create_goal({objective, criteria?, budget?, deadline?})` | Pi asks the user to confirm the exact objective, criteria, budget, and deadline, or trusted embedding code supplies matching preauthorization. A scope change before persistence revokes it. |
-| Trusted embedding code | Emit `goal:create_authorization` | Supplies one-use authorization for the exact objective, optional criteria, budget, and deadline expression. |
+| You | Type `/goal <objective>` | The exact text you typed. It starts a new goal or edits the unfinished one, and becomes its single criterion |
+| The working model | `create_goal({objective, criteria?, budget?, deadline?})` | You confirm the exact objective, criteria, budget and deadline, or embedding code has approved them in advance. A scope change before the goal is saved cancels the approval |
+| Embedding code | Emit `goal:create_authorization` | A one-use approval for the exact objective and optional criteria, budget and deadline |
 
-Goal authorization belongs to `pi-goal`. If the optional permission gate is loaded, its call review is an additional requirement; it does not replace goal authorization. See the [authorization checks](../../packages/pi-goal/lib/authorization.test.ts).
+`pi-goal` handles goal approval itself. If the permission package is loaded, its check is an extra
+step and does not replace this one. See the [approval tests](../../packages/pi-goal/lib/authorization.test.ts).
 
-The exact lower-case first words `start`, `edit`, `pause`, `resume`, `clear`, and `status` are controls. Other first words begin the shorthand objective. Explicit `/goal start` or `/goal edit` consumes the command and one separator, then preserves the rest as objective text; control commands reject extra arguments. Use `/goal start <objective>` when the objective begins with a reserved word. See the [command parser](../../packages/pi-goal/lib/command.ts).
+The lower-case first words `start`, `edit`, `pause`, `resume`, `clear` and `status` are commands.
+Any other first word begins an objective. `/goal start` and `/goal edit` take the command and one
+separator and keep the rest as the objective. The other commands reject extra text. See the
+[command parser](../../packages/pi-goal/lib/command.ts).
 
-`/goal clear` persists `{state: null}`, revokes creation grants and pending waits, and aborts the
-current goal run and evaluator. A model-visible acknowledgement records the cleared authority
-without starting a new turn. It clears only goal authority; it does not cancel unrelated background
-processes, child agents, artifacts, conversation history, or usage records.
+`/goal clear` saves `{state: null}`, cancels approvals and pending waits, and aborts the current
+goal run and evaluator. It adds a note to the conversation without starting a turn. It does not
+cancel background jobs or children, or remove files, conversation or usage records.
 
-## Time limits
+## Deadlines
 
-`/goal start` and `/goal edit` accept `--for <duration-or-timestamp>` before the objective;
-`/goal resume --for ...` extends an expired goal. Durations such as `30m`, `2h`, or `1d` resolve
-once to an absolute timestamp. Explicit timestamps require a timezone, and deadlines are limited to
+`/goal start` and `/goal edit` accept `--for <duration-or-timestamp>` before the objective.
+`/goal resume --for …` gives an expired goal a new deadline. Durations such as `30m`, `2h` or `1d`
+become a fixed time when the command runs. Timestamps need a timezone. Deadlines can be at most
 3,650 days away. `--no-deadline` removes the deadline on edit or resume. Pausing does not stop the
 clock.
 
-Expiry is persisted as status `expired`, cancels an active goal-owned wait call, aborts an in-progress
-goal evaluation, and disarms future automatic continuation. The absolute deadline continues elapsing
-while Pi is closed; when the next session opens or goal state is synchronized, the extension records
-an already-passed deadline as expired before further goal work. A worker turn already in progress
-may finish; the canceled wait does not deliver a late result, while its child or background producer
-continues independently. Once current work settles, the expired goal cannot request another
-goal-driven turn. This is a continuation cutoff, not forced termination of already-running work.
-Resume requires a new deadline or the explicit `--no-deadline` choice. The TUI shows a local due
-time; model context contains an immutable ISO timestamp so prompt text does not change as time passes.
+On expiry the goal's status becomes `expired`. An active goal wait is cancelled, a running
+evaluation is aborted, and automatic continuation is turned off. The deadline keeps passing while
+Pi is closed, and an already-passed deadline is recorded when the next session opens or goal state
+syncs, before any further goal work.
+
+A turn already running may finish. The cancelled wait never delivers a late result, but its child
+or background job keeps going. Once current work settles, the goal cannot ask for another turn.
+Expiry stops continuation; it does not kill running work. Resuming needs a new deadline or
+`--no-deadline`.
+
+The TUI shows the local due time. The model sees a fixed ISO timestamp, so the prompt text does not
+change as time passes.
 
 ## Context and dispatch
 
-`pi-goal` puts fixed goal instructions in the system prompt. When a worker run starts with a goal, a retained conversation message supplies its objective, criteria and current state. Tool results and evaluator feedback provide later updates. Saved goal text is user data. Request IDs and admission bookkeeping remain internal; requests preserve the previous conversation prefix, including when no goal is active.
+`pi-goal` puts fixed goal instructions in the system prompt. When a working run starts with a goal,
+a message in the conversation gives the objective, criteria and current state. Later updates come
+from tool results and evaluator feedback. Saved goal text is treated as user data. Request IDs and
+dispatch bookkeeping stay internal, and requests keep the earlier conversation unchanged, with or
+without a goal.
 
-Each main provider request has a private, non-serialized receipt for its request, goal ID, revision, branch, and session. The provider admission check runs immediately before every main-model dispatch, including follow-up calls in a tool loop. A run keeps its captured authority through goal completion or blocking; the next internal call is stopped before the provider and surfaced as an aborted continuation reason. That stop produces no provider call, usage receipt, or retry. A separate user run while a goal is paused or completed has no goal receipt and is allowed without a goal charge. Child, permission-classifier, goal-evaluator, direct-summary, and cache-warming calls are outside worker goal admission.
+Every main-model request gets a private receipt naming the request, goal ID, revision, branch and
+session. The check runs just before every main-model call, including later calls in a tool loop. A
+run keeps its goal until the goal completes or is blocked. After that, the next call in the loop is
+stopped before reaching the provider and reported as an aborted continuation, with no provider
+call, usage or retry.
 
-Starting with `/goal <objective>` or `/goal start <objective>`, editing with `/goal edit`, and
-resuming with `/goal resume` queues the authorized objective as a normal user message with prompt
-template expansion disabled. `create_goal` authorizes a goal inside the current run and does not
-queue a second message.
+A run you start while the goal is paused or complete has no goal receipt; it runs normally and is
+not charged to the goal. Calls by children, the classifier, the evaluator, direct summaries and
+cache warming are outside this check.
 
-At a completed `agent_before_settle` boundary, `pi-goal` evaluates only a current, active, armed, in-budget worker scope with no outstanding owned response waits. It requests another worker turn for an accepted `incomplete` assessment or a blocker below the consecutive threshold. Aborted or failed worker runs do not trigger automatic assessment.
+`/goal <objective>`, `/goal start`, `/goal edit` and `/goal resume` send the objective as a normal
+user message with prompt-template expansion off. `create_goal` approves a goal inside the current
+run and sends no extra message.
 
-## Assessment and completion
+At a completed `agent_before_settle` point, `pi-goal` evaluates only if the goal scope is current,
+active, enabled, within budget and has no pending waits. It asks for another turn after an
+`incomplete` verdict, or a blocker seen fewer than three times in a row. Aborted or failed runs are
+not assessed.
 
-A separate authenticated goal evaluator performs assessment. The working model has no `update_goal`
-tool. Criteria remain fixed to the authorized objective: by default, the exact objective is the
-single requirement; optional custom texts must be nonempty and distinct.
+## Assessment
 
-| Evaluator field | Contract |
+A separate, logged-in evaluator model does the assessment. The working model has no `update_goal`
+tool. Criteria are fixed when the goal is approved. By default the objective is the only criterion;
+custom criteria must be non-empty and distinct.
+
+| Evaluator field | Rules |
 | --- | --- |
-| `verdict` | Exactly `finished`, `incomplete`, or `blocked` |
-| `reason` | Nonempty explanation of at most 120 characters |
-| `blockerKey` | Stable unresolved-condition identity of at most 80 characters for `blocked`; `null` otherwise |
-| `requirements` | Every fixed criterion ID exactly once (up to 12), with evidence of at most 96 characters and `met`, `unmet`, or `uncertain` |
+| `verdict` | `finished`, `incomplete` or `blocked` |
+| `reason` | Non-empty, at most 120 characters |
+| `blockerKey` | For `blocked`: a stable name for the problem, at most 80 characters. Otherwise `null` |
+| `requirements` | Every criterion ID exactly once (up to 12), each with evidence of at most 96 characters and `met`, `unmet` or `uncertain` |
 
-The TypeBox schema uses literal unions and the runtime validates the complete result. Goals allow up
-to 12 criteria with bounded text fields so a full assessment fits the 2,048-token response limit.
-The objective and each criterion are limited to 12,000 characters, with the combined objective and
-criteria limited to 24,000 characters and 4,096 tokens estimated by Pi's tokenizer. This keeps the
-complete authorized scope within the evaluator's bounded initial context.
-The evaluator requests strict JSON-schema sampling with a preference that the SDK can negotiate against provider
-support. Providers or compatibility profiles that do not support strict sampling may use ordinary
-tool-schema guidance instead. Host validation remains mandatory in either case. Missing fields,
-unknown criteria, malformed output, or `finished` with an unmet or uncertain criterion refuse the
-assessment. After a completed response fails validation, the evaluator records the raw response and
-error, then makes one corrective attempt. That prompt contains the exact advertised schema and
-criterion IDs, the validation error, and a JSON excerpt of the invalid response bounded to 1,000
-characters. Both attempts share one timeout and authority signal, and each has its own usage receipt.
-Provider, authentication, abort, timeout, or response-length failures do not retry. A second invalid
-response disarms automatic continuation. Failure records are inspectable in the session log and are
-excluded from later evaluator prompts. The evaluator judges reported evidence; the runtime does not
-prove that the evidence is true.
+The schema uses literal unions and the whole reply is validated. The limits keep a full assessment
+within the 2,048-token response limit. The objective and each criterion are limited to 12,000
+characters, and together to 24,000 characters and 4,096 tokens by Pi's estimate, so the whole goal
+fits the evaluator's first message.
 
-Three fresh consecutive `blocked` assessments for the same condition key record `blocked` and stop
-automatic work. `incomplete` resets the count, and a different blocker starts a new count. Waiting
-for an owned result creates no evaluator call and no blocker assessment.
+The evaluator asks for strict JSON-schema output where the provider supports it. Otherwise it falls
+back to normal tool-schema guidance. The reply is always validated. Missing fields, unknown
+criteria, malformed output, or `finished` with any criterion not `met` are rejected.
+
+After a malformed reply, the raw reply and error are saved and the evaluator tries once more. The
+retry prompt has the exact schema and criterion IDs, the error, and up to 1,000 characters of the
+bad reply as JSON. Both tries share one timeout and cancel signal, and each records its own usage.
+Provider, login, abort, timeout and response-length errors are not retried. A second bad reply
+stops automatic work. Failure records stay in the session log and are left out of later evaluator
+prompts. The evaluator judges the evidence it is given; nothing proves the evidence is true.
+
+Three `blocked` verdicts in a row with the same `blockerKey` mark the goal `blocked` and stop
+automatic work. `incomplete` resets the count, and a different key starts a new one. Waiting on a
+child makes no evaluator call and counts as nothing.
 
 ## Evaluator model and history
 
-`--goal-evaluator-model` selects a provider/model ID. No evaluator is selected by default.
-The model must be authenticated and available in Pi's
-registry. `--goal-evaluator-timeout` is a positive timeout in seconds, defaulting to 30 and capped
-at 2,147,483.647 seconds, Node.js's maximum single timer delay.
+`--goal-evaluator-model` picks a provider/model ID. There is no default. The model must be logged
+in and in Pi's registry. `--goal-evaluator-timeout` is in seconds, defaults to 30, and is capped at
+2,147,483.647 seconds, the longest single timer Node.js allows.
 
-The evaluator receives stable assessment instructions and an immutable initial message containing
-the objective, fixed criteria, and initial request context. At each stop, the extension appends new
-worker messages and tool results since the previous assessment, followed by the evaluator's response
-and acknowledgement. Source evidence is truncated with an explicit omission notice if it exceeds its
-per-entry bound. The request keeps whole recent cycles up to a bounded input estimate or the selected
-model's capacity; it may omit older cycles with a notice that missing evidence cannot establish
-completion. Full evaluator records remain in the session log, even when older cycles are omitted from
-a request. Provider caching and measured hit rates still depend on the selected provider.
+The evaluator gets fixed instructions and a first message with the objective, criteria and
+original request. At each stop, the extension adds the worker's new messages and tool results,
+then the evaluator's reply and an acknowledgement. Evidence longer than its per-entry limit is cut
+with a notice. Each request keeps whole recent rounds up to a size limit or the model's capacity.
+Older rounds may be dropped, with a notice that missing evidence cannot prove completion. The full
+record stays in the session log. Caching depends on the provider.
 
-Evaluator session entries are scoped to goal ID, revision, selected branch, and evaluator model.
-Pause, edit, session replacement, or tree changes fence late responses. Edit and resume create a
-new scoped history. Human resume also clears the blocker identity and consecutive count, so the
-next blocked assessment starts a fresh streak. A token estimate plus response and headroom reserves
-is checked against the model context window. If the stable initial context alone does not fit,
-evaluation reports an error and disarms continuation. Missing authentication, timeout, or invalid
-output also disarm with a visible error. These outcomes leave the goal unresolved. After evaluator
-failure, manual messages remain available without goal instructions; `/goal resume` reauthorizes
-automatic continuation and starts a new scoped evaluator history.
+Evaluator entries are tied to the goal ID, revision, branch and evaluator model. Pausing, editing,
+replacing the session or moving in the tree blocks late replies. Editing and resuming start a new
+history. Resuming also clears the blocker count.
+
+Before each request, a token estimate plus room for the reply is checked against the model's
+context window. If even the first message does not fit, evaluation fails and automatic work stops.
+Missing login, a timeout or invalid output also stop it, with a visible error. The goal stays open.
+You can still send messages, without goal instructions, and `/goal resume` turns automatic work
+back on with a new history.
 
 ## Usage and budget
 
-An explicit budget sums parent-provider input, output, cache-read, and cache-write tokens for main-model requests dispatched under active goal authority, including repeated and cached input. Child, permission-classifier, goal-evaluator, direct-summary, and cache-warming calls are excluded. A later independent user run while the goal is paused or completed has no goal charge. One already-dispatched request can finish after a pause or scope change and overshoot by that request's usage; its response remains attributed to the authority that dispatched it.
+A budget adds up input, output, cache-read and cache-write tokens, including repeated and cached
+input, for main-model requests sent under the active goal. Calls by children, the classifier, the
+evaluator, direct summaries and cache warming are not counted. Nor are runs you start while the
+goal is paused or complete. A request already sent can finish after a pause or scope change and go
+over the budget by its own usage; it still counts against the goal that sent it.
 
-Aborted and failed responses retain reported token categories and carry an incomplete marker. If an explicit budget has missing or incomplete usage, the remaining amount is unknown and automatic continuation stops. Without a budget, goal continuation has no token ceiling and model context omits usage totals; `/goal` still reports accounting. These limits are separate from provider response limits, context windows, and account limits. See [session accounting](../accounting.md).
+Aborted and failed replies keep their reported tokens and are marked incomplete. With a budget,
+missing or incomplete usage means the remaining amount is unknown, so automatic work stops. Without
+a budget there is no token limit and the model is not shown totals; `/goal` still shows them.
+Budgets are separate from response limits, context windows and account limits. See
+[accounting](../accounting.md).
 
-## Provider registration lifecycle
+## Provider wrapping
 
-Goal admission wraps Pi's registered provider methods so it can check each main-model dispatch:
+To check every main-model request, `pi-goal` wraps Pi's registered provider methods:
 
-| Existing registration | Admission wrapper | Constraint |
+| Existing registration | How it is wrapped | Note |
 | --- | --- | --- |
-| One API backed by a configured `streamSimple` handler | Wraps that configured stream and retains its provider config | Preserves configured stream merge behavior. |
-| Multiple APIs on one provider registration | Registers a provider wrapper through Pi's model registry | The SDK's single-config accessor cannot describe the heterogeneous API registrations while the wrapper is active. |
+| One API using a configured `streamSimple` handler | Wraps that stream and keeps its provider config | Keeps the configured stream's merge behaviour |
+| Several APIs on one provider | Registers a wrapper through Pi's model registry | The SDK's single-config accessor cannot describe mixed APIs while the wrapper is active |
 
-On session shutdown, cleanup restores the captured provider only if the goal wrapper is still installed, preserving a later provider registration from another owner. Transparent-provider metadata keeps child authentication classification tied to the underlying provider. See [provider admission](../../packages/pi-goal/lib/continuation.ts) and the [provider lifecycle fixture](../../packages/pi-goal/lib/independent-provider-lifecycle.test.ts).
+On shutdown, the original provider is restored only if the goal wrapper is still the one
+installed, so a later registration by someone else is kept. The wrapper's metadata keeps child
+login detection tied to the real provider. See [provider wrapping](../../packages/pi-goal/lib/continuation.ts)
+and the [provider lifecycle test](../../packages/pi-goal/lib/independent-provider-lifecycle.test.ts).
 
 ## Stored state
 
-| Record | Kind and schema | Owner and purpose |
+| Record | Kind and schema | Purpose |
 | --- | --- | --- |
-| `pi-goal.state` | Custom session entry containing `{state: GoalState}`; `GoalState.version` is `3`. `{state: null}` clears the goal. | Objective, fixed criteria, optional absolute `deadlineAt`, assessments, status, and accounting. |
-| `pi-goal.waiter-state.v1` | Custom session entry, `{version: 1, disarmed: boolean}` | Whether automatic continuation is disarmed. |
-| `pi-goal.cleared` | Custom message | Records the human clear action in model-visible conversation without starting a new turn. |
-| `pi-goal.continue` | Internal custom message | Requests another turn within the current run. |
-| `pi-goal.delivery.v1` | Custom session entry, version 1 delivery key | Prevents an owned response from being delivered twice. |
-| `pi-goal.request-usage.v1` | Custom session entry, version 1 request receipt and usage | Attributes worker provider usage to the dispatch authority. |
-| `pi-goal.evaluator.v1` | Custom session entry, version 1, `initial`/`input`/`result`/`failure` | Persists scoped evaluator history, decisions, and failures. |
+| `pi-goal.state` | Custom entry `{state: GoalState}`, with `GoalState.version` `3`; `{state: null}` clears the goal | Objective, criteria, optional `deadlineAt`, assessments, status and usage |
+| `pi-goal.waiter-state.v1` | Custom entry `{version: 1, disarmed: boolean}` | Whether automatic work is turned off |
+| `pi-goal.cleared` | Custom message | Notes in the conversation that you cleared the goal, without starting a turn |
+| `pi-goal.continue` | Internal custom message | Asks for another turn within the current run |
+| `pi-goal.evaluation` | Displayed custom message | Shows the goal's status and the evaluator's reason |
+| `pi-goal.evaluation-error` | Displayed custom message | Shows an evaluator error |
+| `pi-goal.delivery.v1` | Custom entry, version 1 delivery key | Stops a waited-on answer being delivered twice |
+| `pi-goal.request-usage.v1` | Custom entry, version 1 request receipt and usage | Charges worker usage to the goal that sent the request |
+| `pi-goal.evaluator.v1` | Custom entry, version 1: `initial`, `input`, `result` or `failure` | Evaluator history, verdicts and failures |
 
-Failure records contain the error and, when a provider returned one, the raw response. They remain
-inspectable in the session log but are excluded from later evaluator prompts.
+Failure records hold the error and, if the provider returned one, the raw reply. They stay in the
+session log but are left out of later evaluator prompts.
 
-Pi reconstructs a goal from these records on the selected branch in order. Unrelated extension records do not import or overwrite a goal. Malformed current goal or waiter-state records fail closed; a later `/goal clear` writes the explicit goal tombstone and rearmed waiter record needed to recover them. Malformed records after those recovery entries still fail closed. Pausing, resuming, and replaying a saved current goal preserve its fixed criteria and accounting. See [persistence](../../packages/pi-goal/lib/persistence.ts) and [persistence tests](../../packages/pi-goal/lib/persistence.test.ts).
+Pi rebuilds the goal from these records on the selected branch, in order. Records from other
+extensions never create or overwrite a goal. If the current goal or waiter-state record is
+malformed, goal work stops. `/goal clear` writes a clean goal record and re-enables the waiter, which
+repairs it; malformed records after that point stop goal work again. Pausing, resuming and replay
+keep a goal's criteria and usage. See [persistence](../../packages/pi-goal/lib/persistence.ts) and
+[its tests](../../packages/pi-goal/lib/persistence.test.ts).
 
 ## Owned response waits
 
-`goal:waiter` accepts a producer-owned version-1 offer:
+A producer, such as delegation, emits `goal:waiter` with a version 1 offer:
 
-| Field | Contract |
+| Field | Meaning |
 | --- | --- |
-| `id`, `owner`, `sessionId` | Offer identity, producer, and owning session. |
-| `producerGeneration` | Opaque producer scope; the goal does not interpret it. |
-| `promise` | Resolves `{deliveryKey, value}` for the completed response. |
-| `isCurrent()` | Becomes false when producer scope or capability is revoked. |
-| `respond(result)` | Synchronous, exactly-once acceptance or rejection callback. |
+| `id`, `owner`, `sessionId` | The offer, its producer and its session |
+| `producerGeneration` | The producer's own scope marker; the goal does not read it |
+| `promise` | Resolves to `{deliveryKey, value}` with the finished answer |
+| `isCurrent()` | Returns false once the producer's scope is gone |
+| `respond(result)` | Called once, synchronously, to accept or reject |
 
-Acceptance returns `{accepted: true, scope: {goalId, revision, branchToken}, release()}`; rejection returns `{accepted: false}`. The offer is accepted only for a current, active, authorized, in-budget goal scope. If the callback throws, the retained waiter is removed. Session/branch changes, producer revocation, pause, completion, or scope edits fence delivery.
+Acceptance returns `{accepted: true, scope: {goalId, revision, branchToken}, release()}`;
+rejection returns `{accepted: false}`. An offer is accepted only for a current, active, approved
+goal within budget. If the callback throws, the wait is removed. Session or branch changes, the
+producer going away, pausing, completion or edits all block delivery.
 
-The `pi-delegation` producer offers before dispatch and correlates replies to the offer; another trusted producer can implement the same contract. Handles for one completed response share a delivery key. Accepted ownership suppresses the ordinary notification route, even after release, so a revoked wait cannot fall back to an unsolicited wake. The delivery key is persisted before exposing the result, preventing replay. A failed or stale wait disarms its accepted scope until human resume; a later scope is unaffected. A steering message or `/background` yields the current foreground wait without releasing its producer-owned pending response, so the same `wait_id` remains available for a later wait. `/background` also yields foreground secured-shell waits while their processes continue. See [wait delivery](../../packages/pi-goal/lib/wait-delivery.ts), [producer offers](../../packages/pi-delegation/lib/subagent/owned-waiter.ts), and [wait integration](../../packages/pi-goal/lib/waiter-integration.test.ts).
+`pi-delegation` makes its offer before sending the task and matches answers to it. Other producers
+can use the same contract. Handles for one answer share a delivery key. Once a goal accepts an
+answer, the normal notification is suppressed, even after release, so a cancelled wait never turns
+into a surprise wake-up. The delivery key is saved before the answer is shown, so it is never
+replayed. A failed or stale wait turns off automatic work for that goal scope until you resume; a
+later scope is unaffected.
 
-## Implementation and checks
+A steering message or `/background` ends the current foreground wait without releasing the pending
+answer, so the same `wait_id` works for a later wait. `/background` also ends foreground shell
+waits while their jobs keep running. See [wait delivery](../../packages/pi-goal/lib/wait-delivery.ts),
+[producer offers](../../packages/pi-delegation/lib/subagent/owned-waiter.ts) and
+[wait tests](../../packages/pi-goal/lib/waiter-integration.test.ts).
 
-- [Goal reducer and criterion validation](../../packages/pi-goal/lib/goal.ts)
-- [Authorization fixture](../../packages/pi-goal/lib/authorization.test.ts)
+## Source and tests
+
+- [Goal reducer and criteria checks](../../packages/pi-goal/lib/goal.ts)
+- [Approval tests](../../packages/pi-goal/lib/authorization.test.ts)
 - [Usage handling](../../packages/pi-goal/lib/usage.ts)
-- [Serialized provider-context fixture](../../packages/pi-goal/lib/serialized-context.test.ts): tests stable outbound instructions, append-only serialized input and private receipts absent from provider text; it does not establish live cache or performance behavior.
-- [Package test commands](../../packages/pi-goal/package.json) and the [contribution testing guide](../testing.md)
+- [Serialized provider-context test](../../packages/pi-goal/lib/serialized-context.test.ts): checks that outgoing instructions stay stable, input only grows, and private receipts never reach provider text. It does not measure live caching or speed.
+- [Package test commands](../../packages/pi-goal/package.json) and the [testing guide](../testing.md)

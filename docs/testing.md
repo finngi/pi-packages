@@ -1,6 +1,6 @@
-# Test a contribution
+# Testing
 
-Use Node 24 and the root lockfile (Pi 1.2.0):
+Use Node 24 and the root lockfile, which pins Pi 1.2.0:
 
 ```sh
 npm ci --ignore-scripts
@@ -13,52 +13,53 @@ npm run test:packages
 npm run test:e2e
 ```
 
-`check` runs formatting, lint and workspace TypeScript checks. Run an affected package's tests
-while developing; run the combined checks before merging a cross-package migration.
+`check` runs formatting, lint and TypeScript checks. `check:docs` checks relative links and
+`check:boundary` checks that no private paths are in the public source. While you work, run the
+tests for the package you changed. Run everything before merging a change that spans packages.
 
-| Check | Evidence |
+| Tests | What they cover |
 |---|---|
-| Delegation tests | Actual stock Pi parent/child processes, selected tools/model/skills, messages, cancellation and retained artifacts |
-| Resources/context tests | Native filters, session/project/global selection, project trust, prompt separation and resume |
-| Background tests | Actual managed commands, output cursors, cancellation and process ownership |
-| Search tests | Native registry auth, scripted HTTP, citations, usage and abort/error handling |
-| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and blocking before a write on stock Pi |
-| Goal tests | Independent scripted evaluator, deadlines/budgets, stop/resume, wait delivery and accounting |
-| `test:packages` | Installs each artifact alone with stock Pi in a separate consumer, exercises extension behavior and library APIs, then runs a separate combined child integration |
-| `test:e2e` | Native context, child tools, jobs, permissions and installed-consumer workflows |
+| Delegation | Real stock-Pi parent and child processes, selected tools, model and skills, messages, cancellation and collected files |
+| Resources and context | Pi's filters, session, project and personal selection, project trust, prompt sections and resume |
+| Background | Real commands, output cursors, cancellation and process ownership |
+| Search | Pi registry login, scripted HTTP, citations, usage, cancellation and errors |
+| Permissions, plus `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and that a denied write never happens on stock Pi |
+| Goals | Scripted evaluator, deadlines, budgets, stop and resume, waits and accounting |
+| `test:packages` | Installs each tarball alone with stock Pi in its own fresh project, exercises it, then runs a separate combined child check |
+| `test:e2e` | Context, child tools, jobs, permissions and the installed-package workflows |
 
-Tests use temporary agent directories and scripted providers/HTTP. They prove lifecycle and
-observable effects without contacting real providers. They do not prove live classifier judgement
-or account behaviour. Real-provider checks must be reported separately with their limits.
+Tests use temporary agent directories and scripted providers and HTTP. They check lifecycles and
+visible effects without calling real providers, so they say nothing about how well a real
+classifier judges calls or how a real account behaves. Report any real-provider check separately,
+with its limits.
 
-CI runs on macOS and Linux with Node 24 and native file helpers. It does not install or configure
-an OS sandbox. A hosted run that never executed is unavailable evidence, not a passing check.
+CI runs on macOS and Linux with Node 24. It does not set up a sandbox. A CI job that did not run is
+not a pass.
 
-For UI changes inspect captures rendered by Pi's actual components and, where possible, a terminal
-instance. A browser approximation alone does not establish terminal layout or input behaviour.
+For UI changes, look at captures rendered by Pi's real components, and in a real terminal where
+you can. A browser mock-up does not show terminal layout or input behaviour.
 
-## Independent artifact proof
+## Installed-package checks
 
-`npm run test:packages` builds the candidate and installs exactly one repository tarball in each
-fresh consumer, alongside stock Pi 1.2.0 host peers. Sibling top-level packages must be absent.
-Tests import and execute the installed files; the source checkout is not an alternate resolver.
-The npm download cache may be shared, but consumers do not share `node_modules`.
+`npm run test:packages` builds the packages and installs exactly one tarball into each fresh
+project, next to stock Pi 1.2.0. No sibling package is installed at the top level. Tests import and
+run the installed files; the checkout is never used to resolve them. Projects may share npm's
+download cache but not `node_modules`.
 
-| Artifact | Observable use in its fresh consumer |
+| Tarball | What its fresh project checks |
 | --- | --- |
-| `pi-background` | Launch, read and cancel a managed job while a foreground command runs |
-| `pi-delegation` | Launch a real child RPC process, write a project file and close the child |
-| `pi-resources` | Exclude/select a native skill and inspect the resulting lazy prompt description |
-| `pi-context` | Load local context and selected instructions into the actual stock prompt |
-| `pi-goal` | Start, pause, inspect and clear a goal through native commands/tools |
-| `pi-codex-search` | Execute fixture HTTP search with native auth, citation output and usage |
-| `pi-permissions` | Allow a read and deny a write before a file is created |
-| `pi-contracts` | Import event identifiers and exchange a payload using the defined event |
-| `pi-runtime` | Use token accounting and run a managed subprocess |
-| `pi-resource-browser` | Search resources through the exported BM25/prefix API |
+| `pi-background` | Launch, read and cancel a job while a foreground command runs |
+| `pi-delegation` | Launch a real child over RPC, write a project file and close the child |
+| `pi-resources` | Exclude and select a skill and check the description in the prompt |
+| `pi-context` | Load local context and selected instructions into the real prompt |
+| `pi-goal` | Start, pause, inspect and clear a goal with its commands and tools |
+| `pi-codex-search` | Run a scripted search with Pi login, citations and usage |
+| `pi-permissions` | Allow a read and deny a write before the file is created |
+| `pi-contracts` | Import event names and exchange a payload on one event |
+| `pi-runtime` | Record token usage and run a managed subprocess |
+| `pi-resource-browser` | Search resources with the exported BM25 and prefix API |
 
-Only the seven extension entrypoints activate; the three helper artifacts are ordinary libraries.
-A separate combined install checks shared session setup, resume/reset and compiled child tools.
-The permissions fixture checks the configured read allowance and write denial. These
-deterministic providers and HTTP responses prove package mechanics,
-not live search quality, model judgement or a future Pi version.
+Only the seven extensions load as extensions; the other three are plain libraries. A separate
+combined install checks shared session setup, resume and reset, and compiled child tools. Scripted
+providers and HTTP replies test how the packages work, not search quality, model judgement or
+future Pi versions.

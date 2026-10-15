@@ -1,83 +1,85 @@
 # Architecture
 
-Stock Pi owns package resolution, login, model access, native tools, sessions, MCP and the terminal.
-Extensions add independently useful capabilities. Importing a shared library does not activate an
-extension, start a service or change permissions.
+Stock Pi handles package loading, login, model access, built-in tools, sessions, MCP and the
+terminal. Each extension here adds one feature on top. Importing a shared library never starts an
+extension, a service or a permission check.
 
 ```mermaid
 flowchart TB
-  Settings["Native user / trusted project settings"] --> Pi["Stock Pi session"]
+  Settings["Personal and project settings"] --> Pi["Stock Pi session"]
   Pi --> Resources["Resources: session selections"]
   Pi --> Context["Context: selected instructions"]
-  Pi --> Delegate["Delegation: agent definitions and messages"]
+  Pi --> Delegate["Delegation: agents and messages"]
   Pi --> Jobs["Background: jobs, output and cancellation"]
   Pi --> Goal["Goal: objective, evaluation and continuation"]
-  Pi --> Search["Search: native Codex login"]
-  Pi -. "when explicitly loaded" .-> Gate["Permissions: deny → allow → approval"]
-  Delegate --> Child["Stock Pi RPC child"]
-  Child --> Native["Native auth + selected tools and private skills"]
-  Gate -. "trusted launch contribution" .-> Child
+  Pi --> Search["Search: Codex login"]
+  Pi -. "if loaded" .-> Gate["Permissions: deny, allow, then mode"]
+  Delegate --> Child["Child Pi session over RPC"]
+  Child --> Native["Pi login, selected tools and private skills"]
+  Gate -. "settings passed at launch" .-> Child
 ```
 
-## Delegated work
+## Child sessions
 
-Each child is a separate Pi process with a recorded session and a configured agent definition.
-One native launcher prepares instructions, skills, selected model/thinking, tool entrypoints and
-RPC communication. Authentication uses Pi's native user storage; delegation does not maintain a
-second login or credential-refresh implementation.
+Each child is a separate Pi process with its own saved session and an agent definition. One
+launcher sets up its instructions, skills, model, thinking level, tools and RPC connection. The
+child logs in through Pi's normal user storage; there is no second login system.
 
-The default scratch workspace collects ordinary files before cleanup. A project workspace writes
-directly into the parent's project. Workspaces organize output; neither is OS confinement. The
-parent brokers agent messages and correlated results. Acknowledgement means dispatch, not task
-completion. Quiet progress does not start an idle parent turn; questions and completed results can.
-See [delegation](guides/delegation.md) and [delivery](reference/events.md).
+By default a child works in a scratch directory. Its files are collected when it closes. In
+project mode it writes straight into the parent's project. Neither mode restricts what the child
+can access.
 
-Selected native tool extensions, including search and background jobs, can load in children.
-An explicit agent tool list narrows the parent's available set. Private bundle skills remain
-available without being selected for the parent. Child guidance resolves saved personal/project
-choices plus the bundle; temporary parent guidance selections are not inherited. Native MCP connections are not transferred to
-children; parent MCP remains stock Pi's responsibility. Trusted executable extensions can register
-hooks as well as tools; a tool list does not isolate their initialization code.
+The parent routes messages between agents and matches answers to requests. A launch reply means
+the task was sent, not finished. Progress messages do not wake an idle parent; questions and
+finished answers do. See [delegation](guides/delegation.md) and [events](reference/events.md).
 
-## Processes, goals and usage
+Children can load the parent's package tools, such as search and background jobs. An agent's
+`tools` list can only narrow the parent's set. An agent's private skills reach only that agent.
+Children use saved personal and project choices plus their own bundle. They ignore choices the
+parent made just for its current session.
 
-`pi-background` supplies managed Bash jobs, bounded output and cancellation. Delegation reuses the
-same process library and works independently when the jobs extension is absent. Process limits,
-closed handles and output bounds protect lifecycle correctness; they are not sandbox permissions.
+MCP connections stay with the parent and are not passed to children. Extensions that a child loads
+can run setup code and register hooks, not only tools, so a tool list does not isolate them.
 
-`pi-goal` keeps the saved objective separate from automatic continuation. A configured independent
-evaluator assesses fixed criteria. The extension owns deadline/budget checks, continuation and
-wait delivery. Evaluator judgement is evidence to inspect, not proof of correctness.
+## Jobs, goals and usage
 
-Child, classifier and evaluator usage uses shared receipts forwarded into native tool-result
-usage, with IDs for deduplication across delivery and resume. `/costs` keeps detailed accounting
-and missing-usage explanations. See [accounting](accounting.md).
+`pi-background` runs Bash jobs, keeps a bounded amount of output and cancels jobs. Delegation uses
+the same process library and works without the jobs extension. The limits on jobs and output keep
+lifecycles tidy; they are not security limits.
 
-## Optional permissions
+`pi-goal` stores the objective separately from the decision to keep going. A separate evaluator
+model checks fixed criteria. The extension handles deadlines, budgets, continuation and waiting
+for child answers. Treat the evaluator's verdict as evidence to check, not proof.
 
-`pi-permissions` checks each tool call before it runs. Deny rules win, then allow rules; anything
-else is left to the mode: run it, ask you, or ask a classifier model. Calls that run keep Pi's
-normal host access. Child agents receive the parent's settings and user messages at launch.
-See [the permission package](../packages/pi-permissions/README.md).
+Usage from children, the permission classifier and the goal evaluator is recorded once and added
+to Pi's normal totals. `/costs` shows the breakdown and explains anything missing. See
+[accounting](accounting.md).
+
+## Permissions
+
+`pi-permissions` checks each tool call before it runs. Deny rules win, then allow rules. Anything
+else goes to the mode: run it, ask you, or ask a classifier model. Calls that run have your normal
+user access. Children get the parent's settings and your messages when they launch. See
+[the permission package](../packages/pi-permissions/README.md).
 
 ## Resources
 
-Native packages contain extensions, skills, prompts and themes. Our metadata reader additionally
-recognizes `pi.agents` and `pi.instructions`, since Pi has no equivalent resource types. It reads
-already resolved package roots; it does not install packages or rebuild excluded native skills.
-Session setup changes selected guidance and active tools, never executable package installation.
-[Package decisions](package-design.md) explain these boundaries.
+Pi packages can hold extensions, skills, prompts and themes. These packages also read two extra
+fields, `pi.agents` and `pi.instructions`, because Pi has no built-in type for them. The reader
+only looks at packages Pi has already resolved. It never installs packages or brings back skills
+Pi excluded. Changing a session's resources changes guidance and active tools, never which code is
+installed. See [package design](package-design.md).
 
-## Shared library boundaries
+## Shared libraries
 
 ```mermaid
 flowchart TD
-  D[Delegation: children and artifacts] --> R[Resources: pure discovery/selection APIs]
-  C[Context: overlays and instructions] --> R
-  R --> B[Resource browser/search library]
+  D[Delegation: children and collected files] --> R[Resources: discovery and selection APIs]
+  C[Context: local files and instructions] --> R
+  R --> B[Resource browser and search]
   D --> B
   C --> B
-  D --> U[Runtime: processes/accounting/provider helpers]
+  D --> U[Runtime: processes, accounting, provider helpers]
   J[Background jobs] --> U
   G[Goals] --> U
   P[Optional permissions] --> U
@@ -85,6 +87,6 @@ flowchart TD
   R --> T
 ```
 
-The resources library subpaths do not import or activate its extension entrypoint. Each selected
-extension explicitly registers its own tools and commands. Shared accounting/session event names
-and stored entry schemas remain unchanged; moving files does not migrate or rewrite user state.
+The `pi-resources` library subpaths never import or start its extension. Each loaded extension
+registers its own tools and commands. Moving code between packages kept the accounting and session
+event names and saved entry formats, so no user state is migrated or rewritten.

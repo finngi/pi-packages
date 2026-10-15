@@ -1,19 +1,18 @@
-# Publication and private history
+# Publication
 
-This public repository starts from a reviewed reusable source snapshot with a fresh Git history.
-Older development history, local installation reports, personal profiles and research material
-remain outside it. Do not push private development refs, sessions or profile files here.
+This public repository started from a reviewed snapshot of reusable code, with fresh Git history.
+Older history, local install notes, personal profiles and research stay out of it. Do not push
+private branches, sessions or profile files here.
 
-The monorepo contains independently selectable native Pi packages. Repository publication and
-npm publication are separate actions. The source manifests remain private to prevent accidental
-npm releases; local tarball checks prepare installable distribution manifests. Nothing in CI
-publishes npm packages. Choose owned scoped names and review release artifacts before a future
-registry release.
+Publishing this repository and publishing to npm are separate steps. Package manifests are marked
+`private` so nothing reaches npm by accident. Local tarball builds create installable manifests,
+and CI never publishes. Before any future npm release, choose scoped names you own and review the
+packed files.
 
-Run `npm run check:boundary` and inspect `npm pack` output before releasing. The boundary checker
-rejects personal host paths and private research directories but is not a complete credential
-scanner. The initial snapshot was also checked with Gitleaks before its public push.
+Before a release, run `npm run check:boundary` and look at the `npm pack` output. The boundary
+check rejects personal host paths and private research directories, but it is not a full secret
+scanner. The first snapshot was also scanned with Gitleaks before it was pushed.
 
-The public repository includes its own AGENTS.md, project skills, lockfile and CI workflow. It does
-not depend on the surrounding personal workspace. Private packages may follow the same design
-principles while keeping their implementation and settings outside this repository.
+The repository has its own AGENTS.md, project skills, lockfile and CI, and does not depend on the
+surrounding personal workspace. Private packages can follow the same design while keeping their
+code and settings elsewhere.

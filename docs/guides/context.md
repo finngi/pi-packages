@@ -1,56 +1,122 @@
 # Load local context
 
-Load `pi-context` for personal project context and selected agent instructions. `AGENTS.md`, `CLAUDE.md` and `AGENTS.local.md` remain in Pi's native `<project_context>` section. Selected snippets appear separately in `<instructions>` and can guide communication, delegation, coding or data handling. These labels identify the sources' roles; they do not establish a priority rule between them. Pi's project-trust state controls whether this extension reads project-local sources and whether `/instructions` can save project choices.
+`pi-context` adds two things to Pi's prompt:
 
-Declare instruction directories in a native package's `pi.instructions` field and load that package
-through personal or trusted project settings. Select resource IDs through `/instructions` or
-`session_setup`. Sparse boolean maps save explicit personal/project choices; omitted IDs inherit.
-Session choices are recorded and retained on resume. Bodies refresh before each parent turn.
+- **Local files.** An `AGENTS.local.md` next to a project's `AGENTS.md` or `CLAUDE.md` is added to
+  Pi's `<project_context>` section. Use it for personal notes you do not commit.
+- **Selected instructions.** Snippets you choose with `/instructions` go in a separate
+  `<instructions>` section. Use them for guidance on communication, delegation, coding or data
+  handling.
 
-When no selection is configured, `.agents/instructions/*.md` files in the trusted project are selected in filename order. Selecting a snippet loads its body eagerly as agent guidance; skills remain lazy. Leading closed YAML frontmatter is removed from eager prompt context, including team, local, and ancestor entries. Source files and raw read/grep/edit output are unchanged.
+The two section names say where text came from. They do not make one source outrank the other.
+The extension only reads project files, and only saves project choices, in a project Pi trusts.
 
-## Add personal or selected instructions
+## Try it
 
-Load the entrypoint explicitly:
+Load the entrypoint:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   --no-extensions -e packages/pi-context/extensions/context.ts
 ```
 
-Create `AGENTS.local.md` beside a project's `AGENTS.md` or `CLAUDE.md`. The walk runs from the filesystem root to the working directory. Within each directory, Pi's context file comes first, then the local file. Agent-directory context outside that walk stays first. Selected project snippets follow directory walk and filename order in the separate `<instructions>` section, followed by selected catalogue snippets.
+Create `AGENTS.local.md` beside a project's `AGENTS.md` or `CLAUDE.md`. Pi walks from the
+filesystem root down to the working directory. In each directory, Pi's context file comes first,
+then the local file. Context from your agent directory, outside that walk, stays first.
 
-Added files are deduplicated by canonical path across native context, local overlays, selected project snippets, and selected catalogue entries. The first loaded source keeps its content; existing host-supplied entries are preserved. Distinct files with identical text remain separate instructions. Nested worktree shadowing follows Pi's context-file walk. Other loaded entries keep their source paths. Unreadable additions are skipped; unreadable local files produce a UI warning.
+## Where snippets come from
 
-The `/instructions` picker keeps its list to names, selection marks and default badges. Project-local entries carry a short `Project` label; reusable entries come from your instruction library. The details pane shows the behavioral body, selection storage and full source path. A project settings override chooses the set to use there; it does not make the snippets project rules or give their contents higher priority. An empty selection leaves `AGENTS.local.md` active.
+Packages declare instruction directories in their `pi.instructions` field. Load the package
+through personal or project settings, then choose snippets with `/instructions` or
+`session_setup`. If you have not chosen any, the trusted project's `.agents/instructions/*.md`
+files are used, in file-name order.
 
-Local overlays and selected snippet bodies are read again before the next parent turn, so editing them does not require a process restart. Children receive static personal/project context and the instruction selections saved in personal/project settings, plus their own agent body. Temporary parent session selections do not apply to children. Saved instruction bodies refresh at child launch; already-running children retain that snapshot. Dynamic parent sections, including running agents and goal state, are not copied.
+Order in `<instructions>`: selected project snippets, in directory-walk and file-name order, then
+selected package snippets.
 
-The eager overlay reads local and selected files only when their resolved paths stay within the source root: the enclosing Git checkout when one exists, otherwise the directory that supplied the file. Symlinks within that root remain supported and are deduplicated by their canonical path; links outside it are skipped. Files with multiple hard links are also skipped, because their other paths cannot be confined. These path checks apply to files added by this extension, not to Pi's own context-file loading or to file access by tools and other extensions. Project trust is Pi's separate gate for loading the project-local overlay and changing project instruction selections.
+Saved choices are maps from snippet ID to `true` or `false`; a missing ID inherits from the next
+level. Session choices are saved in the session and come back on resume. In the picker, Ctrl+S
+saves project defaults and Ctrl+Shift+S saves personal defaults for new sessions.
 
-Leading closed YAML frontmatter is removed from every eager context entry, including global/team files and a closed block with malformed YAML. Delimiters must be standalone `---` lines; prose beginning with `---text` and unclosed blocks stay intact. The child snapshot follows the same rule. HTML body comments remain. Pi's lazy skill catalogue and loading keep their default behavior; skill bodies are not inserted eagerly.
+A selected snippet's text goes into the prompt in full. Skills are different: only their
+description is listed until the model reads them.
 
-## Discover Pi help
+## The `/instructions` picker
 
-The package supplies the optional `pi-help` skill using Pi's ordinary skill catalogue. Its body is
-loaded only when the model chooses it or the user invokes it. The context extension replaces Pi's
-default documentation catalogue with a one-line skill or SDK-directory pointer. Custom system
-prompts and explicit caller documentation-section overrides are preserved. See [prompt context](prompts.md#select-optional-skills).
+The list shows names, selection marks and default badges. Project snippets have a short `Project`
+label; others come from your instruction packages. The details pane shows the text, where the
+choice is saved and the full source path. A project setting chooses which snippets apply there; it
+does not turn them into project rules or raise their priority. Turning every snippet off still
+leaves `AGENTS.local.md` active.
 
-## Disable the overlay
+## What gets read and when
 
-`-nc` or `--no-context-files` disables local overlays and selected snippet contributions. For SDK embedding, the separate resource-loader `noContextFiles` option is not visible to this extension: also pass `--no-context-files` in the host arguments to disable the overlay. Caller-supplied custom sections are preserved. Metadata stripping still applies to eager entries supplied by the host.
+Local files and selected snippets are re-read before each parent turn, so edits apply without a
+restart.
 
-## Keep personal files out of Git
+Files are de-duplicated by their real path across Pi's context files, local files, project
+snippets and package snippets. The first copy wins, and entries supplied by the host are kept. Two
+different files with the same text stay separate. Nested worktrees shadow each other the same way
+Pi's context walk does. Files that cannot be read are skipped; an unreadable local file shows a
+warning.
 
-The optional user agent directory setting is:
+A file is only read if its real path stays inside its source root: the enclosing Git checkout, or
+otherwise the directory it came from. A home-level `AGENTS.local.md` uses the home directory.
+Project snippets are only taken from directories inside the Git root (or the working directory,
+without Git), and never from the home directory. Symlinks inside the
+root work and are de-duplicated by real path; links that leave it are skipped. Files with more than
+one hard link are skipped, because their other names cannot be checked. These checks cover only
+files this extension adds. They do not affect Pi's own context loading or what tools and other
+extensions can read.
+
+A leading YAML front-matter block is removed from every context entry before it reaches the
+prompt, including global, team and ancestor files, and blocks with invalid YAML. The block must
+open and close with a line that is exactly `---`. Text starting `---text` and unclosed blocks are
+left alone. HTML comments stay. Source files and raw tool output are never changed.
+
+## Child agents
+
+Children get the parent's static context files and the instruction choices saved in personal and
+project settings, followed by their own agent instructions. Choices the parent made only for its
+current session are not passed on. Saved snippet text is read when the child launches; a running
+child keeps that copy. Live parent sections, such as running agents and goal state, are not
+copied. See [delegate work](delegation.md#assign-a-task).
+
+## Pi help skill
+
+The package includes an optional `pi-help` skill in Pi's normal skill list. Its text loads only
+when the model picks it or you invoke it. The extension shortens Pi's default documentation
+section to one line that points at the skill, or at the SDK docs directory. Custom system prompts
+and explicit documentation-section overrides are kept. See
+[prompt context](prompts.md#select-optional-skills).
+
+## Turn it off
+
+`-nc` or `--no-context-files` turns off local files and selected snippets. Extensions cannot see
+the SDK resource loader's `noContextFiles` option, so when embedding Pi, also pass
+`--no-context-files` in the host's arguments. Custom sections from the caller are kept.
+Front-matter is still removed from entries the host supplies.
+
+## Keep local files out of Git
+
+In your user agent directory settings:
 
 ```json
 { "localContext": { "autoGitIgnore": true } }
 ```
 
-It defaults to false. When enabled, session startup can append `AGENTS.local.md` to the owning repository's personal `.git/info/exclude`, preserving existing text. Linked worktrees use the verified common exclude. It does not edit `.gitignore` or tracked local files.
+This is off by default. When on, session start can add `AGENTS.local.md` to the repository's
+personal `.git/info/exclude`, keeping what is already there. Linked worktrees use the shared
+exclude file. It never edits `.gitignore` or tracked files.
 
-Writes require saved trust for each owning repository and current project trust. Children marked `PI_SUBAGENT`, `-na`/`--no-approve`, and context-disable arguments do not write. Exclude targets must be owned regular files; symlinks, hardlinks, FIFOs, arbitrary Git pointers, and unregistered worktree redirects are refused silently. Git subprocesses disable hooks and fsmonitor and remove inherited routing. These checks protect normal metadata; they do not isolate a race with a concurrent process holding the same host privileges.
+It only writes when the repository and the current project are both trusted. It does not write in
+child sessions (`PI_SUBAGENT`), with Pi's `-na`/`--no-approve`, or when context files are off. The
+exclude file must be an ordinary file you own: symlinks, hard links, FIFOs, unusual Git pointers
+and unregistered worktree redirects are skipped without a message. Git runs with hooks and
+fsmonitor off and without inherited routing variables. These checks protect normal Git metadata;
+they cannot stop another process running as you from racing the write.
 
-Implementation and checks: [overlay](../../packages/pi-context/lib/local-context.ts), [metadata stripping](../../packages/pi-context/lib/frontmatter.ts), [exclude validation](../../packages/pi-context/lib/local-ignore.ts), and [Pi 1.2.0 SDK acceptance](../../packages/pi-context/context-check.mjs).
+Source and tests: [local files](../../packages/pi-context/lib/local-context.ts),
+[front-matter removal](../../packages/pi-context/lib/frontmatter.ts),
+[exclude checks](../../packages/pi-context/lib/local-ignore.ts) and
+[Pi 1.2.0 SDK check](../../packages/pi-context/context-check.mjs).

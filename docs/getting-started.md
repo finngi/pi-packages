@@ -1,6 +1,8 @@
 # Get started
 
-This walkthrough builds the checkout and starts a parent Pi session with background transport and delegation. It uses ordinary host permissions. Add the optional [permission gate](../packages/pi-permissions/README.md) when calls need allow/deny or classifier review.
+This walkthrough builds the checkout, defines one agent and starts a Pi session that can delegate
+to it. Tools run with your normal user permissions. Add the
+[permission package](../packages/pi-permissions/README.md) if you want calls checked first.
 
 ## 1. Build the checkout
 
@@ -14,11 +16,14 @@ npm run check
 npm test
 ```
 
-The root lockfile supplies Pi 1.2.0 and the development dependencies. `npm run build` emits package JavaScript and TypeScript declarations; Pi can also load the TypeScript entrypoints directly from the Git checkout.
+The lockfile installs Pi 1.2.0 and the development tools. `npm run build` writes JavaScript and
+type declarations for each package. Pi can also load the TypeScript entrypoints straight from the
+checkout.
 
-## 2. Define one agent
+## 2. Define an agent
 
-In your Pi user agent directory, create `agents/reviewer.md`. The default directory is `~/.pi/agent`; `PI_CODING_AGENT_DIR` selects another location.
+Create `agents/reviewer.md` in your Pi agent directory. That is `~/.pi/agent` unless you set
+`PI_CODING_AGENT_DIR`.
 
 ```markdown
 ---
@@ -30,11 +35,14 @@ conversation: none
 Review the assigned change. Report actionable findings with file paths and evidence.
 ```
 
-The filename and `name` must agree. This definition selects reading and shell tools; it does not provide a filesystem sandbox. The child receives its assignment separately from these instructions. `conversation: none` means the assignment must include the context it needs.
+The file name must match `name`. The `tools` list picks which tools the child gets; it is not a
+sandbox. The child gets its task separately from these instructions. With `conversation: none` it
+sees none of the parent's conversation, so the task must contain everything it needs.
 
-Project agent definitions need directory trust. Using a user-directory definition keeps this walkthrough independent of project discovery; see [delegate work](guides/delegation.md) for project agents and trust.
+Agents in a project directory only load once you trust that directory. Putting this one in your
+user directory avoids that step. See [delegate work](guides/delegation.md) for project agents.
 
-## 3. Start Pi explicitly
+## 3. Start Pi
 
 From the repository root:
 
@@ -45,18 +53,32 @@ node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   -e packages/pi-delegation/extensions/subagent.ts
 ```
 
-This calls the pinned Pi 1.2.0 CLI in the checkout. It does not depend on how a global `pi` command was installed. In Pi 1.2.0, `--no-extensions` disables automatic extension discovery **and built-in extensions**; explicit `-e` paths still load. The parent retains its default tools and activates these explicitly loaded extension tools. A definition requesting an inactive parent tool is refused. A `--tools` allowlist would also need to include the custom delegation tools.
+This runs the pinned Pi 1.2.0 from the checkout, whatever global `pi` you have installed.
+`--no-extensions` turns off extension discovery and Pi's built-in extensions; the `-e` paths still
+load. The parent keeps its default tools and gains the delegation tools.
 
-Authenticate and select an available chat model using Pi's normal setup. Delegation resolves that model through the parent's model registry. Missing credentials or an unavailable model refuse launch.
+An agent that asks for a tool the parent does not have is refused. If you pass `--tools` to limit
+the parent's tools, include the delegation tools in that list.
 
-## 4. Browse and delegate
+Log in and choose a chat model the usual way. Children use the parent's model registry, so missing
+credentials or an unavailable model stop the launch.
 
-Run `/agents` to inspect discovery and effective settings. Then give the main agent a complete assignment, for example:
+## 4. Delegate
 
-> Use reviewer to inspect the proposed parser change. Give it the project path and the files to review. Ask for findings with source evidence.
+Run `/agents` to see which agents were found and their settings. Then ask for something like:
 
-The model calls `subagent` with the definition name and task. The acknowledgement reports the running agent ID, workspace, effective tools, scope, and request ID. It confirms dispatch, not completion. The default workspace is scratch; a child can read host files using its selected tools.
+> Use reviewer to inspect the proposed parser change. Give it the project path and the files to
+> review. Ask for findings with source evidence.
 
-A child can send progress or questions through `agent_message`. Its completed response is delivered to the parent, or can be read with `subagent_check`. Close it with `subagent_close` when the parent has reviewed the response. Closing retains ordinary scratch files and returns their artifact location.
+The model calls `subagent` with the agent name and task. The reply gives the child's agent ID,
+workspace, tools, skills, scope and request ID. It means the task was sent, not that it is done.
+By default the child works in a scratch directory, but it can still read your files with the tools
+it has.
 
-Continue with [delegate work](guides/delegation.md) for project work and artifact collection, or [the permission gate](../packages/pi-permissions/README.md) for call review. Exact calls and limits are in the [tool reference](reference/tools.md).
+The child can send progress or questions with `agent_message`. When it finishes, its answer is
+delivered to the parent; you can also read it with `subagent_check`. Once you have reviewed the
+answer, close the child with `subagent_close`. Closing keeps the files from its scratch directory
+and tells you where they are.
+
+Next, read [delegate work](guides/delegation.md) for project work and collected files. The
+[tool reference](reference/tools.md) lists every parameter and limit.
