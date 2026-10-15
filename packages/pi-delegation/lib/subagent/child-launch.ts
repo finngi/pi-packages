@@ -1,6 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import type { ChildLaunchService, PreparedChild } from "pi-contracts";
-import { type ArtifactResult, collectArtifacts, USAGE_BRIDGE, type UsageRecord } from "pi-runtime";
+import { USAGE_BRIDGE, type UsageRecord } from "pi-runtime";
+import { type ArtifactResult, collectArtifacts } from "./artifacts.ts";
 import type { BackgroundService } from "../background/service.ts";
 import type { AgentDef } from "./agents.ts";
 import { displayAgentName, MESSAGE_BRIDGE } from "./messages.ts";

@@ -11,7 +11,7 @@ import {
   validateResourceSelection,
   writeResourceDefault,
   writeResourceDefaults,
-} from "../src/resource-selection.ts";
+} from "../lib/resource-selection.ts";
 
 test("saving one resource kind leaves absent providers' global and project defaults intact", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-resource-defaults-"));

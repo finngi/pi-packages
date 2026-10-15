@@ -6,7 +6,7 @@ import test from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { instructionCatalogue } from "./instruction-catalogue.ts";
 import { catalogueInstructionId } from "./instruction-selection.ts";
-import { discoverResourcePackages } from "pi-runtime";
+import { discoverResourcePackages } from "pi-resources/discovery";
 const ns = "resources";
 const put = (path: string, body: string) => {
   mkdirSync(dirname(path), { recursive: true });

@@ -14,16 +14,22 @@ import {
   discoverResourcePackages,
   resourcePackageKeywords,
   readResourceFile,
+} from "pi-resources/discovery";
+import {
   SESSION_SETUP_CONTRIBUTIONS,
-  SAVED_INSTRUCTION_CONTEXT,
-  type SavedInstructionContextRequest,
   type SessionSetupContributionRequest,
   sessionSetupService,
   installSessionSetup,
+} from "pi-resources/session-setup";
+import {
+  SAVED_INSTRUCTION_CONTEXT,
+  type SavedInstructionContextRequest,
+} from "pi-resources/instructions";
+import {
   resolveResourceSelection,
   writeResourceDefault,
   writeResourceDefaults,
-} from "pi-runtime";
+} from "pi-resources/selection";
 import { stripFrontmatter } from "../lib/frontmatter.ts";
 import { instructionCatalogue } from "../lib/instruction-catalogue.ts";
 import {

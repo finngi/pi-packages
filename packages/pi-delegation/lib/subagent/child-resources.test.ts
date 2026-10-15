@@ -21,7 +21,7 @@ import {
   installChildResources,
   readBundleFile,
   resolveChildResources,
-} from "../src/child-resources.ts";
+} from "./child-resources.ts";
 
 const parent = (skills: Array<{ name: string; path: string }> = []) => ({
   tools: ["read", "write", "edit", "bash"],

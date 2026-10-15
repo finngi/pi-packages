@@ -19,7 +19,7 @@ import {
   selectedAgents,
   selectedSkills,
   writeResourceDefaults,
-} from "pi-runtime";
+} from "pi-resources/selection";
 import { discoverAgents } from "./agents.ts";
 const parse = parseFrontmatter;
 const saveProjectSkills = (cwd: string, _paths: string[], ids: string[], knownIds = ids) =>

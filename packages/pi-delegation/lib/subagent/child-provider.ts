@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { SelectedModel } from "pi-contracts";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { providerRegistrationForTransfer } from "./provider-transfer.ts";
+import { providerRegistrationForTransfer } from "pi-runtime/provider-transfer";
 
 export interface ChildProvider {
   model: Model<Api>;

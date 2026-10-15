@@ -11,12 +11,12 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { discoverResourcePackages } from "pi-runtime";
+import { discoverResourcePackages } from "pi-resources/discovery";
 import background from "../../../pi-background/extensions/background-process.ts";
 import context from "../../../pi-context/extensions/context.ts";
 import { catalogueInstructionId } from "../../../pi-context/lib/instruction-selection.ts";
 import subagents from "../../extensions/subagent.ts";
-import { configuredSkillChoices } from "pi-runtime";
+import { configuredSkillChoices } from "pi-resources/selection";
 
 const system = (messages: any[]) =>
   messages

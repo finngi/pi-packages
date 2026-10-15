@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { catalogueInstructionId, effectiveInstructions } from "./instruction-selection.ts";
-import { writeResourceDefault, writeResourceDefaults } from "pi-runtime";
+import { writeResourceDefault, writeResourceDefaults } from "pi-resources/selection";
 
 test("project instruction maps override global defaults by ID", () => {
   const global = { localContext: { instructions: { "core/a.md": true } } };

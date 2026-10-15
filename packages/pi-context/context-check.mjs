@@ -1,7 +1,7 @@
 // Actual Pi context hooks and rendered prompt, with isolated settings/Git and no model calls.
 // Usage: node context-check.mjs [path to @earendil-works/pi-coding-agent]
 import assert from "node:assert/strict";
-import { sessionSetupService } from "pi-runtime";
+import { sessionSetupService } from "pi-resources/session-setup";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,

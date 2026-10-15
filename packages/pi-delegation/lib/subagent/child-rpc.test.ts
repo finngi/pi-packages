@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
-import { createChildRuntime } from "../src/child-rpc.ts";
-import { prepareChildProvider } from "../src/child-provider.ts";
+import { createChildRuntime } from "./child-rpc.ts";
+import { prepareChildProvider } from "./child-provider.ts";
 
 const ai = import.meta.resolve("@earendil-works/pi-ai");
 
@@ -336,7 +336,7 @@ test("prepared child entrypoint serves the stock RPC protocol without saving a s
   try {
     const result = spawnSync(
       process.execPath,
-      [fileURLToPath(import.meta.resolve("pi-runtime/child-rpc")), ...f.args],
+      [fileURLToPath(import.meta.resolve("pi-delegation/child-rpc")), ...f.args],
       {
         cwd: f.root,
         env: process.env,

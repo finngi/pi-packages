@@ -1,6 +1,6 @@
 import { basename, relative } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { type ResourcePackage, resourcePackageKeywords } from "pi-runtime";
+import { type ResourcePackage, resourcePackageKeywords } from "pi-resources/discovery";
 import {
   catalogueInstructionId,
   effectiveInstructions,

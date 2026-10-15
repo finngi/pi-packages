@@ -12,8 +12,8 @@ import {
   writeResourceDefaults,
   type ResourceDefaultState,
   type ResourceKind,
-  type installSessionSetup,
-} from "pi-runtime";
+} from "pi-resources/selection";
+import { type installSessionSetup } from "pi-resources/session-setup";
 
 const kinds = ["skills", "agents", "instructions"] as const;
 type Selection = Record<ResourceKind, string[]>;

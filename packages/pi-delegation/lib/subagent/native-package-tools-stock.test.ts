@@ -208,7 +208,7 @@ export default function(pi) {
         });
         assert.equal(
           child.prepared.argv[1],
-          packageFile("pi-runtime", "src/child-rpc.ts", "child-rpc.js"),
+          packageFile("pi-delegation", "lib/subagent/child-rpc.ts"),
         );
         assert.equal(child.prepared.env.PI_CHILD_AGENT_DIR, agentDir);
         assert.notEqual(child.prepared.env.PI_CODING_AGENT_DIR, agentDir);

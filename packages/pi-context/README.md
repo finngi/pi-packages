@@ -40,5 +40,9 @@ Source entrypoint: [extensions/context.ts](extensions/context.ts). From the repo
 
 This extension provides `/instructions` and the `session_setup` tool on stock Pi without delegation, background jobs or permissions.
 
-[Resource packages](../pi-runtime/README.md) add available instructions to `/instructions`.
+[Resource packages](../pi-resources/README.md) add available instructions to `/instructions`.
 Package metadata helps search; selected text enters `<instructions>` with its source path.
+
+Context imports discovery, saved selection and session setup from `pi-resources` library
+subpaths. This does not load the resources extension or enable `/skills` and `/packages`.
+The standalone package keeps `/instructions` and `session_setup` without delegation or jobs.

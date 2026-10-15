@@ -21,18 +21,16 @@ import {
   type SessionSetupContributionRequest,
   USAGE_EVENT,
 } from "pi-contracts";
-import type { ArtifactResult } from "pi-runtime";
+import type { ArtifactResult } from "../lib/subagent/artifacts.ts";
+import { BackgroundProcesses, installAccounting, newSemanticId } from "pi-runtime";
 import {
-  BackgroundProcesses,
   discoverResourcePackages,
-  selectedSkills,
-  savedInstructionContext,
-  installAccounting,
-  installSessionSetup,
-  newSemanticId,
   type ResourcePackage,
   resourcePackageKeywords,
-} from "pi-runtime";
+} from "pi-resources/discovery";
+import { selectedSkills } from "pi-resources/selection";
+import { savedInstructionContext } from "pi-resources/instructions";
+import { installSessionSetup } from "pi-resources/session-setup";
 import { Type } from "typebox";
 import { backgroundService } from "../lib/background/service.ts";
 import {
@@ -78,7 +76,7 @@ import {
   type ResourceDefaultState,
   writeResourceDefault,
   writeResourceDefaults,
-} from "pi-runtime";
+} from "pi-resources/selection";
 import { resolveSettings } from "../lib/subagent/settings.ts";
 import { createNativeLauncher } from "../lib/subagent/native-launcher.ts";
 

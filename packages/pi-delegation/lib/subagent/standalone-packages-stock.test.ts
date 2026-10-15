@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
-import { sessionSetupService, type SessionSetupService } from "pi-runtime";
+import { sessionSetupService, type SessionSetupService } from "pi-resources/session-setup";
 import subagents from "../../extensions/subagent.ts";
 
 test("stock Pi selects an agent-only package without an instructions provider", async () => {

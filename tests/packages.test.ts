@@ -3,43 +3,106 @@ import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
 import { fileURLToPath } from "node:url";
+import { responsesFixture } from "../packages/pi-codex-search/tests/fixtures/responses-sse.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const stockPeers = [
+  "@earendil-works/pi-coding-agent@1.2.0",
+  "@earendil-works/pi-ai@1.2.0",
+  "@earendil-works/pi-tui@1.2.0",
+  "@earendil-works/pi-mcp@1.2.0",
+];
+before(() => {
+  for (const script of ["build.mjs", "pack.mjs"]) {
+    const result = spawnSync(process.execPath, [join(root, "scripts", script)], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  }
+});
+
 test(
-  "packed packages load independently and compiled helpers run from node_modules",
+  "each artifact installs alone and its public API works on stock Pi",
+  { timeout: 300000 },
+  async (t) => {
+    const artifactNames = [
+      "pi-background",
+      "pi-delegation",
+      "pi-resources",
+      "pi-goal",
+      "pi-context",
+      "pi-codex-search",
+      "pi-permissions",
+      "pi-contracts",
+      "pi-runtime",
+      "pi-resource-browser",
+    ];
+    for (const name of artifactNames)
+      await t.test(name, { timeout: 60000 }, async () => {
+        const directory = await mkdtemp(join(tmpdir(), `pi-independent-${name}-`));
+        try {
+          await writeFile(
+            join(directory, "package.json"),
+            JSON.stringify({ private: true, type: "module" }),
+          );
+          // The only repository artifact supplied to npm is the extension under test.
+          // Host peers are stock Pi packages, pinned to the SDK this repository tests.
+          const install = spawnSync(
+            "npm",
+            [
+              "install",
+              "--ignore-scripts",
+              "--no-audit",
+              "--no-fund",
+              ...stockPeers,
+              `typebox@${JSON.parse(await readFile(join(root, "node_modules/typebox/package.json"), "utf8")).version}`,
+              join(root, ".artifacts/packages", `${name}-0.1.0.tgz`),
+            ],
+            { cwd: directory, encoding: "utf8", timeout: 45000 },
+          );
+          assert.equal(install.status, 0, install.stdout + install.stderr);
+          const consumer = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
+          assert.deepEqual(
+            Object.keys(consumer.dependencies).filter((dependency) => dependency.startsWith("pi-")),
+            [name],
+          );
+          for (const sibling of artifactNames.filter((entry) => entry !== name))
+            await assert.rejects(
+              readFile(join(directory, "node_modules", sibling, "package.json")),
+              { code: "ENOENT" },
+            );
+          const script = join(directory, "independent-package-packed.mjs");
+          await writeFile(
+            script,
+            await readFile(join(root, "tests/independent-package-packed.mjs")),
+          );
+          await writeFile(join(directory, "responses-sse.txt"), responsesFixture);
+          const check = spawnSync(process.execPath, [script, directory, name], {
+            cwd: directory,
+            encoding: "utf8",
+            timeout: 30000,
+          });
+          assert.equal(check.status, 0, check.stdout + check.stderr);
+          assert.match(check.stdout, /stock-Pi behaviour passed/);
+        } finally {
+          await rm(directory, { recursive: true, force: true });
+        }
+      });
+  },
+);
+
+test(
+  "combined packed extensions preserve session setup and compiled child tooling",
   { timeout: 180000 },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-pack-consumer-"));
     try {
-      const build = spawnSync(process.execPath, [join(root, "scripts/build.mjs")], {
-        cwd: root,
-        encoding: "utf8",
-      });
-      assert.equal(build.status, 0, build.stdout + build.stderr);
-      const pack = spawnSync(process.execPath, [join(root, "scripts/pack.mjs")], {
-        cwd: root,
-        encoding: "utf8",
-      });
-      assert.equal(pack.status, 0, pack.stderr);
-      const reviewedLock = JSON.parse(await readFile(join(root, "package-lock.json"), "utf8"));
-      const overrides = Object.fromEntries(
-        Object.entries(reviewedLock.packages)
-          .filter(
-            ([name, value]) =>
-              name.startsWith("node_modules/@earendil-works/") &&
-              !name.slice("node_modules/".length).includes("/node_modules/") &&
-              (value as { version?: string }).version,
-          )
-          .map(([name, value]) => [
-            name.slice("node_modules/".length),
-            (value as { version: string }).version,
-          ]),
-      );
       await writeFile(
         join(directory, "package.json"),
-        JSON.stringify({ private: true, type: "module", overrides }),
+        JSON.stringify({ private: true, type: "module" }),
       );
       const names = [
         "pi-contracts",
@@ -143,7 +206,7 @@ test(
           "-e",
           `
         import assert from "node:assert/strict";
-        import {discoverResourcePackages, resourcePackageKeywords} from "pi-runtime";
+        import {discoverResourcePackages, resourcePackageKeywords} from "pi-resources/discovery";
         import {loadSkills,SettingsManager} from "@earendil-works/pi-coding-agent";
         const found=await discoverResourcePackages(SettingsManager.inMemory({packages:[${JSON.stringify(packRoot)}]}),process.cwd(),process.cwd());
         assert.deepEqual(found.problems,[]);assert.equal(found.packs.length,1);
