@@ -444,7 +444,7 @@ test(
           const text = browser.render(120).map(stripTerminalSequences).join("\n");
           assert.match(text, /Session: INHERIT/);
           assert.match(text, /Project: ON /);
-          assert.match(text, /Active here: ON — project choice/);
+          assert.match(text, /› \[x\] /, "the project ON applies here");
           await browser.setScopeState("session", "on");
         };
         await session.prompt(`/${command}`);
