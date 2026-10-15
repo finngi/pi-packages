@@ -23,9 +23,11 @@ export function installAccounting(pi: ExtensionAPI): void {
   pi.events.on(SERVICE, (value) => (value as { respond(): void }).respond());
   let ledger = new UsageLedger(),
     context: ExtensionContext | undefined;
+  const nestedWarnings = new Map<string, string[]>();
   const refresh = () => context?.ui.setStatus("pi-usage", undefined);
   const replay = (ctx: ExtensionContext) => {
     context = ctx;
+    nestedWarnings.clear();
     ledger = replayUsageLedger(ctx.sessionManager.getEntries());
     refresh();
   };
@@ -59,23 +61,43 @@ export function installAccounting(pi: ExtensionAPI): void {
     }
   });
   pi.on("tool_result", (event) => {
-    if (event.parentToolCallId) return;
-    const pending = ledger.pending();
-    if (!pending.ids.length) return;
-    const existing = readUsage(event.usage);
-    for (const id of pending.ids) ledger.forwarded.add(id);
     const details =
       event.details && typeof event.details === "object"
         ? (event.details as Record<string, unknown>)
         : {};
+    const childWarnings = nestedWarnings.get(event.toolCallId) ?? [];
+    nestedWarnings.delete(event.toolCallId);
+    const warnings = Array.isArray(details.piUsageWarnings)
+      ? details.piUsageWarnings.filter((value): value is string => typeof value === "string")
+      : [];
+    if (event.parentToolCallId) {
+      if (warnings.length || childWarnings.length)
+        nestedWarnings.set(event.parentToolCallId, [
+          ...(nestedWarnings.get(event.parentToolCallId) ?? []),
+          ...warnings,
+          ...childWarnings,
+        ]);
+      return;
+    }
+    const pending = ledger.pending();
+    if (!pending.ids.length && !childWarnings.length) return;
+    const existing = readUsage(event.usage);
+    for (const id of pending.ids) ledger.forwarded.add(id);
     return {
-      usage: existing ? addUsage(existing, pending.usage) : pending.usage,
+      ...(pending.ids.length
+        ? { usage: existing ? addUsage(existing, pending.usage) : pending.usage }
+        : {}),
       details: {
         ...details,
-        piUsageIds: [
-          ...(Array.isArray(details.piUsageIds) ? details.piUsageIds : []),
-          ...pending.ids,
-        ],
+        ...(childWarnings.length ? { piUsageWarnings: [...warnings, ...childWarnings] } : {}),
+        ...(pending.ids.length
+          ? {
+              piUsageIds: [
+                ...(Array.isArray(details.piUsageIds) ? details.piUsageIds : []),
+                ...pending.ids,
+              ],
+            }
+          : {}),
       },
     };
   });
@@ -99,8 +121,16 @@ export function installAccounting(pi: ExtensionAPI): void {
         else if (entry.type === "message" && entry.message.role === "assistant") missing++;
       }
       let nativeTools = emptyUsage();
+      const toolWarnings: string[] = [];
       for (const entry of ctx.sessionManager.getEntries())
         if (entry.type === "message" && entry.message.role === "toolResult") {
+          const details = entry.message.details as Record<string, unknown> | undefined;
+          if (Array.isArray(details?.piUsageWarnings))
+            toolWarnings.push(
+              ...details.piUsageWarnings.filter(
+                (value): value is string => typeof value === "string",
+              ),
+            );
           const usage = readUsage(entry.message.usage);
           if (usage) nativeTools = addUsage(nativeTools, usage);
         }
@@ -111,6 +141,7 @@ export function installAccounting(pi: ExtensionAPI): void {
       const lines = [
         `Session total: ${usageLabel({ usage: total, missing: missing + ledger.total().missing })}`,
         "Costs use provider/model price estimates, not an invoice. Missing receipts make totals a known lower bound. Input includes repeated and cached requests; tool receipts already included in session totals are not added again.",
+        ...toolWarnings.map((warning) => `Accounting warning: ${warning}`),
         `Main model calls and summaries: ${usageLabel({ usage: parent, missing })}`,
         ...[...sources.values()].map(
           (record) =>

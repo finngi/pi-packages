@@ -1,7 +1,6 @@
 /** Personal overlays and selected instructions, followed by eager context metadata cleanup. */
 
-import { readdirSync } from "node:fs";
-import { basename, dirname, relative, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   getAgentDir,
@@ -15,31 +14,38 @@ import {
   discoverResourcePackages,
   resourcePackageKeywords,
   readResourceFile,
+} from "pi-resources/discovery";
+import {
   SESSION_SETUP_CONTRIBUTIONS,
   type SessionSetupContributionRequest,
   sessionSetupService,
   installSessionSetup,
-} from "pi-runtime";
+} from "pi-resources/session-setup";
+import {
+  SAVED_INSTRUCTION_CONTEXT,
+  type SavedInstructionContextRequest,
+} from "pi-resources/instructions";
+import {
+  resolveResourceSelection,
+  writeResourceDefault,
+  writeResourceDefaults,
+} from "pi-resources/selection";
 import { stripFrontmatter } from "../lib/frontmatter.ts";
 import { instructionCatalogue } from "../lib/instruction-catalogue.ts";
 import {
   catalogueInstructionId,
   effectiveInstructions,
   type InstructionSettings,
-  instructionCataloguePaths,
-  writeGlobalDefaults,
-  writeProjectInstructions,
 } from "../lib/instruction-selection.ts";
 import {
   contextFilesDisabled,
   localFiles,
   localInstructionChoices,
-  readCatalogueInstruction,
-  selectedCatalogueInstructions,
   selectedLocalInstructions,
   selectedPackInstructions,
   unreadableLocalFiles,
   withLocalFiles,
+  type ContextFile,
 } from "../lib/local-context.ts";
 import { autoGitIgnoreEnabled, ignoreLocalFiles } from "../lib/local-ignore.ts";
 import { compactPiDocumentation, renderInstructions } from "../lib/prompt.ts";
@@ -52,11 +58,45 @@ export default function (pi: ExtensionAPI) {
     problems: [],
   };
   let globalInstructionSnapshot: InstructionSettings | undefined;
+  let staticContextFiles: ContextFile[] = [];
   const refreshInstructionSnapshot = (cwd: string) => {
     globalInstructionSnapshot = SettingsManager.create(
       cwd,
       getAgentDir(),
     ).getGlobalSettings() as InstructionSettings;
+  };
+  const instructionFiles = () =>
+    packageResources.packs.flatMap((pack) => pack.instructions.map((file) => ({ ...file, pack })));
+  const selectedInstructionText = (
+    cwd: string,
+    trusted: boolean,
+    selected: string[] | undefined,
+    files: ContextFile[],
+  ) => {
+    if (!enabled()) return "";
+    const localInstructions = trusted
+      ? selectedLocalInstructions(
+          cwd,
+          selected,
+          files.map((file) => resolve(cwd, file.path)),
+        )
+      : [];
+    const packFiles = instructionFiles();
+    const selectedPacks = selectedPackInstructions(
+      packFiles,
+      selected,
+      [...files, ...localInstructions].map((file) => resolve(cwd, file.path)),
+    );
+    for (const file of selectedPacks) {
+      const pack = packFiles.find((member) => member.path === file.path)?.pack;
+      if (pack) file.content = readResourceFile(pack.root, file.path);
+    }
+    return renderInstructions(
+      [...localInstructions, ...selectedPacks].map((file) => ({
+        ...file,
+        content: stripFrontmatter(file.content),
+      })),
+    );
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -82,17 +122,52 @@ export default function (pi: ExtensionAPI) {
       globalInstructionSnapshot ?? (manager.getGlobalSettings() as InstructionSettings),
       manager.getProjectSettings() as InstructionSettings,
       ctx.cwd,
-      getAgentDir(),
       trusted,
       enabled(),
       packageResources.packs,
     );
     request.contribute({
       kind: "instructions",
-      candidates: found.candidates.map((candidate) => ({ kind: "instructions", ...candidate })),
+      candidates: found.candidates.map((candidate) => ({
+        kind: "instructions",
+        ...candidate,
+      })),
       selected: found.selected,
     });
     if (ctx.hasUI && found.problems.length) ctx.ui.notify(found.problems.join("\n"), "warning");
+  });
+
+  pi.events.on(SAVED_INSTRUCTION_CONTEXT, (value) => {
+    const request = value as SavedInstructionContextRequest;
+    if (request?.version !== 1 || typeof request.contribute !== "function") return;
+    try {
+      if (!enabled()) {
+        request.contribute("");
+        return;
+      }
+      const { ctx } = request;
+      const trusted = ctx.isProjectTrusted();
+      const manager = SettingsManager.create(ctx.cwd, getAgentDir(), {
+        projectTrusted: trusted,
+      });
+      const localNames = (trusted ? localInstructionChoices(ctx.cwd) : []).map(
+        (file) => `local:${relative(ctx.cwd, file.path)}`,
+      );
+      const selected = effectiveInstructions(
+        manager.getGlobalSettings() as InstructionSettings,
+        trusted ? (manager.getProjectSettings() as InstructionSettings) : {},
+        [
+          ...localNames,
+          ...instructionFiles().map((file) =>
+            catalogueInstructionId(file.catalogue, basename(file.path)),
+          ),
+        ],
+        localNames,
+      );
+      request.contribute(selectedInstructionText(ctx.cwd, trusted, selected, staticContextFiles));
+    } catch (error) {
+      request.reject(`Saved child instructions could not be loaded: ${String(error)}`);
+    }
   });
 
   pi.registerCommand("instructions", {
@@ -111,100 +186,80 @@ export default function (pi: ExtensionAPI) {
       const packFiles = packs.packs.flatMap((pack) =>
         pack.instructions.map((file) => ({ ...file, pack })),
       );
-      let catalogues: string[] = [];
-      try {
-        catalogues = instructionCataloguePaths(global, getAgentDir());
-      } catch (error) {
-        ctx.ui.notify(`Instruction libraries were not loaded: ${String(error)}`, "warning");
-      }
-      const previous =
-        setup.selection("instructions") ??
-        (Object.hasOwn(project.localContext ?? {}, "instructions")
-          ? (project.localContext?.instructions ?? [])
-          : Object.hasOwn(global.localContext ?? {}, "instructions")
-            ? (global.localContext?.instructions ?? [])
-            : (trusted ? localInstructionChoices(ctx.cwd) : []).map(
-                (file) => `local:${relative(ctx.cwd, file.path)}`,
-              ));
-      const entries: ResourceEntry[] = catalogues
-        .flatMap((catalogue) => {
+      const discovered = instructionCatalogue(
+        global,
+        project,
+        ctx.cwd,
+        trusted,
+        enabled(),
+        packs.packs,
+      );
+      if (discovered.problems.length) ctx.ui.notify(discovered.problems.join("\n"), "warning");
+      const previous = setup.selection("instructions") ?? discovered.selected;
+      const nativeNames = new Set(
+        discovered.candidates.filter((item) => item.nativeDefault).map((item) => item.id),
+      );
+      const defaultFields = (
+        id: string,
+        global: InstructionSettings,
+        project: InstructionSettings,
+      ) => {
+        const resolved = resolveResourceSelection(
+          global.localContext?.instructions,
+          project.localContext?.instructions,
+          id,
+          nativeNames.has(id),
+        );
+        return {
+          projectState: resolved.projectState,
+          globalState: resolved.globalState,
+          defaultSelected: resolved.effective,
+          globalDefaultSelected: resolveResourceSelection(
+            global.localContext?.instructions,
+            undefined,
+            id,
+            nativeNames.has(id),
+          ).effective,
+        };
+      };
+      const entries: ResourceEntry[] = packFiles
+        .map((file) => {
+          let parsed = {
+            frontmatter: {} as Record<string, unknown>,
+            body: stripFrontmatter(file.content),
+          };
           try {
-            return readdirSync(catalogue)
-              .filter((name) => name.endsWith(".md"))
-              .sort()
-              .flatMap((file) => {
-                const id = catalogueInstructionId(catalogue, file);
-                const source = readCatalogueInstruction(catalogue, file);
-                if (!source) return [];
-                const parsed = parseFrontmatter(source.content);
-                const description =
-                  typeof parsed.frontmatter.description === "string"
-                    ? parsed.frontmatter.description
-                    : "Instruction snippet";
-                const title =
-                  typeof parsed.frontmatter.title === "string"
-                    ? parsed.frontmatter.title
-                    : file.replace(/\.md$/i, "");
-                return [
-                  {
-                    id,
-                    name: title,
-                    description,
-                    keywords: `${file} ${parsed.body.slice(0, 500)}`,
-                    selected: previous.includes(id),
-                    defaultSelected: (project.localContext?.instructions ?? []).includes(id),
-                    globalDefaultSelected: (global.localContext?.instructions ?? []).includes(id),
-                    preview: async () => ({
-                      source: source.path,
-                      body: stripFrontmatter(source.content),
-                    }),
-                  },
-                ];
-              });
+            parsed = parseFrontmatter(file.content);
           } catch {
-            return [];
+            ctx.ui.notify(
+              `${file.path}: instruction metadata could not be read; showing the body.`,
+              "warning",
+            );
           }
-        })
-        .concat(
-          packFiles.map((file) => {
-            let parsed = {
-              frontmatter: {} as Record<string, unknown>,
+          const description =
+            typeof parsed.frontmatter.description === "string"
+              ? parsed.frontmatter.description
+              : "Agent/session guidance";
+          const title =
+            typeof parsed.frontmatter.title === "string"
+              ? parsed.frontmatter.title
+              : basename(file.path, ".md");
+          const id = catalogueInstructionId(file.catalogue, basename(file.path));
+          return {
+            id,
+            name: title,
+            description,
+            badge: file.pack.name,
+            globalDefaultable: file.pack.globalDefaultable,
+            keywords: `${resourcePackageKeywords(file.pack)} ${basename(file.path)} ${parsed.body.slice(0, 500)}`,
+            selected: previous.includes(id),
+            ...defaultFields(id, currentGlobal, project),
+            preview: async () => ({
+              source: file.path,
               body: stripFrontmatter(file.content),
-            };
-            try {
-              parsed = parseFrontmatter(file.content);
-            } catch {
-              ctx.ui.notify(
-                `${file.path}: instruction metadata could not be read; showing the body.`,
-                "warning",
-              );
-            }
-            const description =
-              typeof parsed.frontmatter.description === "string"
-                ? parsed.frontmatter.description
-                : "Agent/session guidance";
-            const title =
-              typeof parsed.frontmatter.title === "string"
-                ? parsed.frontmatter.title
-                : basename(file.path, ".md");
-            const id = catalogueInstructionId(file.catalogue, basename(file.path));
-            return {
-              id,
-              name: title,
-              description,
-              badge: file.pack.name,
-              globalDefaultable: file.pack.globalDefaultable,
-              keywords: `${resourcePackageKeywords(file.pack)} ${basename(file.path)} ${parsed.body.slice(0, 500)}`,
-              selected: previous.includes(id),
-              defaultSelected: (project.localContext?.instructions ?? []).includes(id),
-              globalDefaultSelected: (global.localContext?.instructions ?? []).includes(id),
-              preview: async () => ({
-                source: file.path,
-                body: stripFrontmatter(file.content),
-              }),
-            };
-          }),
-        )
+            }),
+          };
+        })
         .concat(
           (trusted ? localInstructionChoices(ctx.cwd) : []).map((file) => {
             const id = `local:${relative(ctx.cwd, file.path)}`;
@@ -217,20 +272,46 @@ export default function (pi: ExtensionAPI) {
               globalDefaultable: false,
               keywords: file.content.slice(0, 500),
               selected: previous.includes(id),
-              defaultSelected: (project.localContext?.instructions ?? []).includes(id),
-              globalDefaultSelected: (global.localContext?.instructions ?? []).includes(id),
+              ...defaultFields(id, currentGlobal, project),
               preview: async () => ({
                 source: file.path,
                 body: stripFrontmatter(file.content),
               }),
             };
           }),
-        );
+        )
+        .filter((entry, index, all) => all.findIndex((item) => item.id === entry.id) === index);
       const selected = new Set(previous);
-      const saveProject = async () => {
-        if (!ctx.isProjectTrusted())
+      const refreshDefaults = () => {
+        const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
+          projectTrusted: ctx.isProjectTrusted(),
+        });
+        const nextGlobal = latest.getGlobalSettings() as InstructionSettings;
+        const nextProject = latest.getProjectSettings() as InstructionSettings;
+        for (const entry of entries)
+          Object.assign(entry, defaultFields(entry.id, nextGlobal, nextProject));
+      };
+      const saveDefaults = async (scope: "project" | "global", choices: ResourceEntry[]) => {
+        if (scope === "project" && !ctx.isProjectTrusted())
           throw Error("Saving instruction defaults requires a trusted project");
-        await writeProjectInstructions(ctx.cwd, [...selected].sort());
+        const eligible = choices.filter(
+          (entry) =>
+            entry.defaultable !== false &&
+            (scope === "project" || entry.globalDefaultable !== false),
+        );
+        await writeResourceDefaults({
+          scope,
+          cwd: ctx.cwd,
+          agentDir: getAgentDir(),
+          selections: {
+            instructions: {
+              values: Object.fromEntries(eligible.map((entry) => [entry.id, entry.selected])),
+              knownIds: entries.map((entry) => entry.id),
+              snapshot: true,
+            },
+          },
+        });
+        refreshDefaults();
       };
       await showResourceBrowser(ctx, {
         title: "Instructions",
@@ -238,35 +319,27 @@ export default function (pi: ExtensionAPI) {
         entries,
         selectionScope: "session",
         defaultsScope: "project",
-        defaultsInherited: !Object.hasOwn(project.localContext ?? {}, "instructions"),
-        setDefault: async (entry, on, scope) => {
-          const current = [...selected];
-          const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
-            projectTrusted: ctx.isProjectTrusted(),
+        setDefault: async (entry, state, scope) => {
+          if (
+            entry.defaultable === false ||
+            (scope === "global" && entry.globalDefaultable === false)
+          )
+            throw Error("This instruction cannot be saved at that scope");
+          if (scope === "project" && !ctx.isProjectTrusted())
+            throw Error("Saving instruction defaults requires a trusted project");
+          await writeResourceDefault({
+            scope,
+            kind: "instructions",
+            id: entry.id,
+            state,
+            knownIds: entries.map((item) => item.id),
+            cwd: ctx.cwd,
+            agentDir: getAgentDir(),
           });
-          const global =
-            (latest.getGlobalSettings() as InstructionSettings).localContext?.instructions ?? [];
-          const project = (latest.getProjectSettings() as InstructionSettings).localContext
-            ?.instructions;
-          const names = new Set(scope === "global" ? global : (project ?? global));
-          if (on) names.add(entry.id);
-          else names.delete(entry.id);
-          if (scope === "global")
-            await writeGlobalDefaults(getAgentDir(), "instructions", [...names].sort());
-          else {
-            if (!ctx.isProjectTrusted())
-              throw Error("Saving instruction defaults requires a trusted project");
-            await writeProjectInstructions(ctx.cwd, [...names].sort());
-          }
-          setup.execute({ op: "apply", instructions: current }, ctx);
+          refreshDefaults();
         },
-        saveDefaults: saveProject,
-        saveGlobalDefaults: async (entries) =>
-          writeGlobalDefaults(
-            getAgentDir(),
-            "instructions",
-            entries.filter((entry) => entry.selected).map((entry) => entry.id),
-          ),
+        saveDefaults: (entries) => saveDefaults("project", entries),
+        saveGlobalDefaults: (entries) => saveDefaults("global", entries),
         toggle: async (entry, on) => {
           const next = new Set(selected);
           if (on) next.add(entry.id);
@@ -299,23 +372,6 @@ export default function (pi: ExtensionAPI) {
     const packFiles = packs.packs.flatMap((pack) =>
       pack.instructions.map((file) => ({ ...file, pack })),
     );
-    let catalogues: string[] = [];
-    try {
-      if (global) catalogues = instructionCataloguePaths(global, getAgentDir());
-    } catch (error) {
-      if (ctx.hasUI)
-        ctx.ui.notify(`Instruction libraries were not loaded: ${String(error)}`, "warning");
-    }
-    const names =
-      catalogues.flatMap((catalogue) => {
-        try {
-          return readdirSync(catalogue)
-            .filter((name) => name.endsWith(".md"))
-            .map((name) => catalogueInstructionId(catalogue, name));
-        } catch {
-          return [];
-        }
-      }) ?? [];
     const localChoices =
       typeof options.cwd === "string" ? localInstructionChoices(options.cwd) : [];
     const localNames = localChoices.map((file) => `local:${relative(options.cwd, file.path)}`);
@@ -324,13 +380,15 @@ export default function (pi: ExtensionAPI) {
       const sessionInstructions = sessionSetupService(pi.events)?.selection("instructions");
       if (sessionInstructions !== undefined) selected = sessionInstructions;
       else if (global)
-        selected = effectiveInstructions(global, project ?? {}, [
-          ...names,
-          ...localNames,
-          ...packFiles.map((file) =>
-            catalogueInstructionId(dirname(file.path), basename(file.path)),
-          ),
-        ]);
+        selected = effectiveInstructions(
+          global,
+          project ?? {},
+          [
+            ...localNames,
+            ...packFiles.map((file) => catalogueInstructionId(file.catalogue, basename(file.path))),
+          ],
+          localNames,
+        );
     } catch (error) {
       selected = [];
       if (ctx.hasUI)
@@ -340,45 +398,16 @@ export default function (pi: ExtensionAPI) {
       enabled() && ctx.isProjectTrusted() && typeof options.cwd === "string"
         ? withLocalFiles(options.contextFiles, options.cwd)
         : options.contextFiles;
-    const localInstructions =
-      enabled() && ctx.isProjectTrusted()
-        ? selectedLocalInstructions(
-            options.cwd,
-            selected,
-            files.map((file) => resolve(options.cwd, file.path)),
-            localChoices,
-          )
-        : [];
-    const catalogueFiles =
-      enabled() && selected && global
-        ? selectedCatalogueInstructions(
-            catalogues,
-            selected,
-            [...files, ...localInstructions].map((file) => resolve(options.cwd, file.path)),
-          )
-        : [];
+    staticContextFiles = files;
     options.contextFiles = files.map((file) => ({
       ...file,
       content: stripFrontmatter(file.content),
     }));
-    const selectedPacks = enabled()
-      ? selectedPackInstructions(
-          packFiles,
-          selected,
-          [...files, ...localInstructions, ...catalogueFiles].map((file) =>
-            resolve(options.cwd, file.path),
-          ),
-        )
-      : [];
-    for (const file of selectedPacks) {
-      const pack = packFiles.find((member) => member.path === file.path)?.pack;
-      if (pack) file.content = readResourceFile(pack.root, file.path);
-    }
-    const instructions = renderInstructions(
-      [...localInstructions, ...catalogueFiles, ...selectedPacks].map((file) => ({
-        ...file,
-        content: stripFrontmatter(file.content),
-      })),
+    const instructions = selectedInstructionText(
+      options.cwd,
+      ctx.isProjectTrusted(),
+      selected,
+      files,
     );
     if (instructions) {
       options.sections ??= {};

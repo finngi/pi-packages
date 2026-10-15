@@ -16,6 +16,11 @@ Usage records are saved as `pi-runtime.usage.v1` custom session entries. A recor
 
 Known unreported usage is attached once to a top-level tool result through Pi's `usage` field. `details.piUsageIds` records which entries were forwarded, so session replay does not forward them again. Nested tool results do not also drain those records. The extension neither fabricates assistant messages nor bypasses the read-only session manager.
 
+Native tools can attach reported usage directly to their result. Codex search uses this path;
+those receipts are already included in normal session totals and are not added to the ledger
+again. Its missing-receipt or unknown-price warnings persist with the tool result and appear in
+`/costs`, including when search runs inside a nested tool.
+
 Accounting installation is owned by the current Pi event bus. Separate installed library copies can share that one in-process owner. Parent and child Pi processes each have their own bus; child reports cross the RPC boundary before entering the parent's ledger.
 
 ## Read the displays
@@ -46,4 +51,4 @@ The goal budget counts parent-provider usage for main-model requests dispatched 
 - [Ledger validation and deduplication](../packages/pi-runtime/src/usage.ts) and [usage tests](../packages/pi-runtime/test/usage.test.ts).
 - [Accounting installation, replay, and forwarding](../packages/pi-runtime/src/accounting.ts).
 - [Child RPC reconciliation](../packages/pi-delegation/lib/subagent/rpc-dialogue.ts) and [dialogue tests](../packages/pi-delegation/lib/subagent/rpc-dialogue.test.ts).
-- [Pi 1.2.0 parent/child integration](../packages/pi-delegation/lib/subagent/unrestricted-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.
+- [Pi 1.2.0 parent/child integration](../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.

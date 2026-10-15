@@ -1,52 +1,64 @@
 # Test a contribution
 
-Use Node 24 and the root lockfile, which pins the Pi SDK to 1.2.0. From the repository root:
+Use Node 24 and the root lockfile (Pi 1.2.0):
 
 ```sh
 npm ci --ignore-scripts
 npm run build
 npm run check
+npm run check:boundary
+npm run check:docs
 npm test
+npm run test:packages
+npm run test:e2e
 ```
 
-`check` runs Biome formatting/lint and workspace TypeScript checks. `test` runs package suites. For a focused change, use `npm run test --workspace=pi-delegation` or the affected package name. For launch, accounting, or security changes, also run integration tests with unmodified Pi and relevant kernel checks. For distribution changes, test installed tarballs.
+`check` runs formatting, lint and workspace TypeScript checks. Run an affected package's tests
+while developing; run the combined checks before merging a cross-package migration.
 
-## Choose the integration check
+| Check | Evidence |
+|---|---|
+| Delegation tests | Actual stock Pi parent/child processes, selected tools/model/skills, messages, cancellation and retained artifacts |
+| Resources/context tests | Native filters, session/project/global selection, project trust, prompt separation and resume |
+| Background tests | Actual managed commands, output cursors, cancellation and process ownership |
+| Search tests | Native registry auth, scripted HTTP, citations, usage and abort/error handling |
+| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and blocking before a write on stock Pi |
+| Goal tests | Independent scripted evaluator, deadlines/budgets, stop/resume, wait delivery and accounting |
+| `test:packages` | Installs each artifact alone with stock Pi in a separate consumer, exercises extension behavior and library APIs, then runs a separate combined child integration |
+| `test:e2e` | Native context, child tools, jobs, permissions and installed-consumer workflows |
 
-| Change or claim | Check | Scope |
-| --- | --- | --- |
-| Combined macOS stack | `npm run test:e2e` | Context, search/security adapter, all-extension RPC integration, security integration, packed consumers |
-| Delegation/accounting without security | `npm run test --workspace=pi-delegation` | Real Pi 1.2.0 parent/child with scripted provider, scratch/project, messages, selected tools, usage, results |
-| Packed consumers | `npm run test:packages` | Builds and installs all ten tarballs in a fresh directory; checks manifests, licenses, emitted entrypoints, and compiled file helper |
-| Security resources/auth/search | `npm run test:resources --workspace=pi-security` | Protected child resources, auth adapters, classifiers, search capability |
-| Security host integration | `npm run test:i --workspace=pi-security` | Confined file/shell, protected ancestors, CLI/modes, ownership, offline Cargo/rustc |
-| Linux kernel executor | `npm run test:linux --workspace=pi-security` | Read-only bubblewrap confinement and writable-mode refusal; requires namespaces permitted by host/container |
-| Local prompt rendering | `npm run test:e2e --workspace=pi-context` | Pi 1.2.0 prompt/reload/lazy skills/personal excludes, no model calls |
-| Search capability adapter | `npm run test:e2e --workspace=pi-codex-search` | Actual security extension, synthetic OAuth, scripted HTTP; monorepo sibling path resolves automatically |
+Tests use temporary agent directories and scripted providers/HTTP. They prove lifecycle and
+observable effects without contacting real providers. They do not prove live classifier judgement
+or account behaviour. Real-provider checks must be reported separately with their limits.
 
-CI installs `ripgrep` and `fd` (`fd-find` on Ubuntu) before running the suites.
-The Ubuntu 24.04 CI VM loads an executable-specific AppArmor user-namespace profile for
-`/usr/bin/bwrap`, following [Ubuntu’s per-application approach](https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces).
-It does not disable the host-wide restriction. A real network-namespace launch is checked before tests.
-This is CI runner preparation, not a change to installed Pi or its sandbox policy.
-Seatbelt kernel tests run only on macOS; Linux has a separate read-only bubblewrap kernel suite.
-Packed resource and stock-Pi checks run on both systems; the packed writable Seatbelt check runs on macOS.
+CI runs on macOS and Linux with Node 24 and native file helpers. It does not install or configure
+an OS sandbox. A hosted run that never executed is unavailable evidence, not a passing check.
 
-The supported macOS host needs Node 24 and `/usr/bin/sandbox-exec`; the file client resolves `rg` and `fd`/`fdfind` from policy-selected executable directories. The offline toolchain fixture needs its Cargo/rustc prerequisites. Linux kernel tests require a host that permits bubblewrap namespaces; a successful typecheck or protocol fixture does not prove kernel confinement.
+For UI changes inspect captures rendered by Pi's actual components and, where possible, a terminal
+instance. A browser approximation alone does not establish terminal layout or input behaviour.
 
-Protocol and consumer fixtures use disposable HOME/agent directories, scripted providers, synthetic credentials, or scripted HTTP. They do not make live model/search requests or establish real-model quality, live prices, or account behavior. They exercise the Pi 1.2.0 SDK entrypoints and subprocess boundaries rather than replacing the host with a mock.
+## Independent artifact proof
 
-## What the checks establish
+`npm run test:packages` builds the candidate and installs exactly one repository tarball in each
+fresh consumer, alongside stock Pi 1.2.0 host peers. Sibling top-level packages must be absent.
+Tests import and execute the installed files; the source checkout is not an alternate resolver.
+The npm download cache may be shared, but consumers do not share `node_modules`.
 
-The Pi 1.2.0 child fixtures cover parent messages, resource/model/thinking selection, all-call usage, session-footer forwarding, cancellation, and retained artifacts. The combined security fixture covers goal-owned single delivery, normal follow-ups, manual approvals, context/search integration, and actual kernel refusals. Consumer checks verify `node_modules` resolution; workspace resolution alone is insufficient.
+| Artifact | Observable use in its fresh consumer |
+| --- | --- |
+| `pi-background` | Launch, read and cancel a managed job while a foreground command runs |
+| `pi-delegation` | Launch a real child RPC process, write a project file and close the child |
+| `pi-resources` | Exclude/select a native skill and inspect the resulting lazy prompt description |
+| `pi-context` | Load local context and selected instructions into the actual stock prompt |
+| `pi-goal` | Start, pause, inspect and clear a goal through native commands/tools |
+| `pi-codex-search` | Execute fixture HTTP search with native auth, citation output and usage |
+| `pi-permissions` | Allow a read and deny a write before a file is created |
+| `pi-contracts` | Import event identifiers and exchange a payload using the defined event |
+| `pi-runtime` | Use token accounting and run a managed subprocess |
+| `pi-resource-browser` | Search resources through the exported BM25/prefix API |
 
-Biome exceptions cover parser assignment expressions, policy placeholder strings, control-character regular expressions in security checks, and broad fixture function types. TypeScript strict mode remains enabled; production implicit-any declarations are checked by Biome.
-
-[GitHub CI](../.github/workflows/ci.yml) configures build/check/unit suites on Node 24 for macOS and Linux, with `test:e2e` on macOS. Local results do not prove that a hosted run completed or that an installed harness changed. Record the commands, environment, and practical limits with any claimed result.
-
-## Evidence and source
-
-- [Integration runner](../scripts/e2e.mjs), [packed consumer](../tests/packages.test.ts), and package scripts are the command source of truth.
-
-
-The security MCP adapter is built against `@earendil-works/pi-coding-agent` 1.2.0 and its resolved public transport peer `@earendil-works/pi-mcp` 1.2.0. `pi-security` declares the MCP package as a peer (`*`); runtime consumers must provide the tested compatible peer.
+Only the seven extension entrypoints activate; the three helper artifacts are ordinary libraries.
+A separate combined install checks shared session setup, resume/reset and compiled child tools.
+The permissions fixture checks the configured read allowance and write denial. These
+deterministic providers and HTTP responses prove package mechanics,
+not live search quality, model judgement or a future Pi version.

@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,7 +40,10 @@ test(
       await writeFile(file, value);
     };
     await mkdir(project);
-    const global = JSON.stringify({ packages: [pack], subagents: { skills: ["native"] } }),
+    const global = JSON.stringify({
+        packages: [pack],
+        subagents: { skills: { native: true, "pack-public": false } },
+      }),
       local = JSON.stringify({ keep: "native" });
     await put(globalPath, global);
     await put(projectPath, local);
@@ -100,9 +104,8 @@ test(
     const saved = { ...process.env };
     Object.assign(process.env, {
       PI_CODING_AGENT_DIR: agentDir,
-      PI_SUBAGENT_FIXTURE_EXTENSION: provider,
+      PI_SUBAGENT_PROVIDER_EXTENSION: provider,
     });
-    delete process.env.PI_SECURITY_TRANSPORT;
     delete process.env.PI_SUBAGENT;
     let session: sdk.AgentSession | undefined,
       mode = "off",
@@ -297,6 +300,7 @@ test(
                   emit(name, value);
                 };
                 subagents(pi);
+                resources(pi);
                 context(pi);
                 pi.registerTool({
                   name: "hold_child",
@@ -380,7 +384,10 @@ test(
       assert.equal(receipt.effectivePreviews[0].id, "worker");
       assert.equal(receipt.effectivePreviews[0].locked, false);
       assert.ok(receipt.effectivePreviews[0].tools.includes("read"));
-      assert.match(receipt.effects.children, /last parent prompt until the parent runs again/);
+      assert.match(
+        receipt.effects.children,
+        /Temporary parent guidance selections are not inherited/,
+      );
       assert.ok(
         receipt.candidates
           .filter(
@@ -430,8 +437,7 @@ test(
       assert.match(system(calls[0]), /PACK_DESCRIPTION/);
       assert.match(system(calls[0]), /PACK_INSTRUCTION_BODY/);
       const freshChild = system(JSON.parse(await readFile(observed, "utf8")));
-      assert.match(freshChild, /PACK_INSTRUCTION_BODY/);
-      assert.equal(freshChild.match(/<instructions>/g)?.length, 1);
+      assert.doesNotMatch(freshChild, /PACK_INSTRUCTION_BODY|<instructions>/);
       await run("clear");
       assert.equal(last("subagent").isError, true);
       const beforeClearedManual = calls.length;

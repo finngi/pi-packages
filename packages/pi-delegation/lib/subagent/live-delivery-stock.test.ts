@@ -22,12 +22,11 @@ async function deliveryFixture(delayed: boolean) {
   );
   const saved = {
     agent: process.env.PI_CODING_AGENT_DIR,
-    transport: process.env.PI_SECURITY_TRANSPORT,
+    provider: process.env.PI_SUBAGENT_PROVIDER_EXTENSION,
     child: process.env.PI_SUBAGENT,
   };
   Object.assign(process.env, {
     PI_CODING_AGENT_DIR: agentDir,
-    PI_SECURITY_TRANSPORT: "extensions",
   });
   delete process.env.PI_SUBAGENT;
   let session: sdk.AgentSession | undefined,
@@ -39,13 +38,14 @@ async function deliveryFixture(delayed: boolean) {
   const seen: any[] = [],
     contexts: any[] = [],
     errors: any[] = [];
-  const emit = (value: any) => run.onData("stdout", Buffer.from(JSON.stringify(value) + "\n"));
+  const emit = (value: any) => run.onData("stdout", Buffer.from(`${JSON.stringify(value)}\n`));
   const tick = async () => {
     for (let i = 0; i < 4; i++) await new Promise((resolve) => setImmediate(resolve));
   };
   const transport = {
     launch(spec: any) {
       run = spec;
+      childId = JSON.parse(spec.env.PI_SUBAGENT_CONTEXT).id;
       return { id: "worker-1", done: new Promise((resolve) => (resolveDone = resolve)) };
     },
     async write(_id: string, data: Buffer) {
@@ -75,6 +75,12 @@ async function deliveryFixture(delayed: boolean) {
     contextWindow: 8192,
     maxTokens: 256,
   };
+  const providerExtension = join(dir, "fixture-provider.ts");
+  writeFileSync(
+    providerExtension,
+    `export default function(pi) { pi.registerProvider(${JSON.stringify(model.provider)}, { api: ${JSON.stringify(model.api)}, apiKey: "fixture-only", baseUrl: ${JSON.stringify(model.baseUrl)}, models: [${JSON.stringify(model)}], streamSimple() { throw Error("Fixture uses fake process transport"); } }); }`,
+  );
+  process.env.PI_SUBAGENT_PROVIDER_EXTENSION = providerExtension;
   try {
     const runtime = await sdk.ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),
@@ -93,7 +99,10 @@ async function deliveryFixture(delayed: boolean) {
         const index = next++,
           stream = createAssistantMessageEventStream();
         const calls = [
-          { name: "subagent", arguments: { agent: "general-purpose", task: "Fixture task" } },
+          {
+            name: "subagent",
+            arguments: { agent: "general-purpose", task: "Fixture task", workspace: "project" },
+          },
           { name: "hold", arguments: {} },
           ...(delayed
             ? [
@@ -150,29 +159,6 @@ async function deliveryFixture(delayed: boolean) {
         {
           path: "fixture:delivery",
           factory(pi) {
-            const security: any = {
-              version: 1,
-              prepareShell() {},
-              describeChild: async () => ({
-                tools: ["read", "agent_message", "agent_list"],
-                scope: { write: "none" },
-              }),
-              prepareChildLaunch: async (spec: any) => {
-                childId = spec.communication.id;
-                return {
-                  id: "launch",
-                  argv: ["pi"],
-                  env: {},
-                  cwd: dir,
-                  tmp: dir,
-                  communication: spec.communication,
-                  effectiveResources: { tools: ["read", "agent_message", "agent_list"] },
-                  workspaceKind: "project",
-                  cleanup: async () => {},
-                };
-              },
-            };
-            pi.events.on("pi-security:service:v1", (value: any) => value.respond(security));
             pi.events.on("background:service", (value: any) => value.respond(transport));
             extension(pi);
             pi.registerTool({
@@ -236,7 +222,7 @@ async function deliveryFixture(delayed: boolean) {
                             }),
                         },
                       ]
-                        .map((value) => JSON.stringify(value) + "\n")
+                        .map((value) => `${JSON.stringify(value)}\n`)
                         .join(""),
                     ),
                   );
@@ -433,7 +419,7 @@ async function deliveryFixture(delayed: boolean) {
     }
     for (const [key, value] of [
       ["PI_CODING_AGENT_DIR", saved.agent],
-      ["PI_SECURITY_TRANSPORT", saved.transport],
+      ["PI_SUBAGENT_PROVIDER_EXTENSION", saved.provider],
       ["PI_SUBAGENT", saved.child],
     ])
       if (value === undefined) delete process.env[key!];

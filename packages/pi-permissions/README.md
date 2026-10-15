@@ -1,59 +1,94 @@
 # pi-permissions
 
-A small, opt-in permission gate for stock Pi. It checks model tool calls before execution and leaves Pi's tools unchanged. It does **not** provide OS confinement: an approved command runs with the Pi process's ordinary filesystem, process, GPU and network access.
+Decide which tool calls Pi may run: by rule, by asking you, or by asking a classifier model.
+This is the equivalent of "auto mode" in other coding agents. It checks calls before they run;
+it does not sandbox the processes it lets through.
 
-This package reuses pi-security's Bash parser and classifier adapter as library code. Installing a library dependency does not activate its Pi extension. Loading the full `pi-security` sandbox extension alongside this alternative gate blocks calls with an instruction to select one package.
-
-## Try it independently
-
-From this repository, with dependencies installed:
+## Install
 
 ```sh
-pi -e ./packages/pi-permissions --permissions-policy /absolute/path/permissions.json
+pi install /absolute/path/to/packages/pi-permissions
 ```
 
-Use a policy such as:
+Then add a `permissions` key to your personal settings, `~/.pi/agent/settings.json`:
 
 ```json
 {
-  "mode": "auto",
-  "classifier": { "model": "openai-codex/gpt-6-luna", "timeoutSec": 15 },
-  "deny": [{ "tool": "bash", "match": { "program": "sudo" } }],
-  "allow": [
-    { "tool": "read" },
-    { "tool": "bash", "match": { "program": ["pwd", "ls", "rg"] } }
-  ]
+  "permissions": {
+    "mode": "auto",
+    "model": "openai-codex/gpt-6-luna",
+    "allow": ["read", "grep", "find", "ls", "bash:git status", "bash:rg"],
+    "deny": ["bash:sudo", "bash:git push"]
+  }
 }
 ```
 
-The default policy location is `permissions.json` in Pi's user agent directory (normally `~/.pi/agent`). A missing or invalid policy blocks calls with a configuration error. A project file cannot silently replace this trusted user policy.
+Project settings are ignored, so a repository cannot loosen your rules. Without a `permissions`
+key the package starts in `ask` mode and allows `read`, `grep`, `find` and `ls`. If the settings
+are invalid you get a warning and `ask` mode.
 
-For persistent native installation use `pi install /absolute/path/to/package`, with the normal project/user scope options. The package contains one executable extension; changing its policy takes effect at the next session startup or native extension reload. This change does not install or activate it in any existing runtime.
+## Modes
 
-## Decisions
+| Mode | Calls that no rule covers |
+|---|---|
+| `off` | Run without checks, deny rules included |
+| `ask` | You choose: allow once, allow for this session, or deny |
+| `auto` | The classifier decides; if it is unsure or unavailable, you are asked |
 
-1. `off` explicitly disables the gate.
-2. Otherwise any matching deny rule blocks the tool; no classifier can override it.
-3. A matching allow rule permits the tool without calling a model.
-4. An unmatched action asks the human in `manual` mode or the configured classifier in `auto` mode. Manual approval requires an approval-capable client (the native TUI or an RPC client handling approval requests); without one it blocks with an instruction to configure auto mode.
+`/permissions` shows the current mode and rules. `/permissions auto` (or `off`, `ask`) switches
+mode for the current session; the footer shows the active mode and resuming the session keeps it.
+Change `mode` in settings to set the default for new sessions.
 
-`tool` is a Pi tool name, or `*` for any tool. Optional `id` only labels an error. A rule without `match` covers that tool's entire input. Bash matches support `program`, `subcommand`, `args-contain` and `wrappers`, using literal strings or lists. For allows, `subcommand` is the first argument. Denies conservatively match that token anywhere in the arguments, so options such as `git -C repo push` cannot hide a denied `push`; a quoted argument with that exact token can also match. Every parsed command must match an allow rule; expansions, unsupported shell syntax and writes through shell redirection go to approval. Known nested commands are also inspected for denies. A program-specific allow rule does not automatically include wrappers such as `env`.
+"Allow for this session" adds a rule for that tool, or for that program when the call is a plain
+Bash command (so allowing `npm test` allows every `npm` command). Session rules are kept in memory
+and are lost when Pi restarts.
 
-These are checks on visible tool arguments, **not a promise to inspect every program a shell script or interpreter later starts**. If command-specific Bash denies exist, opaque/oversized Bash goes to approval even with a blanket allow; the gate cannot establish those denies from that syntax. With no command-specific denies, a blanket Bash allow permits opaque Bash too. Use the full sandbox package when OS enforcement is required; do not treat this gate as that boundary.
+When there is no UI to ask, such as in print mode, calls that would need you are blocked.
 
-The classifier receives the user's recorded messages, the worker's explanation and available reasoning before the exact call, the working directory and that call. The existing Responses adapter enforces JSON output with `reason` before `verdict`; native classifier models use Pi's structured choice API. Only an explicit `allow` permits execution. Missing models, authentication/transport failures, malformed output and ambiguity block with a reason. New user input invalidates an approval still in progress. No response cache or growing permission grant is introduced.
+## Rules
 
-Classification input is limited to 64 KiB, including recorded user messages. It is never silently truncated, since doing so could discard an earlier restriction. If a long session exceeds the limit, the error recommends manual approval or a new session with the current request. Preflight rejection makes no model call and records no billed request.
+A rule is a tool name (`"edit"`) or a Bash command prefix (`"bash:git status"`); other tools
+take no prefix. Deny rules are checked first, then allow rules.
 
-The initial child-session boundary is deliberately narrow: when `PI_SUBAGENT=1`, recorded child tasks are labelled as untrusted worker text, not genuine user authorization. This thin package does not yet transport root-user authorization into child sessions. Allow rules still work; unmatched actions may need a parent-side approval workflow. Selecting this package for a parent does not itself install it in another Pi process. Approving a child launch permits that host process; it does not claim to review every subsequent child tool call.
+- A Bash allow rule only matches a single plain command: no `;`, `&&`, `|`, redirects or `$(...)`.
+  Anything more complex goes to the mode.
+- A Bash deny rule is checked against each command in a chain, so `ls && sudo rm x` matches
+  `bash:sudo`. Deny rules catch mistakes; a script can still hide a program name from them.
+- Setting `allow` replaces the default list, so include the read-only tools if you want them.
 
-## Accounting and checks
+## Classifier
 
-The existing shared accounting helper records classifier usage, supplies `/costs`, and restores receipts on session resume. It adds each receipt to native tool usage once. Stock Pi skips `tool_result` hooks for a blocked call: if classification is the final denied action, its receipt stays visible in `/costs` and reaches the normal native footer on the next executed tool result. Missing provider usage is reported as incomplete accounting, not zero cost.
+`model` names any model in Pi's registry, as `provider/id` or just `id`, using Pi's authentication.
+Native classifier models answer a choice question; chat models reply with a short JSON verdict.
+`timeoutSec` (default 15) limits each request.
+
+The classifier sees your messages in the session, the agent's text and reasoning just before the
+call, the working directory and the call itself. It is told that only your messages say what is
+wanted. A denial is returned to the agent with the classifier's reason, so the agent can change
+course.
+
+Long sessions are trimmed to the newest messages, but the call itself never is: a call over
+24 KiB, such as a large `write`, goes to you instead. The timeout holds even if a provider ignores
+cancellation.
+
+A new message from you while a call is waiting for approval cancels that call; the agent can retry.
+
+## Child agents
+
+With `pi-delegation`, each new child gets the parent's current mode and rules (including session
+allows) and the parent's user messages. The child's task is shown to the classifier as the parent
+agent's words, not yours. Approval prompts from children appear in the parent's UI.
+
+## Costs and tests
+
+Classifier usage is recorded in the session and shown by `/costs`.
 
 ```sh
-npm run test:permissions --workspace=pi-security
-node packages/pi-security/test/permissions-stock.mjs
+npm test --workspace=pi-permissions
+npm run test:stock --workspace=pi-permissions
 ```
 
-The stock test uses an isolated agent directory and a scripted model, loads only this native package, executes stock read/Bash tools, and verifies blocking before a file write. It does not contact a provider or alter a running session. Rule/schema tests cover model output, approvals and accounting replay; they do not establish classifier judgment quality or kernel containment.
+The unit tests cover rule matching, modes, prompts, session allows, child settings and classifier
+replies. The stock test runs the package in a real Pi session with a scripted model and checks
+that denied calls never write. Neither makes a provider request, so they do not measure how well
+a particular classifier model judges calls.

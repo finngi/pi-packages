@@ -11,6 +11,7 @@ import {
   type AssistantMessageEventStream,
   type Model,
   type ModelThinkingLevel,
+  calculateCost,
 } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -28,6 +29,7 @@ import {
   registerCodexSearch,
   resolveNativeReasoningEffort,
 } from "../extensions/search.ts";
+import { installAccounting } from "../../pi-runtime/src/accounting.ts";
 import { accountIdFromToken } from "../lib/search.ts";
 import { responsesFixture, streamFrom } from "./fixtures/responses-sse.ts";
 
@@ -46,7 +48,14 @@ function resultStream(
     api: model.api,
     provider: model.provider,
     model: model.id,
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: response ? "toolUse" : "stop",
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
@@ -85,7 +94,6 @@ async function sessionFor(
   collectionOrder: "before" | "after" = "before",
   storedAccountId = "acct_stored",
   options: {
-    security?: "required" | "off";
     freshness?: "live" | "cached" | "indexed";
     noPermissionCollector?: boolean;
     omitGrant?: boolean;
@@ -94,6 +102,10 @@ async function sessionFor(
     responseDelayMs?: number;
     concurrencyStats?: { active: number; max: number };
     codexModel?: boolean;
+    searchCost?: Model<Api>["cost"];
+    accounting?: boolean;
+    responseSse?: (query: string) => string;
+    sessionManager?: SessionManager;
     thinkingLevel?: ModelThinkingLevel;
     codexReasoning?: boolean;
     codexThinkingLevelMap?: Model<Api>["thinkingLevelMap"];
@@ -176,12 +188,12 @@ async function sessionFor(
       return resultStream(model, call, "");
     },
   });
-  if (options.codexModel) {
+  if (options.codexModel || options.searchCost) {
     runtime.registerProvider("openai-codex", {
       api: "openai-codex-responses",
       models: [
         {
-          id: "gpt-6-luna",
+          id: options.codexModel ? "gpt-6-luna" : "codex-default",
           name: "Synthetic Codex model",
           api: "openai-codex-responses",
           baseUrl: "https://chatgpt.com/backend-api",
@@ -189,7 +201,7 @@ async function sessionFor(
           reasoning: options.codexReasoning ?? true,
           contextWindow: 4096,
           maxTokens: 256,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: options.searchCost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           ...(options.codexThinkingLevelMap
             ? { thinkingLevelMap: options.codexThinkingLevelMap }
             : {}),
@@ -247,85 +259,25 @@ async function sessionFor(
       await new Promise((resolve) => setTimeout(resolve, options.responseDelayMs));
     if (body?.input?.[0]?.content?.[0]?.text?.includes("failure"))
       return new Response("synthetic-token response secret", { status: 429 });
-    const response = new Response(streamFrom([new TextEncoder().encode(responsesFixture)]), {
+    const fixture =
+      options.responseSse?.(body?.input?.[0]?.content?.[0]?.text ?? "") ?? responsesFixture;
+    const response = new Response(streamFrom([new TextEncoder().encode(fixture)]), {
       headers: { "content-type": "text/event-stream" },
     });
     if (options.concurrencyStats) options.concurrencyStats.active--;
     return response;
   };
   const effectsFactory: ExtensionFactory = (pi) => {
-    const approved = new Map<string, string>();
-    const active = new Map<string, () => void>();
     pi.on("tool_call", (event) => {
-      if (event.toolName === "codex_search")
-        approved.set(event.toolCallId, JSON.stringify(event.input));
-    });
-    pi.events.on("pi-security:service:v1", (request: any) =>
-      request.respond({
-        version: 1,
-        prepareSearch({
-          toolCallId,
-          input,
-          signal,
-        }: {
-          toolCallId: string;
-          input: unknown;
-          signal?: AbortSignal;
-        }) {
-          assert.equal(
-            approved.get(toolCallId),
-            JSON.stringify(input),
-            "exact native admission consumed",
-          );
-          approved.delete(toolCallId);
-          if (options.omitGrant) return undefined;
-          const controller = new AbortController();
-          const snapshot = JSON.stringify(input);
-          let current = true;
-          const capability = {
-            origin: "https://chatgpt.com",
-            signal: controller.signal,
-            assertCurrent(nextInput: unknown) {
-              assert.equal(current, true, "execution capability remains current");
-              assert.equal(JSON.stringify(nextInput), snapshot, "exact input remains bound");
-            },
-            async dispatch(
-              nextInput: unknown,
-              url: string,
-              operation: (signal: AbortSignal) => Promise<unknown>,
-            ) {
-              capability.assertCurrent(nextInput);
-              assert.match(
-                url,
-                /^https:\/\/chatgpt\.com\/backend-api\/codex\/(responses|models\?client_version=1\.0\.0)$/,
-              );
-              const result = await operation(controller.signal);
-              capability.assertCurrent(nextInput);
-              return result;
-            },
-            release() {
-              current = false;
-              controller.abort();
-              active.delete(toolCallId);
-              signal?.removeEventListener("abort", capability.release);
-            },
-          };
-          signal?.addEventListener("abort", capability.release, { once: true });
-          active.set(toolCallId, capability.release);
-          return capability;
-        },
-      }),
-    );
-    pi.on("tool_result", (event) => active.get(event.toolCallId)?.());
-    pi.on("session_shutdown", () => {
-      for (const release of [...active.values()]) release();
+      if (event.toolName === "codex_search" && options.omitGrant)
+        return { block: true, reason: "permission policy is unavailable" };
     });
   };
   const searchFactory = createCodexSearchExtension({
     fetchImpl: backend,
-    security: options.security ?? "required",
   });
   const factories: ExtensionFactory[] = [
+    ...(options.accounting ? [installAccounting] : []),
     ...(denySearch
       ? [
           (pi: import("@earendil-works/pi-coding-agent").ExtensionAPI) =>
@@ -358,7 +310,7 @@ async function sessionFor(
     ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
     tools: route === "direct" ? ["codex_search"] : ["codemode", "codex_search"],
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: options.sessionManager ?? SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }),
   });
   await sessionResult.session.bindExtensions({ mode: "print" });
@@ -366,6 +318,157 @@ async function sessionFor(
 }
 
 describe("Pi 1.2.0 native SDK paths", () => {
+  for (const route of ["direct", "codemode"] as const) {
+    it(`accounts search receipts once through ${route}, including cache, reasoning and resume`, async () => {
+      const path = await mkdtemp(join(tmpdir(), "pi-search-usage-"));
+      let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      let resumed: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      try {
+        const searchCost = {
+          input: 2,
+          output: 8,
+          cacheRead: 0.5,
+          cacheWrite: 0,
+          tiers: [{ inputTokensAbove: 20, input: 20, output: 80, cacheRead: 5, cacheWrite: 0 }],
+        };
+        const manager = SessionManager.create(path, join(path, "sessions"));
+        created = await sessionFor(
+          path,
+          route,
+          [],
+          [],
+          ["repeat", "repeat"],
+          false,
+          "before",
+          "acct_test",
+          {
+            searchCost,
+            sessionManager: manager,
+            responseSse: () =>
+              responsesFixture.replace(
+                '"total_tokens":19',
+                '"total_tokens":19,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}',
+              ),
+          },
+        );
+        await created.session.prompt("Search twice.");
+        const stats = created.session.getSessionStats();
+        assert.deepEqual(stats.tokens, {
+          input: 16,
+          output: 14,
+          cacheRead: 8,
+          cacheWrite: 0,
+          total: 38,
+        });
+        const perRequest = {
+          input: 8,
+          output: 7,
+          cacheRead: 4,
+          cacheWrite: 0,
+          totalTokens: 19,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        };
+        calculateCost(created.runtime.getModel("openai-codex", "codex-default")!, perRequest);
+        assert.equal(
+          stats.cost,
+          perRequest.cost.total * 2,
+          "price tiers apply per request, not per batch",
+        );
+        const messages = manager
+          .getEntries()
+          .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        assert.equal(messages.length, 1, "nested search receipts persist on the outer result only");
+        const message = messages[0];
+        assert.ok(message?.type === "message" && message.message.role === "toolResult");
+        assert.equal(message.message.usage?.reasoning, 6, "reasoning remains an output subset");
+        const file = manager.getSessionFile()!;
+        created.session.dispose();
+        created = undefined;
+        resumed = await sessionFor(path, route, [], [], undefined, false, "before", "acct_test", {
+          searchCost,
+          sessionManager: SessionManager.open(file),
+        });
+        assert.deepEqual(resumed.session.getSessionStats().tokens, stats.tokens);
+        assert.equal(resumed.session.getSessionStats().cost, stats.cost);
+      } finally {
+        created?.session.dispose();
+        resumed?.session.dispose();
+        await rm(path, { recursive: true, force: true });
+      }
+    });
+
+    it(`reports missing and partial search receipts honestly through ${route}`, async () => {
+      const path = await mkdtemp(join(tmpdir(), "pi-search-missing-usage-"));
+      let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      try {
+        created = await sessionFor(
+          path,
+          route,
+          [],
+          [],
+          ["complete", "missing", "partial", "provider-error", "invalid"],
+          false,
+          "before",
+          "acct_test",
+          {
+            accounting: true,
+            responseSse: (query) =>
+              query === "provider-error"
+                ? 'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"message":"provider failed"},"usage":{"input_tokens":3,"output_tokens":2}}}\n\n'
+                : query === "invalid"
+                  ? responsesFixture.replace('"input_tokens":12', '"input_tokens":1.5')
+                  : query === "missing"
+                    ? responsesFixture.replace(
+                        '"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}',
+                        '"status":"completed"',
+                      )
+                    : query === "partial"
+                      ? responsesFixture.replace(
+                          '{"input_tokens":12,"output_tokens":7,"total_tokens":19}',
+                          '{"input_tokens":5}',
+                        )
+                      : responsesFixture,
+          },
+        );
+        let result: any;
+        created.session.subscribe((event) => {
+          if (event.type === "tool_execution_end" && event.toolName === "codex_search")
+            result = event.result;
+        });
+        await created.session.prompt("Search the batch.");
+        assert.equal(created.session.getSessionStats().tokens.total, 29);
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search request\(s\) have no provider usage receipt/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search receipt\(s\) have incomplete token counts/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /No catalogue price for openai-codex\/codex-default/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search receipt\(s\) have invalid token counts and were omitted/,
+        );
+        assert.match(result.content[0].text, /Totals are a known lower bound/);
+        const persisted = created.session.sessionManager
+          .getEntries()
+          .find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        assert.ok(persisted?.type === "message" && persisted.message.role === "toolResult");
+        assert.deepEqual(
+          (persisted.message.details as any).piUsageWarnings,
+          result.details.piUsageWarnings,
+        );
+      } finally {
+        created?.session.dispose();
+        await rm(path, { recursive: true, force: true });
+      }
+    });
+  }
+
   for (const route of ["direct", "codemode"] as const) {
     it(`discovers and executes codex_search through ${route}`, async () => {
       const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-"));
@@ -723,7 +826,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
   });
 
   for (const collectionOrder of ["before", "after"] as const) {
-    it(`discovers the fixed-origin service when search loads ${collectionOrder === "before" ? "before" : "after"} the security service`, async () => {
+    it(`native admission hooks apply when search loads ${collectionOrder === "before" ? "before" : "after"} the gate`, async () => {
       const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-order-"));
       const requests: string[] = [];
       const outcomes: unknown[] = [];
@@ -915,7 +1018,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
     }
   });
 
-  it("fails closed when the security service returns an invalid capability", async () => {
+  it("native tool admission blocks backend access when permission configuration is unavailable", async () => {
     const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-no-grant-"));
     const requests: string[] = [];
     let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
@@ -934,14 +1037,14 @@ describe("Pi 1.2.0 native SDK paths", () => {
       await created.session.prompt("Use the requested search tool once.");
       assert.equal(requests.length, 0);
       const result = created.session.messages.find((message) => message.role === "toolResult");
-      assert.match(JSON.stringify(result), /invalid pi-security search capability/i);
+      assert.match(JSON.stringify(result), /permission policy is unavailable/i);
     } finally {
       created?.session.dispose();
       await rm(path, { recursive: true, force: true });
     }
   });
 
-  it("works through the real SDK without security when explicitly selected", async () => {
+  it("works independently through the real SDK with native OAuth", async () => {
     const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-off-")),
       requests: string[] = [],
       outcomes: unknown[] = [];
@@ -956,7 +1059,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
         false,
         "before",
         "acct_stored",
-        { noPermissionCollector: true, security: "off" },
+        { noPermissionCollector: true },
       );
       await created.session.prompt("Use the search tool once.");
       assert(requests.length > 0);
@@ -970,17 +1073,16 @@ describe("Pi 1.2.0 native SDK paths", () => {
       await rm(path, { recursive: true, force: true });
     }
   });
-  it("refuses backend access through the real SDK when no security service exists", async () => {
-    const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-standalone-"));
+  it("an absent optional permission gate leaves native search usable", async () => {
+    const path = await mkdtemp(join(tmpdir(), "pi-search-native-optional-gate-"));
     const requests: string[] = [];
-    const outcomes: unknown[] = [];
     let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
     try {
       created = await sessionFor(
         path,
         "direct",
         requests,
-        outcomes,
+        [],
         undefined,
         false,
         "before",
@@ -988,14 +1090,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
         { noPermissionCollector: true },
       );
       await created.session.prompt("Use the requested search tool once.");
-      assert.equal(requests.length, 0);
-      assert.ok(
-        created.session.messages.some(
-          (message) =>
-            message.role === "toolResult" &&
-            JSON.stringify(message).includes("exactly one active pi-security"),
-        ),
-      );
+      assert.equal(requests.filter((url) => url.endsWith("/codex/responses")).length, 1);
     } finally {
       created?.session.dispose();
       await rm(path, { recursive: true, force: true });
@@ -1037,7 +1132,7 @@ describe("standalone extension registration", () => {
     );
   });
 
-  it("refuses naked execution before resolving auth or dispatching a request", async () => {
+  it("direct execution resolves native authentication and sanitizes errors", async () => {
     const tool = createCodexSearchTool({
       fetchImpl: async () => {
         throw new Error("fetch must not run");
@@ -1046,13 +1141,13 @@ describe("standalone extension registration", () => {
     const ctx = {
       modelRegistry: {
         getProviderAuth() {
-          throw new Error("auth must not run");
+          throw new Error("private-auth-error");
         },
       },
     };
     await assert.rejects(
       (tool.execute as any)("naked", { queries: ["query"] }, undefined, undefined, ctx),
-      /active pi-security search capability/,
+      /could not resolve OpenAI Codex credentials/,
     );
   });
 
@@ -1087,75 +1182,41 @@ describe("standalone extension registration", () => {
     assert.equal(typeof registered?.execute, "function");
   });
 
-  it("requires exactly one service and releases admitted capabilities even on auth failure", async () => {
+  it("registered tools resolve native credentials exactly once and never fetch after auth failure", async () => {
     let registered: ReturnType<typeof createCodexSearchTool> | undefined;
-    let responses: unknown[] = [];
     let authCalls = 0,
-      releases = 0;
-    const pi = {
-      registerTool(tool: any) {
-        registered = tool;
-      },
-      events: {
-        emit(name: string, request: any) {
-          if (name === "pi-security:presence:v1") return;
-          assert.equal(name, "pi-security:service:v1");
-          for (const service of responses) request.respond(service);
+      fetchCalls = 0;
+    registerCodexSearch(
+      {
+        registerTool(tool: any) {
+          registered = tool;
+        },
+      } as any,
+      {
+        fetchImpl: async () => {
+          fetchCalls++;
+          throw Error("fetch must not run");
         },
       },
-    } as any;
-    registerCodexSearch(pi, {
-      security: "required",
-      fetchImpl: async () => {
-        throw Error("fetch must not run");
-      },
-    });
-    const ctx = {
-      modelRegistry: {
-        async getProviderAuth(...args: unknown[]) {
-          assert.deepEqual(args, ["openai-codex"]);
-          authCalls++;
-          throw Error("private-auth-error");
-        },
-      },
-    } as any;
-    const service = {
-      version: 1,
-      prepareSearch() {
-        return {
-          origin: "https://chatgpt.com",
-          signal: new AbortController().signal,
-          assertCurrent() {},
-          dispatch() {
-            throw Error("dispatch must not run");
-          },
-          release() {
-            releases++;
-          },
-        };
-      },
-    };
-    for (const invalid of [
-      [],
-      [service, service],
-      [{ version: 2, prepareSearch() {} }],
-      [{ version: 1 }],
-    ]) {
-      responses = invalid;
-      await assert.rejects(
-        registered!.execute("call", { queries: ["query"] }, undefined, undefined, ctx),
-        /exactly one active pi-security/,
-      );
-    }
-    assert.equal(authCalls, 0);
-    assert.equal(releases, 0);
-    responses = [service];
+    );
     await assert.rejects(
-      registered!.execute("call", { queries: ["query"] }, undefined, undefined, ctx),
-      /could not resolve OpenAI Codex credentials/,
+      registered!.execute("call", { queries: ["query"] }, undefined, undefined, {
+        modelRegistry: {
+          async getProviderAuth(...args: unknown[]) {
+            assert.deepEqual(args, ["openai-codex"]);
+            authCalls++;
+            throw Error("private-auth-error");
+          },
+        },
+      } as any),
+      (error) => {
+        assert.match(String(error), /could not resolve OpenAI Codex credentials/);
+        assert.doesNotMatch(String(error), /private-auth-error/);
+        return true;
+      },
     );
     assert.equal(authCalls, 1);
-    assert.equal(releases, 1);
+    assert.equal(fetchCalls, 0);
   });
 
   it("truncates a bounded provider answer while retaining its typed success and truncation flag", async () => {
@@ -1184,47 +1245,25 @@ describe("standalone extension registration", () => {
     model?: { provider: string; id: string };
     updates?: unknown[];
   }) {
-    const tool = createCodexSearchTool({ fetchImpl: options.fetchImpl });
-    const execute = tool.execute as (...args: any[]) => Promise<any>;
-    const current = { value: true };
     const controller = new AbortController();
-    const inputSnapshot = JSON.stringify(options.input);
     let dispatches = 0;
-    const grant = {
-      origin: "https://chatgpt.com",
-      signal: controller.signal,
-      assertCurrent(nextInput?: unknown) {
-        const input = nextInput === undefined ? options.input : nextInput;
-        if (!current.value) throw new Error("permission/session grant was revoked");
-        if (JSON.stringify(input) !== inputSnapshot)
-          throw new Error("search input changed after admission");
-      },
-      async dispatch(
-        input: unknown,
-        url: string,
-        operation: (signal: AbortSignal) => Promise<unknown>,
-      ) {
-        grant.assertCurrent(input);
+    const tool = createCodexSearchTool({
+      fetchImpl: async (input, init) => {
         dispatches++;
-        assert.equal(new URL(url).origin, "https://chatgpt.com");
-        return operation(controller.signal);
+        assert.equal(new URL(String(input)).origin, "https://chatgpt.com");
+        return options.fetchImpl(input, init);
       },
-      release() {
-        grant.revoke();
-      },
-      revoke(reason = new Error("permission/session grant was revoked")) {
-        current.value = false;
-        controller.abort(reason);
-      },
-    };
+    });
+    const execute = tool.execute as (...args: any[]) => Promise<any>;
     const context = {
       modelRegistry: {
         getProviderAuth:
           options.getProviderAuth ??
           (async () => ({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } })),
+        find: () => undefined,
       },
       model: options.model,
-      signal: undefined,
+      signal: controller.signal,
       sessionManager: { getSessionId: () => "session_synthetic" },
     };
     const updates = options.updates ?? [];
@@ -1234,11 +1273,10 @@ describe("standalone extension registration", () => {
       undefined,
       (update: unknown) => updates.push(update),
       context,
-      grant,
     );
     return {
       pending,
-      grant,
+      controller,
       get dispatches() {
         return dispatches;
       },
@@ -1246,7 +1284,7 @@ describe("standalone extension registration", () => {
     };
   }
 
-  it("does not fetch if authority is revoked while current-runtime credential resolution is pending", async () => {
+  it("does not fetch if native session cancellation occurs during credential resolution", async () => {
     let resolveAuth!: (value: unknown) => void;
     const authPending = new Promise<unknown>((resolve) => {
       resolveAuth = resolve;
@@ -1260,14 +1298,14 @@ describe("standalone extension registration", () => {
         return Response.json({ models: [] });
       },
     });
-    harness.grant.revoke();
+    harness.controller.abort();
     resolveAuth({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } });
     await assert.rejects(harness.pending);
     assert.equal(requests, 0);
     assert.equal(harness.dispatches, 0);
   });
 
-  it("does not send a Responses query after the default-model await loses its session grant", async () => {
+  it("does not send a Responses query after cancellation during default-model lookup", async () => {
     let started!: () => void;
     const requestStarted = new Promise<void>((resolve) => {
       started = resolve;
@@ -1289,35 +1327,37 @@ describe("standalone extension registration", () => {
       },
     });
     await requestStarted;
-    harness.grant.revoke(new Error("session identity changed"));
+    harness.controller.abort(new Error("session identity changed"));
     await assert.rejects(harness.pending);
     assert.equal(requests, 1);
     assert.equal(harness.dispatches, 1);
   });
 
-  it("refuses exact input mutation before the first guarded network dispatch", async () => {
+  it("captures query text before asynchronous native credential lookup", async () => {
     let resolveAuth!: (value: unknown) => void;
     const authPending = new Promise<unknown>((resolve) => {
       resolveAuth = resolve;
     });
-    let requests = 0;
+    let submitted = "";
     const input = { queries: ["before"] };
     const harness = guardedHarness({
       input,
+      model: { provider: "openai-codex", id: "selected-model" },
       getProviderAuth: () => authPending,
-      fetchImpl: async () => {
-        requests++;
-        return Response.json({ models: [] });
+      fetchImpl: async (_url, init) => {
+        submitted = String(init?.body);
+        return new Response(streamFrom([new TextEncoder().encode(responsesFixture)]));
       },
     });
     input.queries[0] = "after";
     resolveAuth({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } });
-    await assert.rejects(harness.pending, /input changed after admission/);
-    assert.equal(requests, 0);
-    assert.equal(harness.dispatches, 0);
+    await harness.pending;
+    assert.match(submitted, /before/);
+    assert.doesNotMatch(submitted, /after/);
+    assert.equal(harness.dispatches, 1);
   });
 
-  it("checks every dispatch and stops newly queued queries when policy authority is revoked", async () => {
+  it("checks every dispatch and stops newly queued queries on native session cancellation", async () => {
     let started!: () => void;
     const firstFive = new Promise<void>((resolve) => {
       started = resolve;
@@ -1340,14 +1380,14 @@ describe("standalone extension registration", () => {
       },
     });
     await firstFive;
-    harness.grant.revoke(new Error("policy epoch changed"));
+    harness.controller.abort(new Error("policy epoch changed"));
     await assert.rejects(harness.pending);
     assert.equal(requests, 5);
     assert.equal(harness.dispatches, 5);
     assert.equal(harness.updates.length, 1, "no partial progress was published after revocation");
   });
 
-  it("aborts an in-flight Responses reader and publishes no stale result after revocation", async () => {
+  it("aborts an in-flight Responses reader and publishes no stale result after cancellation", async () => {
     let readerCancelled = false;
     const updates: unknown[] = [];
     const harness = guardedHarness({
@@ -1370,7 +1410,7 @@ describe("standalone extension registration", () => {
           }),
         ),
     });
-    const revoke = () => harness.grant.revoke(new Error("permission epoch changed"));
+    const revoke = () => harness.controller.abort(new Error("permission epoch changed"));
     const interval = setInterval(() => {
       if (updates.length) {
         clearInterval(interval);

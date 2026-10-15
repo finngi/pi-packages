@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,11 +15,9 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
   );
   const saved = {
     agent: process.env.PI_CODING_AGENT_DIR,
-    transport: process.env.PI_SECURITY_TRANSPORT,
     child: process.env.PI_SUBAGENT,
   };
   process.env.PI_CODING_AGENT_DIR = dir;
-  process.env.PI_SECURITY_TRANSPORT = "extensions";
   delete process.env.PI_SUBAGENT;
   const handlers = new Map<string, Function>(),
     tools = new Map<string, any>(),
@@ -28,12 +26,9 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     runs = new Map<string, any>();
   let next = 0,
     idle = false,
-    scopeWrite = "own workspace only",
-    launches = 0,
+    activeTools = ["read", "write", "agent_message", "agent_list", "session_setup"],
     failNextPrompt = false,
-    failNextCleanup = false,
-    abortNextPrompt: (() => void) | undefined,
-    cleanupAttempts = 0;
+    abortNextPrompt: (() => void) | undefined;
   const emit = (run: any, value: any) =>
     run.onData("stdout", Buffer.from(`${JSON.stringify(value)}\n`));
   const transport = {
@@ -71,44 +66,6 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
       run.resolve?.({ id, status: "cancelled", exitCode: 0 });
     },
   };
-  const security = {
-    version: 1,
-    prepareShell() {},
-    describeChild: async () => ({
-      tools: ["read", "write", "agent_message", "agent_list"],
-      scope: { write: scopeWrite },
-    }),
-    prepareChildLaunch: async (spec: any) => {
-      launches++;
-      const cwd = join(dir, `child-${next + 1}`);
-      mkdirSync(cwd, { recursive: true });
-      const workspaceInfo = lstatSync(cwd);
-      return {
-        id: `launch-${next + 1}`,
-        argv: ["pi"],
-        env: {},
-        cwd,
-        tmp: cwd,
-        workspaceIdentity: {
-          path: realpathSync(cwd),
-          dev: workspaceInfo.dev,
-          ino: workspaceInfo.ino,
-        },
-        communication: spec.communication,
-        effectiveResources: { tools: ["read", "write", "agent_message", "agent_list"] },
-        cleanup: async () => {
-          cleanupAttempts++;
-          if (failNextCleanup) {
-            failNextCleanup = false;
-            throw Error("simulated child cleanup failure");
-          }
-        },
-      };
-    },
-    handleChildAsk: async () => {
-      throw Error("Messages must not enter the permission resolver");
-    },
-  };
   const pi = {
     on: (name: string, fn: Function) => handlers.set(name, fn),
     registerCommand() {},
@@ -116,7 +73,7 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     getFlag() {},
     registerMessageRenderer() {},
     registerTool: (tool: any) => tools.set(tool.name, tool),
-    getActiveTools: () => ["read", "write", "agent_message", "agent_list", "session_setup"],
+    getActiveTools: () => activeTools,
     getAllTools: () =>
       ["read", "write", "agent_message", "agent_list", "session_setup"].map((name) => ({
         name,
@@ -132,7 +89,6 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     events: {
       on() {},
       emit: (name: string, value: any) => {
-        if (name === "pi-security:service:v1") value.respond(security);
         if (name === "background:service") value.respond(transport);
       },
     },
@@ -142,7 +98,19 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     isProjectTrusted: () => false,
     isIdle: () => idle,
     model: { provider: "fixture", id: "fixture" },
-    modelRegistry: { getAvailable: () => [], getAvailableOfType: async () => [] },
+    modelRegistry: {
+      find: () => ({
+        provider: "fixture",
+        id: "fixture",
+        api: "openai-completions",
+        reasoning: false,
+      }),
+      getRegisteredNativeProvider: () => undefined,
+      getRegisteredProviderConfig: () => undefined,
+      getAvailableOfType: async () => [
+        { provider: "fixture", id: "fixture", api: "openai-completions", reasoning: false },
+      ],
+    },
     sessionManager: { getBranch: () => entries, getSessionId: () => "native-parent-session" },
   };
   const call = (name: string, args: any, signal?: AbortSignal) =>
@@ -164,16 +132,19 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
       "discard",
     ]);
     await handlers.get("session_start")!({}, ctx);
-    const input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    const input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: dir, contextFiles: [], sections: {} },
+    };
     await handlers.get("before_agent_start")!(input, ctx);
-    assert.match((input.systemPromptOptions.sections as any).agents, /own workspace only/);
-    scopeWrite = "none";
+    assert.match((input.systemPromptOptions.sections as any).agents, /host permissions/);
+    activeTools = ["read", "agent_message", "agent_list", "session_setup"];
     await assert.rejects(
       call("subagent", { agent: "general-purpose", task: "build" }),
       /Review tools and scope/,
     );
-    assert.equal(launches, 0);
-    scopeWrite = "own workspace only";
+    assert.equal(runs.size, 0);
+    activeTools = ["read", "write", "agent_message", "agent_list", "session_setup"];
     await handlers.get("before_agent_start")!(input, ctx);
     const stableSections = structuredClone(input.systemPromptOptions.sections);
     assert.ok(!("active_agents" in stableSections));
@@ -358,28 +329,26 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     await handlers.get("agent_settled")!({ aborted: false }, ctx);
     assert.equal(messages.length, 3, "Settlement does not replay messages or consumed results");
     failNextPrompt = true;
-    failNextCleanup = true;
     await assert.rejects(
-      call("subagent", { agent: "general-purpose", task: "exercise cleanup failure" }),
-      /Could not start general-purpose; cleanup did not finish[\s\S]*subagent_close to retry cleanup/,
+      call("subagent", { agent: "general-purpose", task: "exercise failed startup" }),
+      /Could not start general-purpose/,
     );
-    const afterFailedStart = (await call("agent_list", {})).details.agents;
-    assert.equal(
-      afterFailedStart.length,
-      4,
-      "cleanup failure leaves the child handle discoverable",
-    );
-    const retained = afterFailedStart.at(-1);
-    assert.equal(retained.status, "closed");
-    await call("subagent_close", { id: retained.id });
     assert.equal(
       (await call("agent_list", {})).details.agents.length,
       3,
-      "a retry after transient cleanup failure closes and removes the retained child",
+      "failed startup leaves no child handle",
+    );
+    assert.equal(
+      existsSync(runs.get("worker-3").env.PI_CODING_AGENT_DIR),
+      false,
+      "failed startup removes native child configuration",
+    );
+    assert.equal(
+      existsSync(runs.get("worker-3").cwd),
+      false,
+      "failed startup removes its scratch workspace",
     );
     const controller = new AbortController();
-    const cleanupsBeforeAbort = cleanupAttempts;
-    failNextCleanup = true;
     abortNextPrompt = () => controller.abort();
     await assert.rejects(
       call(
@@ -391,14 +360,19 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     );
     await tick();
     assert.equal(
-      cleanupAttempts,
-      cleanupsBeforeAbort + 2,
-      "abort cleanup failure is awaited and retried during startup error handling",
-    );
-    assert.equal(
       (await call("agent_list", {})).details.agents.length,
       3,
-      "successful retry removes the child after an abort",
+      "abort removes the child handle",
+    );
+    assert.equal(
+      existsSync(runs.get("worker-4").env.PI_CODING_AGENT_DIR),
+      false,
+      "abort removes native child configuration",
+    );
+    assert.equal(
+      existsSync(runs.get("worker-4").cwd),
+      false,
+      "abort removes its scratch workspace",
     );
     idle = false;
     const longAnswer = {
@@ -512,9 +486,9 @@ test("bound bidirectional and sibling messages, preflight drift, consumed-result
     await handlers.get("session_shutdown")!();
     assert.equal((await call("agent_list", {})).details.agents.length, 1);
   } finally {
+    await handlers.get("session_shutdown")?.();
     for (const [key, value] of [
       ["PI_CODING_AGENT_DIR", saved.agent],
-      ["PI_SECURITY_TRANSPORT", saved.transport],
       ["PI_SUBAGENT", saved.child],
     ])
       if (value === undefined) delete process.env[key!];

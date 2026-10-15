@@ -1,18 +1,15 @@
 /** Session-owned subprocess transport and Pi completion delivery. */
 import { constants as osConstants } from "node:os";
-import { fileURLToPath } from "node:url";
 import {
-  createBashToolDefinition,
   type AgentToolResult,
+  createBashToolDefinition,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import type { ReadResult, Snapshot } from "pi-runtime/processes";
+import { BackgroundProcesses, outputPreview } from "pi-runtime/processes";
 import { MAX_NODE_TIMER_DELAY_MS } from "pi-runtime/timers";
 import { Type } from "typebox";
 import { completionContent } from "../lib/background/completion.ts";
-import { BackgroundProcesses, outputPreview } from "../lib/background/processes.ts";
-import type { ReadResult, Snapshot } from "../lib/background/types.ts";
-import { securitySelected, securityService } from "../lib/security-service.ts";
-import { SECURITY_PRESENCE } from "pi-contracts";
 
 interface EncodedRead extends Omit<ReadResult, "chunks"> {
   chunks: {
@@ -24,11 +21,7 @@ interface EncodedRead extends Omit<ReadResult, "chunks"> {
   }[];
 }
 
-import type {
-  BackgroundPolicyUpdate,
-  BackgroundService,
-  ServiceRequest,
-} from "../lib/background/service.ts";
+import type { BackgroundService, ServiceRequest } from "../lib/background/service.ts";
 
 export default function (pi: ExtensionAPI) {
   let processes = new BackgroundProcesses();
@@ -36,17 +29,7 @@ export default function (pi: ExtensionAPI) {
   let closed = false;
   let bashRegistered = false;
   let backgroundToolRegistered = false;
-  let admit: BackgroundPolicyUpdate["admit"] | undefined;
   let wakeBudget = 3;
-  const securityProviderPresent = () => {
-    let active = false;
-    pi.events.emit(SECURITY_PRESENCE, {
-      respond: (present: boolean) => {
-        active ||= present;
-      },
-    });
-    return active;
-  };
   const foregroundWaits = new Map<string, () => void>();
   const yieldForegroundWaits = () => {
     for (const yieldWait of foregroundWaits.values()) yieldWait();
@@ -54,11 +37,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("input", (event) => {
     if (event.source !== "extension") wakeBudget = 3;
     if (event.source !== "extension" && event.streamingBehavior === "steer") yieldForegroundWaits();
-  });
-  pi.events.on("background:policy", (value) => {
-    const policy = value as BackgroundPolicyUpdate;
-    admit = policy.admit;
-    policy.pending?.push(processes.cancelWhere(policy.cancel, policy.reason));
   });
   const exit = () => {
     closed = true;
@@ -74,22 +52,12 @@ export default function (pi: ExtensionAPI) {
     process.removeListener("exit", exit);
     process.on("exit", exit);
     const activeBeforeRegistration = pi.getActiveTools();
-    const providerPresent = securityProviderPresent();
     const activeBash = activeBeforeRegistration.includes("bash");
     // Let Pi apply its native --tools, --exclude-tools, modifiers and defaultTools rules.
     // defaultActive:false preserves a previously selected Bash without activating it in a
     // restricted session; native refresh also handles explicit names and wildcard patterns.
-    if (!providerPresent && !bashRegistered) {
-      if (securitySelected()) registerRefusingBash();
-      else registerHostBash();
-    }
-    // Keep the process inspector opt-in. In particular, late registration must not widen a
-    // child session's private tool list or a user's explicit parent tool selection.
-    const backgroundOwnedBySecurity = providerPresent && !securitySelected();
-    registerBackgroundProcessTool(
-      backgroundOwnedBySecurity,
-      activeBash && process.env.PI_SUBAGENT !== "1",
-    );
+    if (!bashRegistered) registerHostBash();
+    registerBackgroundProcessTool(activeBash && process.env.PI_SUBAGENT !== "1");
   });
   pi.on("session_shutdown", async () => {
     closed = true;
@@ -108,8 +76,6 @@ export default function (pi: ExtensionAPI) {
     const service: BackgroundService = {
       launch(spec, options = {}) {
         assertCurrentSession();
-        // No default launcher is exposed to the model; trusted clients supply admission/protocol policy.
-        admit?.(spec);
         const handle = manager.launch(spec);
         if (options.notify !== false)
           void handle.done
@@ -170,15 +136,11 @@ export default function (pi: ExtensionAPI) {
     args: string[];
     cwd: string;
     env: NodeJS.ProcessEnv;
-    input?: unknown;
     signal?: AbortSignal;
     foreground?: boolean;
     timeout?: number;
-    mode: "host" | "sandbox";
     label: string;
     onData?: (stream: "stdout" | "stderr", data: Buffer) => void;
-    onComplete?: () => Promise<void>;
-    requireNoSecurity?: boolean;
   }): Promise<{
     result?: AgentToolResult;
     yielded?: {
@@ -188,7 +150,7 @@ export default function (pi: ExtensionAPI) {
   }> {
     const launchEpoch = epoch;
     const manager = processes;
-    const timeout = spec.timeout ?? (spec.input as { timeout?: unknown } | null)?.timeout;
+    const timeout = spec.timeout;
     if (
       timeout !== undefined &&
       (typeof timeout !== "number" ||
@@ -201,8 +163,6 @@ export default function (pi: ExtensionAPI) {
       );
     if (spec.signal?.aborted) throw Error("aborted");
     if (closed || epoch !== launchEpoch) throw Error("shell launch belongs to an ended session");
-    if (spec.requireNoSecurity && (securitySelected() || securityProviderPresent()))
-      throw Error("Plain host Bash is unavailable while pi-security is selected or active.");
     let backgrounded = spec.foreground === false;
     const startedAt = Date.now();
     const launched = sessionService().launch(
@@ -213,14 +173,12 @@ export default function (pi: ExtensionAPI) {
         cwd: spec.cwd,
         owner: "bash",
         label: spec.label,
-        mode: spec.mode,
         stdin: "closed",
         ...(typeof timeout === "number" ? { timeoutMs: timeout * 1000 } : {}),
         ...(spec.onData ? { onData: spec.onData } : {}),
       },
       { notify: true, notifyIfCurrent: () => backgrounded },
     );
-    if (spec.onComplete) void launched.done.then(() => spec.onComplete?.()).catch(() => {});
     if (spec.foreground === false)
       return {
         yielded: {
@@ -282,7 +240,7 @@ export default function (pi: ExtensionAPI) {
       snapshot.exitCode ??
       (snapshot.signal ? 128 + (requireSignalNumber(snapshot.signal) ?? 1) : 1);
     const details = {
-      execution: spec.mode,
+      execution: "host",
       output: boundedOutput || "(no output)",
       truncated,
       exit_code: exitCode,
@@ -305,97 +263,82 @@ export default function (pi: ExtensionAPI) {
     };
   }
 
-  if (securitySelected()) {
-    pi.events.on("pi-security:transport:v1", (value) => {
-      const request = value as { version: number; respond(service: unknown): void };
-      if (request.version !== 1) return;
-      request.respond({
-        extensionPath: fileURLToPath(import.meta.url),
-        async startShell(spec: {
-          toolCallId: string;
-          input: unknown;
-          cwd: string;
-          signal?: AbortSignal;
-          foreground?: boolean;
-        }) {
-          const preparationEpoch = epoch;
-          const service = securityService(pi.events);
-          const { foreground, ...shellSpec } = spec;
-          const capability = await service.prepareShell(shellSpec);
-          try {
-            capability.assertCurrent();
-            if (closed || epoch !== preparationEpoch)
-              throw Error("shell preparation belongs to an ended session");
-            const result = await runManagedShell({
-              command: capability.argv[0]!,
-              args: capability.argv.slice(1),
-              env: capability.env,
-              cwd: capability.cwd,
-              input: spec.input,
-              signal: spec.signal,
-              foreground,
-              mode: capability.execution ?? "sandbox",
-              label: capability.execution === "host" ? "approved host bash" : "sandboxed bash",
-              onComplete: () => capability.release(),
-            });
-            if (result.yielded) return result.yielded;
-            return result.result;
-          } catch (error) {
-            await capability.release();
-            throw error;
-          }
-        },
-      });
-    });
-  }
-  function registerRefusingBash() {
-    const unavailable = createBashToolDefinition(process.cwd());
-    pi.registerTool({
-      ...unavailable,
-      defaultActive: false,
-      async execute() {
-        throw new Error("Security is selected, but the secured Bash tool is unavailable.");
-      },
-    });
-    bashRegistered = true;
-  }
   function registerHostBash() {
     const cwd = process.cwd();
-    const definition = createBashToolDefinition(cwd, {
-      operations: {
-        async exec(command, shellCwd, options) {
-          const { result, yielded } = await runManagedShell({
-            command: "/bin/bash",
-            args: ["-lc", command],
-            cwd: shellCwd,
-            env: options.env ?? process.env,
-            signal: options.signal,
-            timeout: options.timeout,
-            mode: "host",
-            label: "host bash",
-            requireNoSecurity: true,
-            onData: (_stream, data) => options.onData(data),
-          });
-          if (yielded) {
-            options.onData(
-              Buffer.from(
-                `[Process ${yielded.details.id} is continuing in the background. Use background_process to inspect it.]\n`,
-              ),
-            );
-            return { exitCode: 0 };
-          }
-          const details = result?.structuredContent as { exit_code?: number } | undefined;
-          return { exitCode: details?.exit_code ?? 1 };
-        },
+    const base = createBashToolDefinition(cwd);
+    const parameters = Type.Object({
+      ...base.parameters.properties,
+      background: Type.Optional(
+        Type.Boolean({
+          description: "Return immediately while the command runs in the background",
+        }),
+      ),
+    });
+    type BashDetails = Awaited<ReturnType<typeof base.execute>>["details"];
+    type BackgroundResult = NonNullable<Awaited<ReturnType<typeof runManagedShell>>["yielded"]>;
+    pi.registerTool<typeof parameters, BashDetails | BackgroundResult["details"]>({
+      ...base,
+      defaultActive: false,
+      description: `${base.description} Set background:true to return a managed process ID immediately; use background_process to read or cancel it.`,
+      parameters,
+      outputSchema: Type.Union([
+        base.outputSchema!,
+        Type.Object({ id: Type.String(), running: Type.Literal(true) }),
+      ]),
+      renderResult(result, options, theme, context) {
+        return base.renderResult!(
+          {
+            ...result,
+            details: result.details && "id" in result.details ? undefined : result.details,
+          },
+          options,
+          theme,
+          context,
+        );
+      },
+      async execute(id, input, signal, onUpdate, ctx) {
+        let backgroundResult: BackgroundResult | undefined;
+        const definition = createBashToolDefinition(cwd, {
+          operations: {
+            async exec(command, shellCwd, options) {
+              const { result, yielded } = await runManagedShell({
+                command: "/bin/bash",
+                args: ["-lc", command],
+                cwd: shellCwd,
+                env: options.env ?? process.env,
+                signal: options.signal,
+                timeout: options.timeout,
+                foreground: input.background !== true,
+                label: "host bash",
+                onData: (_stream, data) => options.onData(data),
+              });
+              if (yielded) {
+                if (input.background === true) backgroundResult = yielded;
+                else
+                  options.onData(
+                    Buffer.from(
+                      `[Process ${yielded.details.id} is continuing in the background. Use background_process to inspect it.]\n`,
+                    ),
+                  );
+                return { exitCode: 0 };
+              }
+              const details = result?.structuredContent as { exit_code?: number } | undefined;
+              return { exitCode: details?.exit_code ?? 1 };
+            },
+          },
+        });
+        const result = await definition.execute(id, input, signal, onUpdate, ctx);
+        return backgroundResult
+          ? { ...backgroundResult, structuredContent: backgroundResult.details }
+          : result;
       },
     });
-    pi.registerTool({ ...definition, defaultActive: false });
     bashRegistered = true;
   }
-  function registerBackgroundProcessTool(skip: boolean, defaultActive: boolean) {
+  function registerBackgroundProcessTool(defaultActive: boolean) {
     // Native refresh applies --tools/--exclude-tools matches after this late registration. Child
     // sessions never gain the parent's default, but may activate it when the native allowlist names it.
-    if (skip || backgroundToolRegistered) return;
+    if (backgroundToolRegistered) return;
     pi.registerTool({
       name: "background_process",
       defaultActive,
@@ -418,9 +361,7 @@ export default function (pi: ExtensionAPI) {
       async execute(_id, params): Promise<AgentToolResult<Snapshot | EncodedRead | Snapshot[]>> {
         if (closed) throw new Error("Background process session is closed");
         if (params.action === "list") {
-          const jobs = processes
-            .list()
-            .map(({ adapterMetadata: _metadata, ...snapshot }) => snapshot);
+          const jobs = processes.list();
           return {
             content: [
               { type: "text", text: jobs.length ? JSON.stringify(jobs) : "No background jobs." },
@@ -431,12 +372,10 @@ export default function (pi: ExtensionAPI) {
         if (!params.id) throw new Error("A process ID is required");
         if (params.action === "cancel") processes.cancel(params.id);
         const snapshot = processes.status(params.id);
-        // Opaque trusted-client authority stays in the host transport and never enters model-visible output.
-        const { adapterMetadata: _adapterMetadata, ...publicSnapshot } = snapshot;
         if (params.action !== "read")
           return {
-            content: [{ type: "text", text: JSON.stringify(publicSnapshot) }],
-            details: publicSnapshot,
+            content: [{ type: "text", text: JSON.stringify(snapshot) }],
+            details: snapshot,
           };
         const output = processes.read(params.id, params.cursor, params.maxBytes);
         return {

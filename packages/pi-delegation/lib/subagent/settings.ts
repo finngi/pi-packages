@@ -12,7 +12,8 @@ export interface ParentResources {
   available: ModelRef[];
   tools: string[];
   skills: string[];
-  privateSkills?: string[];
+  /** Native-resolved skills eligible for explicit names, regardless of saved selection. */
+  availableSkills?: string[];
 }
 const isAlias = (id: string) => id.endsWith("-latest") || !/-\d{8}$/.test(id);
 export function matchModel(pattern: string, available: ModelRef[]): ModelRef | undefined {
@@ -47,12 +48,7 @@ function resolveModel(spec: string, parent: ParentResources) {
   if (!model) throw Error(`model "${spec}" is unavailable or unauthenticated`);
   return { model, level };
 }
-export function resolveSettings(
-  agent: AgentDef,
-  parent: ParentResources,
-  secured = true,
-  requestedModel?: string,
-) {
+export function resolveSettings(agent: AgentDef, parent: ParentResources, requestedModel?: string) {
   if (
     requestedModel !== undefined &&
     (typeof requestedModel !== "string" || !requestedModel.trim())
@@ -74,30 +70,22 @@ export function resolveSettings(
   for (const name of agent.tools ?? [])
     if (!parent.tools.includes(name))
       throw Error(`tools: "${name}" is unavailable in the parent active tools`);
-  const availableSkills = new Set([
-    ...parent.skills,
-    ...(parent.privateSkills ?? []),
-    ...(agent.privateSkills ?? []).map((skill) => skill.name),
-  ]);
-  for (const name of agent.skills ?? [])
-    if (!availableSkills.has(name))
-      throw Error(
-        `skill "${name}" is unavailable; add it to the agent bundle or configure its path in Pi settings`,
-      );
-  if (
-    secured &&
-    agent.permissions &&
-    ["full-access", "dangerously-unrestricted"].includes(agent.permissions)
-  )
-    throw Error(`permissionMode "${agent.permissions}" is unavailable for delegated agents`);
+  const bundleSkills = (agent.privateSkills ?? []).map((skill) => skill.name);
+  const availableSkills = new Set([...(parent.availableSkills ?? parent.skills), ...bundleSkills]);
+  const requested =
+    agent.skills === undefined || agent.skills.includes("*")
+      ? [...parent.skills, ...bundleSkills]
+      : agent.skills;
+  const missing = requested.filter((name) => !availableSkills.has(name));
+  const warnings = missing.map(
+    (name) =>
+      `Skill "${name}" was not found in the agent bundle or native project/personal resources; omitted.`,
+  );
   return {
     model: { provider: model.provider, id: model.id },
     thinking: agent.thinking ?? level ?? parent.thinking,
     tools: agent.tools,
-    skills: agent.skills ?? [
-      ...parent.skills,
-      ...(agent.privateSkills ?? []).map((skill) => skill.name),
-    ],
-    permissionMode: agent.permissions,
+    skills: [...new Set(requested.filter((name) => availableSkills.has(name)))],
+    ...(warnings.length ? { warnings } : {}),
   };
 }

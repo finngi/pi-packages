@@ -3,15 +3,49 @@ import test from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 initTheme("dark", false);
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { ResourceBrowser, resourceBrowserNavigation } from "./resource-browser.ts";
+import {
+  ResourceBrowser,
+  resourceBrowserNavigation,
+  showResourceBrowser,
+} from "./resource-browser.ts";
 import type { ResourceEntry } from "./resource-browser.ts";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+async function chooseDefault(
+  component: ResourceBrowser,
+  scope: "project" | "global",
+  state: "inherit" | "on" | "off",
+) {
+  component.handleInput(scope === "project" ? "p" : "g");
+  const label = state === "inherit" ? "Inherit" : state === "on" ? "On" : "Off";
+  const selected = () =>
+    component.render(160).map(stripTerminalSequences).join("\n").includes(`→ ${label} `);
+  for (let i = 0; i < 3 && !selected(); i++) component.handleInput("\x1b[B");
+  assert(selected(), `saved-state menu should select ${label}`);
+  component.handleInput("\r");
+  await flush();
+}
+function refreshDefault(
+  entry: ResourceEntry,
+  state: "inherit" | "on" | "off",
+  scope: "project" | "global",
+) {
+  if (scope === "project") {
+    entry.projectState = state;
+    entry.defaultSelected =
+      state === "inherit" ? (entry.globalDefaultSelected ?? false) : state === "on";
+  } else {
+    entry.globalState = state;
+    entry.globalDefaultSelected = state === "on";
+    if (entry.projectState === "inherit") entry.defaultSelected = entry.globalDefaultSelected;
+  }
+}
 function fixture(
   overrides: {
     toggle?: (entry: ResourceEntry, selected: boolean) => Promise<void>;
     saveDefaults?: (entries: ResourceEntry[]) => Promise<void>;
     saveGlobalDefaults?: (entries: ResourceEntry[]) => Promise<void>;
+    defaultsScope?: "project" | "global";
     previews?: Array<() => Promise<string>>;
   } = {},
 ) {
@@ -39,12 +73,30 @@ function fixture(
   const component = new ResourceBrowser({
     title: "Skills",
     entries,
+    defaultsScope: overrides.defaultsScope,
     theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
     rows: () => 42,
     render() {},
     close: (changed) => closed.push(changed),
-    saveDefaults: overrides.saveDefaults,
-    saveGlobalDefaults: overrides.saveGlobalDefaults,
+    saveDefaults:
+      overrides.saveDefaults &&
+      (async (snapshot) => {
+        await overrides.saveDefaults!(snapshot);
+        for (const entry of entries) {
+          const saved = snapshot.find((item) => item.id === entry.id);
+          if (saved) refreshDefault(entry, saved.selected ? "on" : "off", "project");
+          else entry.defaultSelected ??= false;
+        }
+      }),
+    saveGlobalDefaults:
+      overrides.saveGlobalDefaults &&
+      (async (snapshot) => {
+        await overrides.saveGlobalDefaults!(snapshot);
+        for (const entry of entries) {
+          const saved = snapshot.find((item) => item.id === entry.id);
+          if (saved) refreshDefault(entry, saved.selected ? "on" : "off", "global");
+        }
+      }),
     toggle:
       overrides.toggle ??
       (async (entry, selected) => {
@@ -92,7 +144,7 @@ test("Ctrl+S defaults catalogue instructions while leaving project instructions 
   assert.deepEqual(saved, ["catalogue:team/instructions.md"]);
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[1].defaultSelected, false);
-  assert.match(f.text(), /1 project-only or fixed choice was not defaulted/);
+  assert.match(f.text(), /1 selected saved; 1 selected skipped/);
   f.component.dispose();
 });
 test("Ctrl+S never badges the non-toggleable Pi help skill as a persisted default", async () => {
@@ -287,8 +339,7 @@ test("Ctrl+Shift+S saves personal choices without overwriting project-default ba
   assert.equal(projectSaves, 0);
   assert.equal(f.entries[0].defaultSelected, false);
   assert.equal(f.entries[1].defaultSelected, true);
-  assert.match(f.text(), /Personal defaults saved for new sessions across projects/);
-  assert.match(f.text(), /1 project-only or fixed choice/);
+  assert.match(f.text(), /Global defaults: 1 selected saved; 1 selected skipped/);
   f.component.dispose();
 });
 
@@ -312,12 +363,19 @@ test("structured details separate read-only metadata, instruction body and sourc
     render() {},
     close() {},
     toggle: async () => {},
-    saveDefaults: async () => {},
+    saveDefaults: async (snapshot) => {
+      for (const saved of snapshot)
+        refreshDefault(
+          f.entries.find((entry) => entry.id === saved.id)!,
+          saved.selected ? "on" : "off",
+          "project",
+        );
+    },
   });
   await flush();
   const text = () => component.render(110).map(stripTerminalSequences).join("\n");
   assert.match(text(), /Child skills\s+: private-check/);
-  assert.match(text(), /↳ global/);
+  assert.match(text(), /Project: INHERIT/);
   assert.doesNotMatch(text(), /BODY_ONLY|\/agent\/role.md/);
   component.handleInput("\t");
   component.handleInput("\x1b[C");
@@ -424,7 +482,7 @@ test("project activation enables the session while preserving unrelated saved se
   f.entries[0].globalDefaultSelected = false;
   f.entries[1].defaultSelected = true;
   f.entries[1].globalDefaultSelected = true;
-  const calls: Array<[string, boolean, string]> = [];
+  const calls: Array<[string, string, string]> = [];
   const component = new ResourceBrowser({
     title: "Skills",
     entries: f.entries,
@@ -437,14 +495,15 @@ test("project activation enables the session while preserving unrelated saved se
     toggle: async () => {},
     setDefault: async (entry, value, scope) => {
       calls.push([entry.id, value, scope]);
+      refreshDefault(entry, value, scope);
     },
   });
-  await component.toggleScope("project");
-  assert.deepEqual(calls, [["adr", true, "project"]]);
+  await chooseDefault(component, "project", "on");
+  assert.deepEqual(calls, [["adr", "on", "project"]]);
   assert.equal(f.entries[0].selected, true);
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].globalDefaultSelected, false);
-  await component.toggleScope("global");
+  await chooseDefault(component, "global", "on");
   assert.equal(f.entries[0].globalDefaultSelected, true);
   assert.equal(f.entries[1].defaultSelected, true);
   assert.equal(f.entries[1].globalDefaultSelected, true);
@@ -470,7 +529,7 @@ test("clickable scope controls target the displayed resource at wide and narrow 
       render() {},
       close() {},
       toggle: async () => {},
-      setDefault: async () => {},
+      setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
     });
     await flush();
     const rows = component.render(width).map(stripTerminalSequences);
@@ -491,6 +550,11 @@ test("clickable scope controls target the displayed resource at wide and narrow 
     });
     await flush();
     assert.equal(result?.handled, true);
+    assert.equal(f.entries[0].defaultSelected, false, "opening a menu does not save");
+    assert.match(component.render(width).map(stripTerminalSequences).join("\n"), /Inherit/);
+    component.handleInput("\x1b[A");
+    component.handleInput("\r");
+    await flush();
     assert.equal(f.entries[0].defaultSelected, true);
     assert.equal(f.entries[0].selected, true);
     component.dispose();
@@ -514,14 +578,14 @@ test("failed default writes and ineligible resources never update displayed stat
       throw Error("Denied save");
     },
   });
-  await component.toggleScope("project");
+  await chooseDefault(component, "project", "on");
   assert.equal(f.entries[0].defaultSelected, false);
   assert.match(
     component.render(140).map(stripTerminalSequences).join("\n"),
     /Default not saved: Denied save/,
   );
   f.entries[0].globalDefaultable = false;
-  await component.toggleScope("global");
+  component.handleInput("g");
   assert.equal(f.entries[0].globalDefaultSelected, false);
   component.dispose();
   f.component.dispose();
@@ -599,7 +663,7 @@ test("scope controls hold their columns when ON and OFF change", async () => {
     render() {},
     close() {},
     toggle: async () => {},
-    setDefault: async () => {},
+    setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   const state = () =>
     component
@@ -612,7 +676,7 @@ test("scope controls hold their columns when ON and OFF change", async () => {
   assert.match(after, /\[Session: ON \]/);
   assert.equal(after.indexOf("[Project:"), before.indexOf("[Project:"));
   assert.equal(after.indexOf("[Global:"), before.indexOf("[Global:"));
-  await component.toggleScope("project");
+  await chooseDefault(component, "project", "on");
   assert.equal(state().indexOf("[Global:"), before.indexOf("[Global:"));
   component.dispose();
   f.component.dispose();
@@ -630,9 +694,13 @@ test("s/p/g operate from the list but remain literal inside search", async () =>
     render() {},
     close() {},
     toggle: async () => {},
-    setDefault: async () => {},
+    setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   component.handleInput("p");
+  assert.equal(f.entries[0].defaultSelected, false);
+  assert.match(component.render(140).map(stripTerminalSequences).join("\n"), /Project default/);
+  component.handleInput("\x1b[A");
+  component.handleInput("\r");
   await flush();
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].selected, true);
@@ -640,6 +708,9 @@ test("s/p/g operate from the list but remain literal inside search", async () =>
   await flush();
   assert.equal(f.entries[0].selected, false);
   component.handleInput("g");
+  assert.equal(f.entries[0].globalDefaultSelected, false);
+  component.handleInput("\x1b[A");
+  component.handleInput("\r");
   await flush();
   assert.equal(f.entries[0].globalDefaultSelected, true);
   assert.equal(f.entries[0].selected, false);
@@ -665,9 +736,9 @@ test("project activation reports a saved default separately if session activatio
     toggle: async () => {
       throw Error("Session unavailable");
     },
-    setDefault: async () => {},
+    setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
-  await component.toggleScope("project");
+  await chooseDefault(component, "project", "on");
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].selected, false);
   assert.match(
@@ -701,4 +772,421 @@ test("resource category navigation uses existing commands with native dispatch",
   options.selectCategory("agents");
   options.selectCategory("instructions");
   assert.deepEqual(sent, [["/skills", { expandPromptTemplates: true }]]);
+});
+
+test("saved-state menus cancel without changing defaults or navigating categories", async () => {
+  const f = fixture();
+  const calls: string[] = [];
+  f.entries[0].projectState = "inherit";
+  f.entries[0].globalState = "on";
+  const component = new ResourceBrowser({
+    title: "Skills",
+    entries: f.entries,
+    categories: [{ id: "agents", label: "Agents", key: "1" }],
+    selectCategory: (id) => calls.push(id),
+    theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+    rows: () => 42,
+    render() {},
+    close: () => calls.push("close"),
+    toggle: async () => {
+      calls.push("toggle");
+    },
+    setDefault: async () => {
+      calls.push("save");
+    },
+  });
+  component.handleInput("p");
+  const menu = component.render(140).map(stripTerminalSequences).join("\n");
+  assert.match(menu, /→ Inherit/);
+  assert.match(menu, /On/);
+  assert.match(menu, /Off/);
+  component.handleInput("1");
+  component.handleInput("s");
+  component.handleInput("\x1b");
+  assert.deepEqual(calls, []);
+  assert.equal(f.entries[0].projectState, "inherit");
+  assert.equal(f.entries[0].selected, false);
+  assert.match(component.render(140).map(stripTerminalSequences).join("\n"), /Project: INHERIT/);
+  component.dispose();
+  f.component.dispose();
+});
+
+test("only explicit Project On enables the session; Off and Inherit preserve it", async () => {
+  const f = fixture();
+  const toggles: boolean[] = [];
+  Object.assign(f.entries[0], {
+    projectState: "inherit",
+    globalState: "on",
+    defaultSelected: true,
+    globalDefaultSelected: true,
+  });
+  const component = new ResourceBrowser({
+    title: "Skills",
+    entries: f.entries,
+    theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+    rows: () => 42,
+    render() {},
+    close() {},
+    toggle: async (_entry, selected) => {
+      toggles.push(selected);
+    },
+    setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
+  });
+  await chooseDefault(component, "project", "off");
+  await chooseDefault(component, "project", "inherit");
+  assert.equal(f.entries[0].defaultSelected, true);
+  assert.equal(f.entries[0].selected, false);
+  await chooseDefault(component, "global", "off");
+  await chooseDefault(component, "global", "inherit");
+  await chooseDefault(component, "global", "on");
+  assert.equal(f.entries[0].selected, false);
+  assert.deepEqual(toggles, []);
+  await chooseDefault(component, "project", "on");
+  assert.deepEqual(toggles, [true]);
+  await chooseDefault(component, "project", "off");
+  await chooseDefault(component, "project", "inherit");
+  assert.equal(f.entries[0].selected, true);
+  assert.deepEqual(toggles, [true]);
+  component.dispose();
+  f.component.dispose();
+});
+
+test("inherited native defaults and mixed packages retain the host's refreshed states", async () => {
+  const f = fixture();
+  Object.assign(f.entries[0], {
+    projectState: "inherit",
+    globalState: "mixed",
+    defaultSelected: undefined,
+    globalDefaultSelected: undefined,
+  });
+  const component = new ResourceBrowser({
+    title: "Packages",
+    entries: f.entries,
+    theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+    rows: () => 60,
+    render() {},
+    close() {},
+    toggle: async () => {
+      throw Error("Global defaults must not toggle the session");
+    },
+    setDefault: async (entry, state, scope) => {
+      assert.equal(scope, "global");
+      assert.equal(state, "inherit");
+      entry.globalState = "inherit";
+      entry.globalDefaultSelected = true;
+      entry.defaultSelected = true;
+    },
+  });
+  await flush();
+  const text = () => component.render(160).map(stripTerminalSequences).join("\n");
+  assert.match(text(), /\[Project: INHERIT\]/);
+  assert.match(text(), /\[Global: MIXED/);
+  assert.match(text(), /Effective defaults: project MIXED/);
+  component.handleInput("g");
+  assert.match(text(), /Global default · MIXED/);
+  component.handleInput("\r");
+  await flush();
+  assert.equal(f.entries[0].globalState, "inherit");
+  assert.equal(f.entries[0].globalDefaultSelected, true);
+  assert.equal(f.entries[0].defaultSelected, true);
+  assert.equal(f.entries[0].selected, false);
+  assert.match(text(), /Effective defaults: project ON · global ON/);
+  component.dispose();
+  f.component.dispose();
+});
+
+test("native saved-state menu accepts mouse choices and fits wide and narrow terminals", async () => {
+  for (const width of [44, 70, 140]) {
+    const f = fixture();
+    f.entries[0].projectState = "inherit";
+    const component = new ResourceBrowser({
+      title: "Skills",
+      entries: f.entries,
+      theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+      rows: () => 42,
+      render() {},
+      close() {},
+      toggle: async () => {},
+      setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
+    });
+    component.handleInput("p");
+    const rows = component.render(width).map(stripTerminalSequences);
+    assert.ok(rows.every((row) => visibleWidth(row) <= width));
+    const y = rows.findIndex((row) => /\bOff\b/.test(row));
+    const x = rows[y].indexOf("Off") + 1;
+    component.handleMouse({
+      type: "click",
+      button: "left",
+      x,
+      y,
+      screenX: x,
+      screenY: y,
+      width,
+      height: rows.length,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    });
+    await flush();
+    assert.equal(f.entries[0].projectState, "off");
+    assert.equal(f.entries[0].selected, false);
+    component.dispose();
+    f.component.dispose();
+  }
+});
+
+test("narrow terminals show both snapshot shortcut destinations", () => {
+  const f = fixture({
+    defaultsScope: "project",
+    saveDefaults: async () => {},
+    saveGlobalDefaults: async () => {},
+  });
+  const text = f.text(70);
+  assert.match(text, /Ctrl\+S snapshot session → project/);
+  assert.match(text, /Ctrl\+Shift\+S snapshot session → global/);
+  f.component.dispose();
+});
+
+test("Project On uses its resolved value despite the initial inherited flag", async () => {
+  const f = fixture();
+  const colors: Array<[string, string]> = [];
+  Object.assign(f.entries[0], {
+    projectState: "inherit",
+    globalState: "off",
+    defaultSelected: false,
+    globalDefaultSelected: false,
+  });
+  const component = new ResourceBrowser({
+    title: "Skills",
+    entries: f.entries,
+    defaultsInherited: true,
+    theme: {
+      fg: (color, text) => {
+        colors.push([color, text]);
+        return text;
+      },
+      bg: (_color, text) => text,
+      bold: (text) => text,
+    },
+    rows: () => 42,
+    render() {},
+    close() {},
+    toggle: async () => {},
+    setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
+  });
+  await chooseDefault(component, "project", "on");
+  colors.length = 0;
+  const text = component.render(140).map(stripTerminalSequences).join("\n");
+  assert.match(text, /\[Session: ON \].*\[Project: ON \].*\[Global: OFF\]/);
+  assert(colors.some(([color, text]) => color === "success" && text === "[Project: ON ]"));
+  assert(!colors.some(([, text]) => text.includes("ON     ")));
+  component.dispose();
+  f.component.dispose();
+});
+
+test("unavailable saved controls explain the restriction in Overview, keyboard and mouse", async () => {
+  const f = fixture();
+  const writes: unknown[] = [];
+  Object.assign(f.entries[0], {
+    projectState: "on",
+    globalState: "off",
+    defaultSelected: true,
+    globalDefaultSelected: false,
+    selected: true,
+    globalDefaultable: false,
+  });
+  const component = new ResourceBrowser({
+    title: "Skills",
+    entries: f.entries,
+    theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+    rows: () => 42,
+    render() {},
+    close() {},
+    toggle: async () => {},
+    setDefault: async (...args) => {
+      writes.push(args);
+    },
+  });
+  await flush();
+  const text = () => component.render(140).map(stripTerminalSequences).join("\n");
+  assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
+  assert.match(text(), /Effective defaults: project ON · global UNAVAILABLE/);
+  component.handleInput("l");
+  component.handleInput("l");
+  assert.doesNotMatch(text(), /Global default unavailable/);
+  component.handleInput("g");
+  assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
+  assert.doesNotMatch(text(), /Use native default/);
+  component.handleInput("s");
+  await flush();
+  component.handleInput("s");
+  await flush();
+  assert.doesNotMatch(text(), /Global default unavailable/);
+  const rows = component.render(140).map(stripTerminalSequences);
+  const y = rows.findIndex((row) => row.includes("Global: OFF"));
+  const x = rows[y].indexOf("Global: OFF") + 2;
+  component.handleMouse({
+    type: "click",
+    button: "left",
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width: 140,
+    height: rows.length,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  });
+  assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
+  assert.deepEqual(writes, []);
+  assert.equal(f.entries[0].selected, true);
+  component.handleInput("/");
+  component.handleInput("g");
+  assert.equal(component.input.getValue(), "g");
+  component.handleInput("\x1b");
+  component.dispose();
+  f.component.dispose();
+});
+
+test("snapshot shortcuts report skipped selections and do not write zero eligible rows", async () => {
+  const calls: string[] = [];
+  const f = fixture({
+    defaultsScope: "project",
+    saveDefaults: async () => {
+      calls.push("project");
+    },
+    saveGlobalDefaults: async () => {
+      calls.push("global");
+    },
+  });
+  f.entries[0].selected = true;
+  f.entries[0].defaultable = false;
+  f.component.handleInput("\x13");
+  await flush();
+  assert.match(f.text(), /Project defaults: 0 selected saved; 1 selected skipped/);
+  f.component.handleInput("\x1b[115;6u");
+  await flush();
+  assert.match(f.text(), /Global defaults: 0 selected saved; 1 selected skipped/);
+  assert.deepEqual(calls, ["project", "global"]);
+  f.entries[1].defaultable = false;
+  f.component.handleInput("\x13");
+  await flush();
+  assert.match(f.text(), /No eligible resources for project defaults; nothing saved/);
+  f.component.handleInput("\x1b[115;6u");
+  await flush();
+  assert.match(f.text(), /No eligible resources for global defaults; nothing saved/);
+  assert.deepEqual(calls, ["project", "global"]);
+  assert.equal(f.entries[0].selected, true);
+  f.component.dispose();
+});
+
+test("RPC snapshot choices share filtered snapshots, skipped feedback and empty-save handling", async () => {
+  for (const global of [false, true]) {
+    const f = fixture();
+    f.entries[0].selected = true;
+    f.entries[1].selected = true;
+    if (global) f.entries[0].globalDefaultable = false;
+    else f.entries[0].defaultable = false;
+    const notifications: string[] = [];
+    const writes: string[][] = [];
+    const choice = global ? "Save personal defaults (all projects)" : "Save project defaults";
+    const choices = [choice, "Done", choice, "Done"];
+    const context = {
+      ui: {
+        select: async (_title: string, options: string[]) => {
+          assert(options.includes(choice));
+          return choices.shift();
+        },
+        notify: (message: string) => notifications.push(message),
+      },
+    } as any;
+    const save = async (snapshot: ResourceEntry[]) => {
+      writes.push(snapshot.map((entry) => entry.id));
+      snapshot[0].selected = false;
+    };
+    const options = {
+      title: "Skills",
+      entries: f.entries,
+      defaultsScope: "project" as const,
+      toggle: async () => {},
+      saveDefaults: save,
+      saveGlobalDefaults: save,
+    };
+    await showResourceBrowser(context, options);
+    assert.deepEqual(writes, [["review"]]);
+    assert.equal(f.entries[1].selected, true, "RPC saves use a captured snapshot");
+    assert.match(notifications[0], /1 selected saved; 1 selected skipped/);
+    f.entries[1].toggleable = false;
+    await showResourceBrowser(context, options);
+    assert.deepEqual(writes, [["review"]]);
+    assert.match(notifications[1], /No eligible resources.*nothing saved/);
+    f.component.dispose();
+  }
+});
+
+test("empty catalogues still save empty snapshots to clear stale defaults in native and RPC UIs", async () => {
+  const writes: Array<[string, number]> = [];
+  const f = fixture({
+    defaultsScope: "project",
+    saveDefaults: async (entries) => {
+      writes.push(["project", entries.length]);
+    },
+    saveGlobalDefaults: async (entries) => {
+      writes.push(["global", entries.length]);
+    },
+  });
+  f.entries.length = 0;
+  f.component.handleInput("\x13");
+  await flush();
+  assert.match(f.text(), /Project defaults saved/);
+  f.component.handleInput("\x1b[115;6u");
+  await flush();
+  assert.match(f.text(), /Personal defaults saved/);
+  assert.deepEqual(writes, [
+    ["project", 0],
+    ["global", 0],
+  ]);
+  const choices = ["Save project defaults", "Save personal defaults (all projects)", "Done"];
+  const notifications: string[] = [];
+  await showResourceBrowser(
+    {
+      ui: {
+        select: async () => choices.shift(),
+        notify: (message: string) => notifications.push(message),
+      },
+    } as any,
+    {
+      title: "Skills",
+      entries: [],
+      defaultsScope: "project",
+      toggle: async () => {},
+      saveDefaults: async (entries) => {
+        writes.push(["project", entries.length]);
+      },
+      saveGlobalDefaults: async (entries) => {
+        writes.push(["global", entries.length]);
+      },
+    },
+  );
+  assert.deepEqual(writes, [
+    ["project", 0],
+    ["global", 0],
+    ["project", 0],
+    ["global", 0],
+  ]);
+  assert.match(notifications[0], /Project defaults saved/);
+  assert.match(notifications[1], /Personal defaults saved/);
+  f.component.dispose();
+});
+
+test("snapshot feedback counts partly selected packages as chosen rows", async () => {
+  const f = fixture({ saveGlobalDefaults: async () => {} });
+  f.entries[0].badge = "partial";
+  f.entries[0].globalDefaultable = false;
+  f.entries[1].badge = "partial";
+  f.component.handleInput("\x1b[115;6u");
+  await flush();
+  assert.match(f.text(160), /1 selected saved; 1 selected skipped/);
+  f.component.dispose();
 });

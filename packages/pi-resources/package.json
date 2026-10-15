@@ -1,0 +1,70 @@
+{
+  "name": "pi-resources",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session selection of native skills and package guidance for Pi",
+  "pi": {
+    "extensions": [
+      "./extensions/resources.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/**/*.test.ts' 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-resources"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/extensions/resources.d.ts",
+      "default": "./dist/extensions/resources.js"
+    },
+    "./discovery": {
+      "types": "./lib/resource-packages.ts",
+      "default": "./lib/resource-packages.ts"
+    },
+    "./selection": {
+      "types": "./lib/resource-selection.ts",
+      "default": "./lib/resource-selection.ts"
+    },
+    "./session-setup": {
+      "types": "./lib/session-setup.ts",
+      "default": "./lib/session-setup.ts"
+    },
+    "./instructions": {
+      "types": "./lib/saved-instruction-context.ts",
+      "default": "./lib/saved-instruction-context.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pi-resource-browser": "0.1.0",
+    "pi-contracts": "0.1.0",
+    "proper-lockfile": "4.1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
+    "directory": "packages/pi-resources"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi/pi-packages/issues"
+  }
+}

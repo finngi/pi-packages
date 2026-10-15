@@ -37,7 +37,6 @@ test("parseAgent trims fields and keeps the body as the prompt", () => {
     thinking: undefined,
     tools: undefined,
     skills: undefined,
-    permissions: undefined,
     context: undefined,
     targets: undefined,
   });
@@ -51,17 +50,16 @@ const withFields = (fields: Record<string, unknown>) => {
   return parseAgent("ignored", "/a/x.md", parseFields);
 };
 
-test("model, thinking, tools, skills and permissions are read from the file", () => {
+test("model, thinking, tools and skills are read from the file", () => {
   const a = withFields({
     model: " sonnet ",
     thinking: "high",
     tools: "read, grep,read",
     skills: ["adr", "writing-instructions"],
-    permissionMode: "manual",
   });
   assert.deepEqual(
-    [a.model, a.thinking, a.tools, a.skills, a.permissions],
-    ["sonnet", "high", ["read", "grep"], ["adr", "writing-instructions"], "manual"],
+    [a.model, a.thinking, a.tools, a.skills],
+    ["sonnet", "high", ["read", "grep"], ["adr", "writing-instructions"]],
   );
 });
 
@@ -81,6 +79,9 @@ test("an empty tools or skills list is kept, an absent one is not", () => {
   assert.deepEqual(withFields({ tools: [], skills: "" }).tools, []);
   assert.deepEqual(withFields({ skills: "" }).skills, []);
   assert.equal(withFields({ tools: null }).tools, undefined);
+  assert.deepEqual(withFields({ skills: "*" }).skills, ["*"]);
+  assert.deepEqual(withFields({ skills: ["*"] }).skills, ["*"]);
+  assert.throws(() => withFields({ skills: ["*", "named"] }), /use "\*" alone/);
 });
 
 test("bad field values make the agent unusable with a reason", () => {
@@ -88,7 +89,7 @@ test("bad field values make the agent unusable with a reason", () => {
   assert.throws(() => withFields({ thinking: "extreme" }), /thinking must be one of/);
   assert.throws(
     () => withFields({ permissionMode: ["auto"] }),
-    /permissionMode must be a non-empty string/,
+    /permissionMode is no longer an agent setting/,
   );
   assert.throws(() => withFields({ tools: { a: 1 } }), /tools must be a list of names/);
   assert.throws(() => withFields({ tools: ["read", 3] }), /tools must be a list of names/);
@@ -504,9 +505,12 @@ test("a bad file in a trusted level is a problem and the level's other agents st
 test("metadata targets filter deployment copies and invalid authored tools/modes refuse", () => {
   assert.deepEqual(withFields({ targets: ["pi"] }).targets, ["pi"]);
   assert.throws(() => withFields({ targets: ["codex"] }), /targets/);
-  assert.throws(() => withFields({ tools: ["Read"] }), /Pi child tool/);
-  assert.throws(() => withFields({ tools: ["subagent"] }), /Pi child tool/);
-  assert.throws(() => withFields({ permissionMode: "typo" }), /authored mode/);
+  assert.deepEqual(withFields({ tools: ["Read"] }).tools, ["Read"]);
+  assert.deepEqual(withFields({ tools: ["subagent"] }).tools, ["subagent"]);
+  assert.throws(
+    () => withFields({ permissionMode: "typo" }),
+    /permissionMode is no longer an agent setting/,
+  );
   const dir = mkdtempSync(join(tmpdir(), "agents-targets-"));
   writeFileSync(join(dir, "x.md"), "ignored");
   assert.deepEqual(
@@ -606,3 +610,15 @@ test(
     }
   },
 );
+
+test("agent tools may name selected native extension tools; availability is checked at launch", () => {
+  const definition = parseAgent(agentFile("worker"), "/fixture/worker.md", () => ({
+    frontmatter: {
+      name: "worker",
+      description: "Task worker",
+      tools: ["codex_search", "background_process"],
+    },
+    body: "Complete the task.",
+  }));
+  assert.deepEqual(definition.tools, ["codex_search", "background_process"]);
+});

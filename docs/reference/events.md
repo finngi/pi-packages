@@ -8,42 +8,14 @@ Extensions discover trusted in-process services through Pi's event bus. An emitt
 
 `options.notify: false` lets a protocol owner such as subagents manage delivery itself. Generic notifications have a three-wake budget reset by non-extension input, then append for the next turn without repeatedly waking. Handles reject operations after session replacement or shutdown. `background:policy` accepts trusted admission and cancellation callbacks plus a reason and optional pending cleanup promises. Processes are session-owned: timeout, explicit cancellation, natural completion, and session shutdown finish a job. Natural process exit drains output for a bounded interval, then finalization stops remaining ordinary descendants. The default manager permits four active jobs and retains up to 32 results.
 
-When `PI_SECURITY_TRANSPORT=extensions`, `pi-security:transport:v1` discovers `startShell` for every secured model `bash` call. Its `foreground` flag selects whether the call waits for completion or immediately returns a process ID. The transport obtains security's one-use prepared capability and launches its command unchanged through `pi-background`; it releases the capability only after the managed process finalizes, or after a failed prelaunch. Aborting or steering a foreground wait returns control while preserving the job and its lease. A missing or duplicate security service refuses.
+The same native process service manages foreground Bash handoff and explicit background jobs.
+The process remains session-owned when a foreground wait yields.
 
-Types: [shared contracts](../../packages/pi-contracts/src/index.ts) and [background adapter](../../packages/pi-background/lib/background/service.ts). Implementation: [background extension](../../packages/pi-background/extensions/background-process.ts).
+## Child launch contributions
 
-## Security services
-
-| Event | Request / response | Purpose |
-| --- | --- | --- |
-| `pi-security:presence:v1` | `{respond(active)}` | Announces active security even when service initialization fails |
-| `pi-security:service:v1` | `{version: 1, respond(service)}` | Returns one initialized security service |
-| `pi-subagents:context:v1` | `{version: 1, respond(context)}` | Exposes verified bound child identity/workspace |
-| `pi-subagents:bridge:v1` | `{version: 1, respond({extensionPath})}` | Supplies source-owned child communication entrypoint |
-
-The initialized security service has:
-
-| Method | Contract |
-| --- | --- |
-| `prepareShell({toolCallId,input,cwd?,signal?})` | Consumes an immutable one-shot bash decision bound to exact input and canonical cwd; returns `PreparedShell` with sandbox argv/env/bound cwd, `assertCurrent()` and idempotent `release()`; caller cannot select decision or profile |
-| `describeChild(spec)` | Resolves effective authenticated resources and scope without allocating a process or exporting credentials |
-| `prepareChildLaunch(spec)` | Validates resources, narrows policy, installs protected launch resources, returns prepared argv/env/cwd/cleanup |
-| `getAgentContext()` | Returns verified bound communication identity and workspace, without credentials or policy authority |
-| `handleChildAsk(id, request)` | Validates bound launch/current policy and forwards bounded manual approval requests |
-| `prepareSearch({toolCallId,input,signal?})` | Consumes an approved exact-input decision; checks network permissions, fixed-origin authority, routes, lifetime, and revocation on every dispatch |
-
-A `PreparedShell` belongs to the loaded security policy that issued it. Preparation checks that
-owner after asynchronous resource setup; the caller must invoke `assertCurrent()` immediately
-before spawning. Release invalidates the capability and frees its profile and network lease. The
-`pi-background` shell transport also captures its session epoch before awaiting preparation and checks it
-before launch; failed or stale preparation releases the capability instead of starting a process.
-The process manager releases a launched capability on finalization, including a job whose
-foreground wait has already ended. The shared type is defined in
-[contracts](../../packages/pi-contracts/src/index.ts).
-
-`PreparedChild` also carries effective resources, optional currency check, and a trusted pre-cleanup hook. The parent uses that hook to stop a worker and collect artifacts before security removes launch directories. A failed collection prevents successful cleanup from claiming retained files.
-
-Service discovery refuses missing, invalid, or duplicate security responses. Active presence or an explicit selector cannot become an unrestricted launch/search after failure. Source: [security service](../../packages/pi-security/src/service.ts), [contracts](../../packages/pi-contracts/src/index.ts), and [selection](../../packages/pi-delegation/lib/security-service.ts).
+A trusted loaded extension can contribute its child entrypoint and initialization data through
+`pi-child-launch:contribute:v1`. `pi-permissions` uses this to pass its settings and the parent's user
+messages. Model task text cannot register a contribution.
 
 ## Goal services
 
@@ -64,18 +36,12 @@ Pi 1.1's `tool_execution_end.durationMs` measures the tool's `execute()` call. F
 | Frame prefix | Purpose | Authority |
 | --- | --- | --- |
 | `pi-subagents-message:v1:` | Roster queries and dialogue routing through trusted RPC extension requests | Bound sender identity; reachable live parent/siblings only |
-| `pi-security-ask:v1:` | Manual child permission request to root human UI | Bound launch, parent/child rules, resource limit, replay checks |
 | `pi-runtime-usage:v1:` | Child classifier usage report | Validated record; child/dialogue owner records it |
 
 These use `extension_ui_request`/`extension_ui_response` as protocol frames handled by trusted code. Messaging and usage frames are not displayed as human approval questions. `message.delivered` records handoff to Pi or an RPC acknowledgement; Pi may still queue it. It does not establish that a model read the content or accepted a changed task. Root message receipts do not wait for a recipient's answer, avoiding a circular parent/child wait.
 
-Automatic child asks run in the child's resolver/classifier. Its genuine user-message snapshot is
-protected separately from task/dialogue text. Selected classifier credentials are staged outside
-model write scope and denied to file/shell reads. Worker dialogue and normal agent questions do
-not create user authority. See [automatic classification](security-policy.md#automatic-classification)
-for evidence, constrained results, failure behavior and per-call write scope.
-
-Manual asks reach the root human UI with a formatted definition name. The main coding model is not an approver; approval may grant write paths for that call, but cannot override hard denials or resource limits. Normal agent questions are dialogue and confer no permission. Source: [child asks](../../packages/pi-security/src/child-ask.ts), [classifier](../../packages/pi-security/src/classifier.ts), [child messaging](../../packages/pi-delegation/lib/subagent/child-messaging.ts), and [launch framing](../../packages/pi-delegation/lib/subagent/child-launch.ts).
+`pi-permissions` checks calls before they run. Messages between agents never count as user
+instructions. Approval prompts need a client that can show them; otherwise the call is blocked. See [permissions](../../packages/pi-permissions/README.md).
 
 ## Message and response delivery
 
@@ -142,17 +108,10 @@ Goal entry names, schemas, and branch replay behavior are in the [goal reference
 
 `pi-runtime:accounting:v1` discovers the in-process accounting owner so separate library copies do not install competing handlers on one event bus. Child processes have separate owners and report over RPC. Forwarded top-level tool results retain `details.piUsageIds` for replay deduplication. See [accounting](../accounting.md) and [usage validation](../../packages/pi-runtime/src/usage.ts).
 
-## MCP admission
+## MCP
 
-Pi's built-in MCP extension is composed only in active host placement. The registered `--security-mcp` flag controls whether Pi's trusted global/trusted-project MCP configuration is admitted. Under that selection, the SDK retains its `/mcp` manager, config/auth handling, connection lifecycle, and tool catalogue. The security transport factory admits only HTTP(S) entries covered by `policy.resources.network`; local stdio is refused. Configured codemode exposure is supported, but does not automatically activate codemode. Direct and nested calls retain the same exact-operation approval checks. Tool and resource dispatch uses the normal security decision hook, then a one-use ticket binds the resulting JSON-RPC operation to its configured server, connection generation, exact tool-call ID, and parameters. The wrapped native definition validates that ticket before invoking the SDK execute body, so a denied or mismatched call cannot trigger SDK auth preflight. Redirects fail closed. Explicit SDK OAuth challenge/helper fetches are restricted to HTTP(S) hosts in `policy.resources.network` and the current config generation. The SDK's saved-token `token()` callback can still perform a saved-issuer refresh before the transport gate; this is trusted SDK behavior outside the model tool-call ticket, not full OAuth-network confinement.
-
-The adapter relies on Pi SDK 1.2.0's public `createMcpExtension` and MCP 1.2.0's public `StreamableHttpTransport`. It imports `extensions/mcp/config.js`, `core/mcp-servers.js`, and `core/resolve-config-value.js` through pinned SDK internal paths to preserve stock config trust, namespace, and credential semantics; updating the SDK requires revalidating those paths and behavior.
-
-## Security audit
-
-`pi-security.audit.v1` custom entries contain initialization/decision/classification/shadow/shell metadata: call IDs, tool names, verdicts, rule IDs, permissions, exit codes, and truncated input/policy hashes. Decision and shadow entries include `extraWritePathCount`, the number of requested extra write destinations; they do not log the paths. Classification entries include the selected model, reason code, child-local marker and elapsed milliseconds. They exclude tool inputs, outputs, previews, and resolved filesystem roots. Custom entries stay out of model context; no audit renderer is registered.
-
-RPC subscribers can inspect structured `entry_appended` events. Security does not print audit lines to stdout/stderr. Persistent sessions save entries in normal session JSONL after a conversation message; in-memory and `--no-session` runs retain ephemeral entries. Initialization failure notifies the UI and blocks tools. Audit append failure notifies and blocks subsequent effects; failed decision append blocks that call before dispatch. Source: [audit and gating](../../packages/pi-security/src/extension.ts).
+The parent uses Pi's native MCP integration, configuration, auth and manager. There is no custom
+MCP confinement transport. Existing connections are not transferred into child processes.
 
 ## Terminal program status
 
@@ -171,6 +130,11 @@ Leave support negotiation enabled unless configuring a terminal that explicitly 
 protocol. `PI_PROGRAM_STATUS=0` disables reports; `PI_PROGRAM_STATUS=1` forces them. See Pi's
 [program-status reference](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/terminal-setup.md#program-status).
 
-## Human command intent
+## Saved child instructions
 
-`pi:human-input:v1` carries `{version: 1, sessionId, message}` from trusted extensions that submit a human slash command as a user message. Goal start, edit and resume send the authorized objective through this channel before dispatch. Security uses it as classifier context and passes it into narrowed child authorization. It accepts only the current parent session; child messages and model tool inputs do not establish human intent.
+`pi-context:saved-instructions:v1` requests the saved personal/project instruction text for a
+new child. `pi-context` resolves its already-loaded instruction sources against saved settings;
+parent session overrides are not consulted. Delegation retains the static context file snapshot
+separately. No provider means no inherited selected-instruction section; it never falls back to
+the parent's rendered section. A provider error stops launch with a diagnostic. This in-process
+request is not a model tool or a new instruction-priority level.

@@ -236,8 +236,13 @@ export function withLocalFiles(files: ContextFile[], cwd: string): ContextFile[]
   return result;
 }
 
+/** Project snippets stop at the nearest Git root; global guidance comes from native packages. */
 export function localInstructionChoices(cwd: string): ContextFile[] {
-  return chain(cwd).flatMap((dir) => chosenInstructions(dir));
+  const home = real(homedir());
+  const root = repositoryRoot(cwd) ?? real(resolve(cwd));
+  return chain(cwd)
+    .filter((dir) => real(dir) !== home && isWithin(root, real(dir)))
+    .flatMap((dir) => chosenInstructions(dir));
 }
 
 /** Pack files are already bounded by their owning pack; selection still uses catalogue IDs. */
@@ -275,47 +280,6 @@ export function selectedLocalInstructions(
     seen.add(canonical);
     return true;
   });
-}
-
-/** Adds selected catalogue files once by canonical path, keeping already loaded sources first. */
-export function selectedCatalogueInstructions(
-  catalogues: string[],
-  selected: string[],
-  loaded: string[] = [],
-): ContextFile[] {
-  const wanted = new Set(selected);
-  const seen = new Set(loaded.map(real));
-  const out: ContextFile[] = [];
-  for (const catalogue of catalogues) {
-    let names: string[];
-    try {
-      names = readdirSync(catalogue)
-        .filter((name) => name.endsWith(".md"))
-        .sort();
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      const id = catalogueInstructionId(catalogue, name);
-      if (!wanted.has(id)) continue;
-      if (seen.has(real(join(catalogue, name)))) continue;
-      const file = readCatalogueInstruction(catalogue, name);
-      if (!file) continue;
-      const canonical = real(file.path);
-      if (seen.has(canonical)) continue;
-      seen.add(canonical);
-      out.push(file);
-    }
-  }
-  return out;
-}
-
-/** Read one catalogue entry with the same regular-file, containment, and size checks as prompt loading. */
-export function readCatalogueInstruction(catalogue: string, name: string): ContextFile | undefined {
-  if (name !== name.split(/[\\/]/).at(-1) || !name.endsWith(".md")) return undefined;
-  const path = join(catalogue, name);
-  const content = readContextFile(path, catalogue);
-  return content === undefined ? undefined : { path, content };
 }
 
 /** Read a directory's behavioral snippets in filename order. */

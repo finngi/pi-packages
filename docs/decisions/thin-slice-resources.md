@@ -1,6 +1,6 @@
 # Independent agents and instruction resources
 
-Status: implemented in the native thin-slice candidate; no live runtime activation.
+Status: native package implementation.
 
 ## Decision
 
@@ -42,6 +42,28 @@ inside that bundle. Only explicitly public `pi.skills` paths are advertised to t
 Instruction files are Markdown under the declared directories; selected bodies enter a separate
 `<instructions>` system-prompt section. Project `AGENTS.md` context remains separate.
 
+## Selection ownership
+
+`pi-resources` owns skill selection and the package picker. Keeping those inside delegation
+would require child-process machinery merely to select guidance. `pi-delegation` owns agent
+definitions, `/agents` and child execution; `pi-context` owns instructions and `/instructions`.
+They explicitly share the existing runtime setup service, persistence helpers and browser library.
+Package groups can be derived from any loaded provider, so context-only sessions can select
+package instructions without loading the picker or delegation. Missing providers do not become
+empty selections and package saves preserve their existing defaults. Session entry IDs and
+settings use one sparse-map representation. The local cutover converts old saved choices once.
+
+## Per-resource saved defaults
+
+Whole-category selection arrays cannot express one inherited item beside an explicit Off item.
+Saved resource keys use sparse ID-to-boolean maps. The same resolver drives
+skills, agents, instructions and package aggregates; missing IDs inherit from the next scope.
+An empty map inherits all entries; explicit boolean entries save On/Off.
+A row edit patches only its target IDs; an explicit bulk snapshot updates the known eligible rows
+and removes stale unknown entries. Edits preserve known sibling values, including ineligible rows that are not part of the edit. Session records remain the existing concrete
+selections, so later defaults cannot rewrite resumed sessions. This uses the current settings files,
+atomic writer, session service and native picker components, with no second override layer or store.
+
 ## What was reused and removed
 
 - Kept native package discovery, the existing agent parser/private-skill loader, RPC dialogue,
@@ -56,21 +78,20 @@ Instruction files are Markdown under the declared directories; selected bodies e
 - Moved the existing `session_setup` registration to the shared, explicitly installed setup
   service. Instructions can expose model-driven selection without loading agents. When agents
   are present they enrich successful setup receipts through Pi's native tool-result hook.
-- Kept security selection fail-closed: an explicitly selected security service that is missing
-  or fails is still an error. An absent security extension means ordinary host permissions.
+
 
 The remaining common libraries are ordinary imports, not extension activation or global services.
 No package needs a launcher-controlled runtime to discover resource files.
 
 ## Limits kept explicit
 
-The native resource API does not enumerate a temporary `-e` package that yields no native resource
-records. Custom-only agent/instruction packages should therefore be registered in personal/project
-`packages` settings. Native `-e` skills still work through Pi's loader. We did not add CLI parsing,
-cache scanning or a second package resolver to infer invisible temporary roots.
+The native resource list does not enumerate a temporary `-e` package with no native resource
+records. Pi's exported argument parser and native installed-path lookup provide those roots
+without installing, scanning caches or saving settings. Only native loaded skills enter the
+package group. A direct `-e` extension file does not cause a scan of its containing directory.
 
-Existing explicit standalone directories remain supported; this change does not migrate user
-settings or remove authored files. Installing/loading executable extensions remains a native Pi
+Native standalone skill paths remain supported by Pi. Personal instruction libraries are packages;
+project-local instruction snippets stay scoped to their project. No parallel catalogue loader remains. Installing/loading executable extensions remains a native Pi
 operation. Resource selection does not unload hooks, install packages or change permissions.
 
 ## Verification

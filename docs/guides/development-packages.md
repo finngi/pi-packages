@@ -33,18 +33,17 @@ workflow is needed during this experimental stage.
 | --- | --- |
 | Stock interactive Pi | Nothing extra |
 | Selected instructions, `/instructions` and instruction session setup | `pi-context` |
-| Child agents, `/agents`, our `/skills` and `/packages` pickers | `pi-delegation` |
+| Child agents and `/agents` | `pi-delegation` |
+| `/skills`, `/packages` and session skill filtering | `pi-resources` |
 | Personal tool presentation and available themes | Private `personal-interactive` |
 | Model-facing timestamps, including print/RPC | Private `personal-extensions`; enable `modelTime` separately |
 
-For our resource-selection workflow, start with **`pi-context` + `pi-delegation`**.
+For our resource-selection workflow, load **`pi-resources`**, adding `pi-context` for instructions
+and `pi-delegation` for child agents. Each works independently.
 Libraries (`pi-runtime`, `pi-contracts`, `pi-resource-browser`) resolve through dependencies;
 do not select them as extensions. `pi-background`, `pi-goal` and `pi-codex-search` are optional features.
-Agents do not require `pi-background`. `pi-permissions` and the full `pi-security` sandbox are optional
-alternatives with their own configuration, not requirements of interactive Pi.
-
-The repository root still has a legacy aggregate manifest that includes the sandbox. Use
-individual package directories, not that root, as the basis of a personal setup.
+Agents do not require `pi-background`. `pi-permissions` is optional and reviews tool calls without
+OS confinement. All capabilities load through their native package manifests.
 
 ## Local paths, without publishing
 
@@ -57,7 +56,7 @@ from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \
-  -e ./packages/pi-context -e ./packages/pi-delegation --subagent-security=off
+  -e ./packages/pi-resources -e ./packages/pi-context -e ./packages/pi-delegation
 ```
 
 `--no-extensions` excludes automatically discovered and built-in extensions; explicit `-e`
@@ -76,12 +75,17 @@ loaded themes. Picker changes are session-only; Ctrl+S saves project defaults an
 saves personal defaults. Resumed sessions retain recorded choices.
 
 New executable packages need native installation/configuration and an idle `/reload` for
-ordinary changes. Runtime/security replacements or already-running children need a managed
+ordinary changes. Runtime replacement with already-running children needs a controlled
 restart. Existing children keep their launched configuration.
 
-Configured packages containing only agents/instructions are discoverable. Temporary `-e`
-packages containing only those custom types are not yet discoverable as package groups;
-configure them through native settings. Do not add a fake extension to work around this.
+Configured and temporary `-e` packages containing only agents/instructions are discoverable.
+Pass each package explicitly with `-e` to try it from any directory without saved registrations.
+No fake extension, alternate profile or particular project directory is required.
+
+`/packages` selects available guidance; it does not add package registrations. Ctrl+S saves
+resource-selection defaults, not executable loading. To register a source for future starts,
+use native `pi install SOURCE --local` for the current project or `pi install SOURCE` for personal
+settings. Ordinary extension changes need an idle `/reload` or a new session.
 
 See [session setup](../reference/tools.md#session-setup),
 [distribution](distribution.md) and [checks](../testing.md).

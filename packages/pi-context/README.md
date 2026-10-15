@@ -9,9 +9,14 @@ Picker changes apply to this session. Ctrl+S saves project defaults to `.pi/sett
 Ctrl+Shift+S saves personal defaults for new sessions, excluding project-only resources.
 Resume and branch navigation restore recorded choices.
 
+Children receive saved personal/project instruction defaults and static project context at launch.
+Temporary parent session selections stay with the parent; each child's agent body is added separately.
+
 Packages declare instruction directories in `pi.instructions`. `localContext.instructions`
-sets personal defaults; project settings can override them, including with an empty list.
-Standalone `resources.instructionCatalogues` paths are also supported. A leading YAML header
+sets personal defaults. Saved choices use ID-to-boolean maps: a missing project ID inherits
+the personal choice, and a missing personal ID uses the local/native default.
+Unavailable IDs in saved maps stay dormant and do not load instruction bodies.
+Global instruction libraries are native packages, not a separate directory catalogue. A leading YAML header
 with a closing delimiter is removed before selected text enters the prompt.
 
 - [Load local context](../../docs/guides/context.md): overlay order, disabling, and optional personal Git excludes.
@@ -33,7 +38,11 @@ to one line while preserving custom prompts and explicit section overrides.
 
 Source entrypoint: [extensions/context.ts](extensions/context.ts). From the repository root, run `npm run test --workspace=pi-context`, `npm run typecheck --workspace=pi-context`, and `npm run test:e2e --workspace=pi-context`. The integration fixture exercises Pi 1.2.0 prompt/reload and Git metadata with isolated resources and no model calls.
 
-This extension provides `/instructions` and the `session_setup` tool on stock Pi without agents, background jobs or security.
+This extension provides `/instructions` and the `session_setup` tool on stock Pi without delegation, background jobs or permissions.
 
-[Resource packages](../pi-runtime/README.md) add available instructions to `/instructions`.
+[Resource packages](../pi-resources/README.md) add available instructions to `/instructions`.
 Package metadata helps search; selected text enters `<instructions>` with its source path.
+
+Context imports discovery, saved selection and session setup from `pi-resources` library
+subpaths. This does not load the resources extension or enable `/skills` and `/packages`.
+The standalone package keeps `/instructions` and `session_setup` without delegation or jobs.

@@ -1,7 +1,7 @@
 import { type Dirent, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
-import { readResourceFile, withinResourceRoot } from "pi-runtime";
+import { readResourceFile, withinResourceRoot } from "pi-resources/discovery";
 import { parseContext } from "./context.ts";
 import type { ContextSetting } from "./context.ts";
 
@@ -17,12 +17,10 @@ export interface AgentDef {
   /** `inherit`, `provider/id[:level]`, or a bare alias matched against authenticated models. */
   model?: string;
   thinking?: string;
-  /** Pi tool names; undefined keeps pi's default set, an empty list means no tools. */
+  /** Native built-in or extension tool names; omitted inherits selected parent task tools. */
   tools?: string[];
-  /** Skills shown to the agent; undefined keeps every discovered skill, an empty list means none. */
+  /** Omitted or ["*"] uses saved scope skills plus the bundle; [] selects none. */
   skills?: string[];
-  /** A permission mode name; whether it is allowed is decided against the parent's live mode. */
-  permissions?: string;
   /** The default and ceiling for how much of the parent conversation a call may share. */
   context?: ContextSetting;
   targets?: string[];
@@ -88,8 +86,10 @@ function names(value: unknown, key: string): string[] | undefined {
     return item.trim();
   });
   const kept = [...new Set(list.filter(Boolean))];
-  const bad = kept.find((n) => !NAME.test(n));
+  const bad = kept.find((n) => !NAME.test(n) && !(key === "skills" && n === "*"));
   if (bad) throw new Error(`${key}: "${bad}" is not a valid name`);
+  if (key === "skills" && kept.includes("*") && kept.length > 1)
+    throw new Error('skills: use "*" alone or list individual skill names');
   return kept;
 }
 
@@ -107,15 +107,11 @@ export function parseAgent(source: string, filePath: string, parse: ParseFrontma
   const targets = names(frontmatter.targets, "targets");
   if (targets?.some((t) => !["pi", "claude"].includes(t)))
     throw new Error("targets must contain only pi or claude");
-  const permissions = text(frontmatter.permissionMode, "permissionMode");
-  if (
-    permissions &&
-    !["auto", "manual", "full-access", "dangerously-unrestricted"].includes(permissions)
-  )
-    throw new Error("permissionMode is not a supported authored mode");
+  if (frontmatter.permissionMode !== undefined)
+    throw new Error(
+      "permissionMode is no longer an agent setting; configure the optional pi-permissions package",
+    );
   const tools = names(frontmatter.tools, "tools");
-  if (tools?.some((t) => !["read", "edit", "write", "bash", "grep", "find", "ls"].includes(t)))
-    throw new Error("tools must contain Pi child tool names only");
   const thinking = text(frontmatter.thinking, "thinking");
   if (thinking && !THINKING_LEVELS.includes(thinking))
     throw new Error(`thinking must be one of ${THINKING_LEVELS.join(", ")}`);
@@ -128,7 +124,6 @@ export function parseAgent(source: string, filePath: string, parse: ParseFrontma
     thinking,
     tools,
     skills: names(frontmatter.skills, "skills"),
-    permissions,
     context: parseContext(frontmatter.conversation),
     targets,
   };

@@ -1,5 +1,5 @@
-import { realpathSync, statSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,31 +11,28 @@ import type {
 import {
   getAgentDir,
   hasTrustRequiringProjectResources,
-  loadSkills,
   ProjectTrustStore,
   parseFrontmatter,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ChildLaunchService, Communication } from "pi-contracts";
 import {
-  SECURITY_PRESENCE,
   SESSION_SETUP_CONTRIBUTIONS,
   type SessionSetupContributionRequest,
   USAGE_EVENT,
 } from "pi-contracts";
-import type { ArtifactResult } from "pi-runtime";
+import type { ArtifactResult } from "../lib/subagent/artifacts.ts";
+import { BackgroundProcesses, installAccounting, newSemanticId } from "pi-runtime";
 import {
-  BackgroundProcesses,
   discoverResourcePackages,
-  installAccounting,
-  installSessionSetup,
-  newSemanticId,
   type ResourcePackage,
   resourcePackageKeywords,
-} from "pi-runtime";
+} from "pi-resources/discovery";
+import { selectedSkills } from "pi-resources/selection";
+import { savedInstructionContext } from "pi-resources/instructions";
+import { installSessionSetup } from "pi-resources/session-setup";
 import { Type } from "typebox";
 import { backgroundService } from "../lib/background/service.ts";
-import { securitySelected, securityService } from "../lib/security-service.ts";
 import {
   discover,
   discoverAgents as discoverAgentDirectory,
@@ -64,26 +61,24 @@ import {
 } from "../lib/subagent/messages.ts";
 import { ResponseOffers } from "../lib/subagent/owned-waiter.ts";
 import { PendingResults } from "../lib/subagent/pending-results.ts";
-import { registerPackagePicker } from "../lib/subagent/package-picker.ts";
 import { renderSubagentReply } from "../lib/subagent/reply-renderer.ts";
 import {
   showResourceBrowser,
   resourceBrowserNavigation,
 } from "../lib/subagent/resource-browser.ts";
+import type { ResourceEntry } from "../lib/subagent/resource-browser.ts";
 import {
   assertSafeProjectSettingsLocation,
-  configuredSkillChoices,
-  filterPromptSkills,
   type GlobalSelectionSnapshot,
-  type SkillChoice,
+  readResourceSelection,
+  resolveResourceSelection,
   selectedAgents,
-  selectedSkills,
-  writeGlobalResourceSelection,
-  writeProjectAgentSelection,
-  writeProjectSkillSelection,
-} from "../lib/subagent/resource-selection.ts";
+  type ResourceDefaultState,
+  writeResourceDefault,
+  writeResourceDefaults,
+} from "pi-resources/selection";
 import { resolveSettings } from "../lib/subagent/settings.ts";
-import { createUnrestrictedLauncher } from "../lib/subagent/unrestricted-launcher.ts";
+import { createNativeLauncher } from "../lib/subagent/native-launcher.ts";
 
 export default function (pi: ExtensionAPI) {
   installAccounting(pi);
@@ -97,50 +92,25 @@ export default function (pi: ExtensionAPI) {
       }
       return childProcesses;
     });
-  const secured = () => {
-    let active = securitySelected();
-    pi.events.emit(SECURITY_PRESENCE, {
-      respond: (present: boolean) => {
-        active ||= present;
-      },
-    });
-    return active;
-  };
   if (process.env.PI_SUBAGENT === "1") {
-    const bound =
-      process.env.PI_SUBAGENT_SECURITY === "off"
-        ? (JSON.parse(process.env.PI_SUBAGENT_CONTEXT ?? "null") as
-            | (Communication & { workspace: string })
-            | null)
-        : undefined;
-    if (!secured() && !bound) throw Error("Missing child communication binding");
-    registerChildMessaging(pi, bound ?? undefined);
+    const bound = JSON.parse(process.env.PI_SUBAGENT_CONTEXT ?? "null") as
+      | (Communication & { workspace: string })
+      | null;
+    if (!bound) throw Error("Missing child communication binding");
+    registerChildMessaging(pi, bound);
     return;
   }
-  pi.registerFlag("subagent-security", {
-    description: "required or off; defaults to required when security is selected, otherwise off",
-    type: "string",
-  });
   const setup = installSessionSetup(pi);
   let packageResources: { packs: ResourcePackage[]; problems: string[] } = {
     packs: [],
     problems: [],
   };
-  let nativeSkillDefaults: Set<string> | undefined;
-  let skillChoicesSnapshot: SkillChoice[] = [],
-    metadataRegistered = false;
-  let skillIdentities = new Map<string, { dev: number; ino: number }>();
   let agentPathsSnapshot: Map<string, string> | undefined;
   pi.registerMessageRenderer("subagent-dialogue-reply", renderSubagentReply);
   pi.registerMessageRenderer("agent-message", renderSubagentReply);
-  pi.events.on("pi-subagents:bridge:v1", (request: any) => {
-    if (request?.version === 1 && typeof request.respond === "function")
-      request.respond({ extensionPath: fileURLToPath(import.meta.url) });
-  });
   let generation = 0,
     closed = true;
   let agentDefaultsSnapshot: GlobalSelectionSnapshot = { present: false };
-  let skillDefaultsSnapshot: GlobalSelectionSnapshot = { present: false };
   let defaultsSnapshotCaptured = false;
   type ChildWorker = Awaited<ReturnType<typeof launchChild>>;
   type ChildSnapshot = ReturnType<ChildWorker["dialogue"]["snapshot"]>;
@@ -289,21 +259,21 @@ export default function (pi: ExtensionAPI) {
     | {
         cwd: string;
         contextFiles?: Array<{ path: string; content: string }>;
-        sections?: Record<string, string>;
       }
     | undefined;
-  const parentStaticContext = () =>
-    parentPromptOptions && {
+  const parentStaticContext = (ctx: ExtensionContext) => {
+    if (!parentPromptOptions) return undefined;
+    const instructions = savedInstructionContext(pi.events, ctx);
+    return {
       originalCwd: parentPromptOptions.cwd,
       files: (parentPromptOptions.contextFiles ?? []).map(({ path, content }) => ({
         path,
         content,
       })),
-      ...(parentPromptOptions.sections?.instructions === undefined
-        ? {}
-        : { instructions: parentPromptOptions.sections.instructions }),
+      ...(instructions === undefined ? {} : { instructions }),
     };
-  const unrestricted = createUnrestrictedLauncher(
+  };
+  const nativeLauncher = createNativeLauncher(
     pi,
     () => {
       if (!parentContext) throw Error("Parent context unavailable");
@@ -311,15 +281,7 @@ export default function (pi: ExtensionAPI) {
     },
     fileURLToPath(import.meta.url),
   );
-  const launcher = (): ChildLaunchService => {
-    const selection = pi.getFlag("subagent-security") ?? (secured() ? "required" : "off");
-    if (!["required", "off"].includes(String(selection)))
-      throw Error("subagent-security must be required or off");
-    if (selection === "required") return securityService(pi.events);
-    if (secured())
-      throw Error("Disable pi-security for this session before selecting unrestricted subagents");
-    return unrestricted;
-  };
+  const launcher = (): ChildLaunchService => nativeLauncher;
   const event = (type: string, fields: Record<string, unknown> = {}) =>
     pi.appendEntry("pi-subagents.event.v1", { version: 1, type, ...fields });
   const identify = (ctx: ExtensionContext) => {
@@ -480,74 +442,16 @@ export default function (pi: ExtensionAPI) {
         path: c.sourceInfo.path,
         source: c.sourceInfo,
       }));
-  const personalSkillDefault = (skill: SkillChoice) => {
-    // Native project/CLI selection can expose a member excluded by the personal package filters.
-    if (
-      skill.defaultSelected &&
-      skills().find((loaded) => loaded.name === skill.name)?.source.scope !== "user"
-    )
-      return false;
-    const pack = packageResources.packs.find((pack) => pack.name === skill.packName);
-    return pack?.globalDefaultable !== false;
-  };
   const settingsManager = (ctx: ExtensionContext) =>
     SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
   const refreshDefaultSnapshots = (ctx: ExtensionContext) => {
-    const global = settingsManager(ctx).getGlobalSettings() as {
-      subagents?: { agents?: string[]; skills?: string[] };
-    };
+    const manager = settingsManager(ctx);
+    const raw = readResourceSelection(manager, "global", "agents");
     agentDefaultsSnapshot = {
-      present: Object.hasOwn(global.subagents ?? {}, "agents"),
-      names: global.subagents?.agents,
-    };
-    skillDefaultsSnapshot = {
-      present: Object.hasOwn(global.subagents ?? {}, "skills"),
-      names: global.subagents?.skills,
+      present: raw !== undefined,
+      ...(raw ? { values: raw } : {}),
     };
     defaultsSnapshotCaptured = true;
-  };
-  const selectedPublicSkills = (ctx: ExtensionContext) => {
-    const manager = settingsManager(ctx);
-    const choices = currentSkillChoices(ctx);
-    const selected = setup.selection("skills");
-    if (selected !== undefined) {
-      const missing = selected.filter((name) => !choices.some((choice) => choice.name === name));
-      if (missing.length)
-        throw Error(
-          `Selected skills are no longer registered or unchanged: ${missing.join(", ")}. Reload resources.`,
-        );
-      return choices.filter((choice) => selected.includes(choice.name));
-    }
-    return selectedSkills(manager, choices, false, skillDefaultsSnapshot);
-  };
-  const currentSkillChoices = (ctx: ExtensionContext) => {
-    const registered = skills();
-    return skillChoicesSnapshot.filter((choice) => {
-      try {
-        if (
-          metadataRegistered &&
-          !registered.some(
-            (skill) =>
-              skill.name === choice.name &&
-              resolve(ctx.cwd, skill.path) === resolve(ctx.cwd, choice.path),
-          )
-        )
-          return false;
-        const info = statSync(choice.path),
-          identity = skillIdentities.get(choice.path);
-        if (!identity || !info.isFile() || info.dev !== identity.dev || info.ino !== identity.ino)
-          return false;
-        const actual = loadSkills({
-          cwd: ctx.cwd,
-          agentDir: getAgentDir(),
-          skillPaths: [choice.path],
-          includeDefaults: false,
-        }).skills;
-        return actual.some((skill) => skill.name === choice.name && skill.filePath === choice.path);
-      } catch {
-        return false;
-      }
-    });
   };
   const discoverAgents = (ctx: ExtensionContext) => {
     const store = new ProjectTrustStore(getAgentDir());
@@ -606,10 +510,9 @@ export default function (pi: ExtensionAPI) {
       );
       return found;
     }
-    // A previously invalid allowlist may become valid when a definition is
-    // added or a directory becomes trusted during this session. Revalidate it
-    // against the discovery result before applying the cached selection.
-    if (!agentSelectionSnapshot || agentSelectionSnapshot.error) refreshAgentSelection(ctx);
+    // Without a session override (including after reset), resolve the latest saved defaults.
+    // Session births/resumes keep explicit snapshots, so saving defaults cannot rewrite them.
+    refreshAgentSelection(ctx);
     if (agentSelectionSnapshot?.error) {
       found.problems.push(agentSelectionSnapshot.error);
       found.agents = [];
@@ -626,7 +529,16 @@ export default function (pi: ExtensionAPI) {
     model?: string,
   ) =>
     ctx.modelRegistry.getAvailableOfType("chat").then((available) => {
-      const parentSkills = selectedPublicSkills(ctx).map((skill) => skill.name);
+      // New children use saved personal/project choices, never this parent's session override.
+      const choices = skills().map((skill) => ({
+        ...skill,
+        description: skill.description ?? "",
+        toggleable: true,
+        defaultSelected: true,
+      }));
+      const inheritedSkills = selectedSkills(settingsManager(ctx), choices).map(
+        (skill) => skill.name,
+      );
       const resolved = resolveSettings(
         agent,
         {
@@ -634,10 +546,9 @@ export default function (pi: ExtensionAPI) {
           thinking: pi.getThinkingLevel(),
           available: [...available],
           tools: pi.getActiveTools(),
-          skills: parentSkills,
-          privateSkills: agent.privateSkills?.map((s) => s.name) ?? [],
+          skills: inheritedSkills,
+          availableSkills: choices.map((skill) => skill.name),
         },
-        secured(),
         model,
       );
       return resolved;
@@ -654,8 +565,11 @@ export default function (pi: ExtensionAPI) {
     for (const agent of found.agents) {
       try {
         const resolved = await settings(agent, ctx);
+        found.warnings.push(
+          ...(resolved.warnings ?? []).map((warning) => `${agent.name}: ${warning}`),
+        );
         const spec = {
-          ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
+          ...restrictionSpec(agent, "Preview capabilities", resolved),
           communication: {
             id: "pending-agent-workspace",
             name: agent.name,
@@ -684,19 +598,6 @@ export default function (pi: ExtensionAPI) {
     parentCanWake = true;
     // Keep Pi's mutable options object; later before_agent_start handlers may add context files.
     parentPromptOptions = input.systemPromptOptions;
-    try {
-      input.systemPromptOptions.skills = filterPromptSkills(
-        input.systemPromptOptions.skills ?? [],
-        selectedPublicSkills(ctx),
-      );
-    } catch (error) {
-      input.systemPromptOptions.skills = [];
-      if (ctx.hasUI)
-        ctx.ui.notify(
-          `Could not validate selected skills; no skills were added to the prompt. Run /skills to inspect settings. (${errorText(error)})`,
-          "warning",
-        );
-    }
     const { found, available, modelSelections, models } = await refreshPreviews(ctx);
     input.systemPromptOptions.sections.agents =
       cataloguePrompt("", available, previews, modelSelections, models).trim() +
@@ -771,24 +672,6 @@ export default function (pi: ExtensionAPI) {
       getAgentDir(),
       skills().map((skill) => skill.source),
     );
-    // Native resources are loaded before resources_discover; catalogue registration must not widen defaults.
-    nativeSkillDefaults = new Set(skills().map((skill) => resolve(ctx.cwd, skill.path)));
-    metadataRegistered = false;
-    skillChoicesSnapshot = configuredSkillChoices(
-      settingsManager(ctx),
-      ctx.cwd,
-      getAgentDir(),
-      skills().map((skill) => ({ name: skill.name, path: skill.path })),
-      false,
-      nativeSkillDefaults,
-      packageResources.packs,
-    );
-    skillIdentities = new Map(
-      skillChoicesSnapshot.map((skill) => {
-        const { dev, ino } = statSync(skill.path);
-        return [skill.path, { dev, ino }];
-      }),
-    );
     agentPathsSnapshot = undefined;
     agentPathsSnapshot = new Map(
       discoverAgents(ctx).agents.map((agent) => [agent.name, agent.filePath]),
@@ -799,37 +682,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => cleanup("session_shutdown"));
   pi.on("resources_discover", (_input, ctx) => {
     refreshAgentSelection(ctx);
-    try {
-      const choices = currentSkillChoices(ctx);
-      metadataRegistered = true;
-      return { skillPaths: choices.map((skill) => skill.path) };
-    } catch (error) {
-      if (ctx.hasUI)
-        ctx.ui.notify(
-          `Could not load selected skills; inspect /skills before continuing. (${errorText(error)})`,
-          "warning",
-        );
-      return { skillPaths: [] };
-    }
-  });
-  pi.on("input", (event, ctx) => {
-    const match = /^\/skill:([^\s]+)(?:\s|$)/.exec(event.text);
-    if (!match) return;
-    try {
-      const selected = new Set(selectedPublicSkills(ctx).map((skill) => skill.name));
-      if (selected.has(match[1]!)) return;
-      ctx.ui.notify(
-        `Skill "${match[1]}" is not selected for this session. Use /skills to choose it.`,
-        "warning",
-      );
-      return { action: "handled" as const };
-    } catch (error) {
-      ctx.ui.notify(
-        `Could not validate skill selection: ${error instanceof Error ? error.message : String(error)}`,
-        "warning",
-      );
-      return { action: "handled" as const };
-    }
   });
   pi.on("session_tree", async (_input, ctx) => {
     await cleanup("session_tree");
@@ -840,27 +692,6 @@ export default function (pi: ExtensionAPI) {
     if (request?.version !== 1) return;
     const ctx = request.ctx,
       manager = settingsManager(ctx);
-    const choices = currentSkillChoices(ctx);
-    let selectedSkillIds: string[] = [];
-    try {
-      selectedSkillIds = selectedSkills(manager, choices, false, skillDefaultsSnapshot).map(
-        (skill) => skill.name,
-      );
-    } catch {}
-    request.contribute({
-      kind: "skills",
-      candidates: choices.map((skill) => ({
-        kind: "skills",
-        id: skill.name,
-        name: skill.name,
-        description: skill.description,
-        path: skill.path,
-        globalDefaultable: personalSkillDefault(skill),
-        ...(skill.manualOnly ? { manualOnly: true } : {}),
-        ...(skill.packName ? { packName: skill.packName, keywords: skill.packKeywords } : {}),
-      })),
-      selected: selectedSkillIds,
-    });
     const found = discoverAgents(ctx),
       selected = selectedAgents(manager, found.agents, agentDefaultsSnapshot);
     request.contribute({
@@ -872,6 +703,7 @@ export default function (pi: ExtensionAPI) {
           id: agent.name,
           name: agent.name,
           description: agent.description,
+          nativeDefault: !agent.catalogueOnly,
           model: agent.model ?? "inherit",
           globalDefaultable:
             agent.source !== "project" &&
@@ -881,18 +713,6 @@ export default function (pi: ExtensionAPI) {
           ...(agent.packName ? { packName: agent.packName, keywords: agent.packKeywords } : {}),
         })),
       selected: selected.agents.map((agent) => agent.name),
-    });
-    const packs = packageResources.packs;
-    request.contribute({
-      kind: "packages",
-      candidates: packs.map((pack) => ({
-        kind: "packages",
-        id: pack.name,
-        name: pack.name,
-        description: pack.description,
-        keywords: resourcePackageKeywords(pack),
-      })),
-      selected: [],
     });
   });
   pi.on("tool_result", async (event, ctx) => {
@@ -914,78 +734,52 @@ export default function (pi: ExtensionAPI) {
     };
     return { content: [{ type: "text", text: JSON.stringify(receipt) }], details: receipt };
   });
-  const persistAgentSelection = async (
-    ctx: ExtensionCommandContext,
-    names: string[] | undefined,
+  const refreshAgentEntries = (
+    manager: ReturnType<typeof settingsManager>,
+    entries: ResourceEntry[],
+    agents: Array<{ name: string; catalogueOnly?: boolean }>,
   ) => {
-    if (!ctx.isProjectTrusted())
-      throw Error("Project resource selection requires a trusted project");
-    await ctx.waitForIdle();
-    await writeProjectAgentSelection(ctx.cwd, names);
-    if (names === undefined) refreshAgentSelection(ctx);
-    else agentSelectionSnapshot = { names: new Set(names) };
+    const global = readResourceSelection(manager, "global", "agents");
+    const project = readResourceSelection(manager, "project", "agents");
+    for (const entry of entries) {
+      const agent = agents.find((candidate) => candidate.name === entry.id);
+      if (!agent) continue;
+      const resolved = resolveResourceSelection(global, project, agent.name, !agent.catalogueOnly);
+      const globalResolved = resolveResourceSelection(
+        global,
+        undefined,
+        agent.name,
+        !agent.catalogueOnly,
+      );
+      entry.projectState = resolved.projectState;
+      entry.globalState = resolved.globalState;
+      entry.defaultSelected = resolved.effective;
+      entry.globalDefaultSelected = globalResolved.effective;
+    }
   };
-  const persistSkillSelection = async (
-    ctx: ExtensionCommandContext,
-    selected: ReturnType<typeof selectedSkills>,
-  ) => {
-    if (!ctx.isProjectTrusted())
-      throw Error("Project resource selection requires a trusted project");
-    await ctx.waitForIdle();
-    await assertSafeProjectSettingsLocation(ctx.cwd);
-    await writeProjectSkillSelection(
-      ctx.cwd,
-      selected.filter((skill) => !skill.defaultSelected).map((skill) => skill.path),
-      selected.map((skill) => skill.name),
-    );
-  };
+
   const changeSavedDefault = async (
     ctx: ExtensionCommandContext,
-    kind: "agents" | "skills",
+    kind: "agents",
     id: string,
-    enabled: boolean,
+    state: ResourceDefaultState,
     scope: "project" | "global",
-    choices: SkillChoice[] = [],
+    entries: ResourceEntry[],
+    agents: Array<{ name: string; catalogueOnly?: boolean }>,
   ) => {
-    const current = (setup.execute({ op: "list" }, ctx).selected as Record<string, string[]>)[kind];
-    const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
-      projectTrusted: ctx.isProjectTrusted(),
+    if (scope === "project" && !ctx.isProjectTrusted())
+      throw Error("Saving agent defaults requires a trusted project");
+    await writeResourceDefault({
+      scope,
+      kind,
+      id,
+      state,
+      knownIds: agents.map((agent) => agent.name),
+      cwd: ctx.cwd,
+      agentDir: getAgentDir(),
     });
-    const global =
-      (latest.getGlobalSettings() as { subagents?: { agents?: string[]; skills?: string[] } })
-        .subagents ?? {};
-    const project =
-      (latest.getProjectSettings() as { subagents?: { agents?: string[]; skills?: string[] } })
-        .subagents ?? {};
-    const names = new Set(
-      scope === "global" ? (global[kind] ?? []) : (project[kind] ?? global[kind] ?? []),
-    );
-    if (enabled) names.add(id);
-    else names.delete(id);
-    if (scope === "global")
-      await writeGlobalResourceSelection(getAgentDir(), kind, [...names].sort());
-    else if (kind === "agents") {
-      if (!ctx.isProjectTrusted())
-        throw Error("Project resource selection requires a trusted project");
-      await writeProjectAgentSelection(ctx.cwd, [...names].sort());
-    } else
-      await persistSkillSelection(
-        ctx,
-        choices.filter((choice) => names.has(choice.name)),
-      );
-    setup.execute({ op: "apply", [kind]: current }, ctx);
+    refreshAgentEntries(settingsManager(ctx), entries, agents);
   };
-  const currentSkillChoicesForPackages = (names: string[]) =>
-    skillChoicesSnapshot
-      .filter((skill) => names.includes(skill.name) && !skill.defaultSelected)
-      .map((skill) => skill.path);
-  registerPackagePicker(
-    pi,
-    setup,
-    () => packageResources.problems,
-    (names) => currentSkillChoicesForPackages(names),
-    refreshAgentSelection,
-  );
   const selectionArgs = (args: string) => {
     const match = /^(enable|disable|none|all|inherit|inspect)(?:\s+(.+))?$/.exec(args.trim());
     return match ? { action: match[1], name: match[2]?.trim() } : undefined;
@@ -1066,7 +860,7 @@ export default function (pi: ExtensionAPI) {
       const rows = await Promise.all(
         full.agents.map(async (agent) => {
           try {
-            return `${agent.name} — ${agent.description}\n${agent.filePath} (${agent.source})\nValidated request (unset resources inherit): ${JSON.stringify({ ...(await settings(agent, ctx)), tools: agent.tools ?? "inherit", skills: agent.skills ?? "inherit", permissionMode: agent.permissions ?? "inherit", conversation: agent.context ?? "none" })}`;
+            return `${agent.name} — ${agent.description}\n${agent.filePath} (${agent.source})\nValidated request (unset resources inherit): ${JSON.stringify({ ...(await settings(agent, ctx)), tools: agent.tools ?? "inherit", skills: agent.skills ?? "inherit", conversation: agent.context ?? "none" })}`;
           } catch (e) {
             return `${agent.name}: ${e instanceof Error ? e.message : String(e)}\n${agent.filePath}`;
           }
@@ -1076,9 +870,7 @@ export default function (pi: ExtensionAPI) {
       if (!action && !/^trust(?:\s|$)/.test(command)) selected = command;
       if (!selected && !action && ctx.hasUI) {
         const selection = new Set(found.agents.map((agent) => agent.name));
-        const agentDefaults =
-          (manager.getProjectSettings() as { subagents?: { agents?: string[] } }).subagents
-            ?.agents ?? [];
+        let browserEntries: ResourceEntry[] = [];
         await showResourceBrowser(ctx, {
           title: "Agents",
           ...resourceBrowserNavigation(pi, "agents"),
@@ -1089,80 +881,89 @@ export default function (pi: ExtensionAPI) {
             "agents",
           ),
           notice: diagnostics.join("\n\n"),
-          entries: full.agents.map((agent) => ({
-            id: agent.name,
-            name: agent.name,
-            description: agent.description,
-            keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
-              .filter(Boolean)
-              .join(" "),
-            selected: selection.has(agent.name),
-            defaultSelected: agentDefaults.includes(agent.name),
-            globalDefaultSelected: (
-              (manager.getGlobalSettings() as { subagents?: { agents?: string[] } }).subagents
-                ?.agents ?? []
-            ).includes(agent.name),
-            globalDefaultable:
-              agent.source !== "project" &&
-              packageResources.packs.find((pack) => pack.name === agent.packName)
-                ?.globalDefaultable !== false,
-            badge: agent.packName ?? agent.source,
-            preview: async () => {
-              let fields: Array<{ label: string; value: string }>;
-              try {
-                const resolved = await settings(agent, ctx);
-                const spec = {
-                  ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
-                  communication: {
-                    id: "pending-agent-workspace",
-                    name: agent.name,
-                    parentId,
-                    parentName: "main",
-                  },
-                };
-                const capabilities = publicAgentPreview(await launcher().describeChild(spec));
-                const scope = capabilities.scope;
-                fields = [
-                  {
-                    label: "Model",
-                    value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
-                  },
-                  { label: "Tools", value: capabilities.tools.join(", ") || "none" },
-                  { label: "Child skills", value: resolved.skills.join(", ") || "none" },
-                  { label: "History", value: String(agent.context ?? "none") },
-                  ...Object.entries(scope)
-                    .filter(
-                      ([key, value]) =>
-                        scope.security !== "off" ||
-                        (!["mode", "security"].includes(key) &&
-                          !(["read", "write"].includes(key) && value === "host permissions")),
-                    )
-                    .map(([key, value]) => ({
+          entries: (browserEntries = full.agents.map((agent) => {
+            const nativeDefault = !agent.catalogueOnly;
+            const resolved = resolveResourceSelection(
+              readResourceSelection(manager, "global", "agents"),
+              readResourceSelection(manager, "project", "agents"),
+              agent.name,
+              nativeDefault,
+            );
+            const globalResolved = resolveResourceSelection(
+              readResourceSelection(manager, "global", "agents"),
+              undefined,
+              agent.name,
+              nativeDefault,
+            );
+            return {
+              id: agent.name,
+              name: agent.name,
+              description: agent.description,
+              keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
+                .filter(Boolean)
+                .join(" "),
+              selected: selection.has(agent.name),
+              defaultSelected: resolved.effective,
+              globalDefaultSelected: globalResolved.effective,
+              projectState: resolved.projectState,
+              globalState: resolved.globalState,
+              nativeDefault,
+              globalDefaultable:
+                agent.source !== "project" &&
+                packageResources.packs.find((pack) => pack.name === agent.packName)
+                  ?.globalDefaultable !== false,
+              badge: agent.packName ?? agent.source,
+              preview: async () => {
+                let fields: Array<{ label: string; value: string }>;
+                try {
+                  const resolved = await settings(agent, ctx);
+                  const spec = {
+                    ...restrictionSpec(agent, "Preview capabilities", resolved),
+                    communication: {
+                      id: "pending-agent-workspace",
+                      name: agent.name,
+                      parentId,
+                      parentName: "main",
+                    },
+                  };
+                  const capabilities = publicAgentPreview(await launcher().describeChild(spec));
+                  const scope = capabilities.scope;
+                  fields = [
+                    {
+                      label: "Model",
+                      value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
+                    },
+                    { label: "Tools", value: capabilities.tools.join(", ") || "none" },
+                    { label: "Child skills", value: resolved.skills.join(", ") || "none" },
+                    ...(resolved.warnings?.length
+                      ? [{ label: "Warnings", value: resolved.warnings.join("\n") }]
+                      : []),
+                    { label: "History", value: String(agent.context ?? "none") },
+                    ...Object.entries(scope).map(([key, value]) => ({
                       label:
                         key === "workspaceModes"
                           ? "Workspaces"
                           : key[0].toUpperCase() + key.slice(1),
                       value: Array.isArray(value) ? value.join(", ") : String(value),
                     })),
-                ];
-                if (scope.security === "off")
-                  fields.push({ label: "Execution", value: "Host permissions" });
-              } catch (error) {
-                fields = [
-                  { label: "Capabilities unavailable", value: errorText(error) },
-                  { label: "Requested model", value: agent.model ?? "inherit parent model" },
-                  {
-                    label: "Requested tools",
-                    value: agent.tools?.join(", ") ?? "inherit available tools",
-                  },
-                ];
-              }
-              return {
-                fields,
-                source: agent.filePath,
-                body: agent.body,
-              };
-            },
+                  ];
+                } catch (error) {
+                  fields = [
+                    { label: "Capabilities unavailable", value: errorText(error) },
+                    { label: "Requested model", value: agent.model ?? "inherit parent model" },
+                    {
+                      label: "Requested tools",
+                      value: agent.tools?.join(", ") ?? "inherit available tools",
+                    },
+                  ];
+                }
+                return {
+                  fields,
+                  source: agent.filePath,
+                  body: agent.body,
+                };
+              },
+            };
           })),
           toggle: async (entry, enabled) => {
             const next = new Set(selection);
@@ -1173,19 +974,40 @@ export default function (pi: ExtensionAPI) {
             for (const name of next) selection.add(name);
             found = findAgents(ctx);
           },
-          setDefault: (entry, enabled, scope) =>
-            changeSavedDefault(ctx, "agents", entry.id, enabled, scope),
-          saveGlobalDefaults: async (entries) =>
-            writeGlobalResourceSelection(
-              getAgentDir(),
-              "agents",
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
-          saveDefaults: async (entries) =>
-            persistAgentSelection(
-              ctx,
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
+          setDefault: (entry, state, scope) =>
+            changeSavedDefault(ctx, "agents", entry.id, state, scope, browserEntries, full.agents),
+          saveGlobalDefaults: async (saved) => {
+            await writeResourceDefaults({
+              scope: "global",
+              agentDir: getAgentDir(),
+              selections: {
+                agents: {
+                  snapshot: true,
+                  knownIds: full.agents.map((agent) => agent.name),
+                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
+                },
+              },
+            });
+            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
+          },
+          saveDefaults: async (saved) => {
+            if (!ctx.isProjectTrusted())
+              throw Error("Saving agent defaults requires a trusted project");
+            await assertSafeProjectSettingsLocation(ctx.cwd);
+            await writeResourceDefaults({
+              scope: "project",
+              cwd: ctx.cwd,
+              agentDir: getAgentDir(),
+              selections: {
+                agents: {
+                  snapshot: true,
+                  knownIds: full.agents.map((agent) => agent.name),
+                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
+                },
+              },
+            });
+            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
+          },
         });
         return;
       }
@@ -1203,146 +1025,6 @@ export default function (pi: ExtensionAPI) {
               .join("\n") || "No trusted named agents are available.",
         "info",
       );
-    },
-  });
-  pi.registerCommand("skills", {
-    description:
-      "Select skills for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults",
-    async handler(args, ctx) {
-      const command = args.trim();
-      const action = selectionArgs(command);
-      const repairingInvalidProjectSelection =
-        action?.action === "none" || action?.action === "all" || action?.action === "inherit";
-      const manager = settingsManager(ctx);
-      const loaded = skills().map((skill) => ({ name: skill.name, path: skill.path }));
-      const choices = configuredSkillChoices(
-        manager,
-        ctx.cwd,
-        getAgentDir(),
-        loaded,
-        repairingInvalidProjectSelection,
-        nativeSkillDefaults,
-        packageResources.packs,
-      );
-      const selected = selectedSkills(
-        manager,
-        choices,
-        repairingInvalidProjectSelection,
-        skillDefaultsSnapshot,
-      );
-      const selectedNames = new Set(
-        setup.selection("skills") ?? selected.map((skill) => skill.name),
-      );
-      const skillDefaults =
-        (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents?.skills ??
-        [];
-      if (action) {
-        let next = new Map(
-          choices
-            .filter((skill) => selectedNames.has(skill.name) && skill.toggleable)
-            .map((skill) => [skill.name, skill]),
-        );
-        if (action.action === "none") next.clear();
-        else if (action.action === "all")
-          next = new Map(
-            choices.filter((skill) => skill.toggleable).map((skill) => [skill.name, skill]),
-          );
-        else if (action.action === "inherit") {
-          setup.execute({ op: "reset", kinds: ["skills"] }, ctx);
-          return;
-        } else if (action.action === "enable" || action.action === "disable") {
-          const choice = choices.find((skill) => skill.name === action.name && skill.toggleable);
-          if (!choice) throw Error(`Unknown selectable public skill "${action.name ?? ""}"`);
-          if (action.action === "enable") next.set(choice.name, choice);
-          else next.delete(choice.name);
-        } else if (action.action === "inspect" && !action.name) {
-          throw Error("Use /skills inspect NAME");
-        } else if (action.action !== "inspect") {
-          throw Error(`Unsupported skill selection command: ${action.action}`);
-        }
-        if (action.action !== "inspect") {
-          setup.execute({ op: "apply", skills: [...next.keys()] }, ctx);
-          return;
-        }
-      }
-      let inspectName = action?.action === "inspect" ? action.name : undefined;
-      if (!action && command) inspectName = command;
-      if (!inspectName && !action && ctx.hasUI && choices.length) {
-        await showResourceBrowser(ctx, {
-          title: "Skills",
-          ...resourceBrowserNavigation(pi, "skills"),
-          selectionScope: "session",
-          defaultsScope: "project",
-          defaultsInherited: !Object.hasOwn(
-            (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents ?? {},
-            "skills",
-          ),
-          entries: choices.map((skill) => ({
-            id: skill.name,
-            name: skill.name,
-            description: skill.description,
-            keywords: `${skill.manualOnly ? "manual command" : "model skill"} ${skill.packKeywords ?? ""}`,
-            selected: selectedNames.has(skill.name),
-            defaultSelected: skillDefaults.includes(skill.name),
-            globalDefaultSelected: (
-              (manager.getGlobalSettings() as { subagents?: { skills?: string[] } }).subagents
-                ?.skills ?? []
-            ).includes(skill.name),
-            globalDefaultable: personalSkillDefault(skill),
-            toggleable: skill.toggleable,
-            badge: skill.packName ?? (skill.manualOnly ? "manual" : undefined),
-            preview: async () => {
-              const { body, frontmatter } = parseFrontmatter(await readFile(skill.path, "utf8"));
-              const invocation =
-                frontmatter["disable-model-invocation"] === true
-                  ? "Manual command only"
-                  : "Description advertised when selected";
-              return {
-                fields: [{ label: "Invocation", value: invocation }],
-                source: skill.path,
-                body,
-              };
-            },
-          })),
-          toggle: async (entry, enabled) => {
-            const next = new Set(selectedNames);
-            if (enabled) next.add(entry.id);
-            else next.delete(entry.id);
-            setup.execute({ op: "apply", skills: [...next].sort() }, ctx);
-            selectedNames.clear();
-            for (const name of next) selectedNames.add(name);
-          },
-          setDefault: (entry, enabled, scope) =>
-            changeSavedDefault(ctx, "skills", entry.id, enabled, scope, choices),
-          saveGlobalDefaults: async (entries) =>
-            writeGlobalResourceSelection(
-              getAgentDir(),
-              "skills",
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
-          saveDefaults: async (entries) =>
-            persistSkillSelection(
-              ctx,
-              choices.filter((skill) =>
-                entries.some((entry) => entry.id === skill.name && entry.selected),
-              ),
-            ),
-        });
-        return;
-      }
-      if (inspectName) {
-        const skill = choices.find((item) => item.name === inspectName);
-        if (!skill) throw Error(`Unknown public skill "${inspectName}"`);
-        ctx.ui.notify(`${skill.name} — ${skill.description}\n${skill.path}`, "info");
-        return;
-      }
-      const rows = [
-        ...choices.map(
-          (skill) =>
-            `${selectedNames.has(skill.name) ? "[x]" : "[ ]"} ${skill.name} — ${skill.description}\n${skill.path}`,
-        ),
-      ];
-      ctx.ui.notify(rows.join("\n\n") || "No public skills are available.", "info");
     },
   });
   pi.registerTool({
@@ -1363,8 +1045,7 @@ export default function (pi: ExtensionAPI) {
       conversation: Type.Optional(Type.String()),
       workspace: Type.Optional(
         Type.Union([Type.Literal("scratch"), Type.Literal("project")], {
-          description:
-            "Defaults to scratch. Project uses the parent directory directly and requires security off.",
+          description: "Defaults to scratch. Project uses the parent directory directly.",
         }),
       ),
     }),
@@ -1378,10 +1059,6 @@ export default function (pi: ExtensionAPI) {
           `Agent "${params.agent}" unavailable. Available named agents: ${agentCatalogue(found.agents)}. Run /agents to inspect discovery and trust diagnostics.`,
         );
       identify(ctx);
-      if (params.workspace === "project" && secured())
-        throw Error(
-          "Project workspace requires security off; secured children currently use scratch workspaces",
-        );
       const advertised = previews.get(agent.name);
       const communication = { id: newAgentId(), name: agent.name, parentId, parentName: "main" };
       let effective: Awaited<ReturnType<typeof settings>>;
@@ -1389,13 +1066,7 @@ export default function (pi: ExtensionAPI) {
       try {
         effective = await settings(agent, ctx, params.model);
         spec = {
-          ...restrictionSpec(
-            agent,
-            "Preview capabilities",
-            effective,
-            secured(),
-            parentStaticContext(),
-          ),
+          ...restrictionSpec(agent, "Preview capabilities", effective, parentStaticContext(ctx)),
           communication,
         };
       } catch (error) {
@@ -1429,10 +1100,27 @@ export default function (pi: ExtensionAPI) {
         worker = await launchChild({
           launcher: launcher(),
           transport: childTransport(),
+          onSelect: async ({ title, options, signal: childSignal }) => {
+            if (!ctx.hasUI || closed || generation !== token) return undefined;
+            const signal = ctx.signal ? AbortSignal.any([childSignal, ctx.signal]) : childSignal;
+            signal.throwIfAborted();
+            const answer = await ctx.ui.select(
+              `${agent.name} (${communication.id}): ${title}`,
+              options,
+              { signal },
+            );
+            signal.throwIfAborted();
+            return !closed &&
+              generation === token &&
+              answer !== undefined &&
+              options.includes(answer)
+              ? answer
+              : undefined;
+          },
           spec: {
-            ...restrictionSpec(agent, task, effective, secured(), parentStaticContext()),
+            ...restrictionSpec(agent, task, effective, parentStaticContext(ctx)),
             communication,
-            ...(!secured() ? { workspace: params.workspace ?? "scratch" } : {}),
+            workspace: params.workspace ?? "scratch",
           },
           artifactDirectory: join(
             process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
@@ -1555,6 +1243,8 @@ export default function (pi: ExtensionAPI) {
                 workspace: worker.prepared.cwd,
                 workspace_mode: worker.prepared.workspaceKind ?? "scratch",
                 tools: worker.prepared.effectiveResources?.tools ?? preview.tools,
+                skills: effective.skills,
+                ...(effective.warnings?.length ? { warnings: effective.warnings } : {}),
                 scope: preview.scope,
                 request_id: ack.requestId,
                 ...(waitId ? { wait_id: waitId } : {}),
@@ -1563,13 +1253,13 @@ export default function (pi: ExtensionAPI) {
           ],
           details: {
             id: communication.id,
+            ...(effective.warnings?.length ? { warnings: effective.warnings } : {}),
             requestId: ack.requestId,
             waitId,
             effective: {
               tools: worker.prepared.effectiveResources?.tools ?? effective.tools ?? preview.tools,
               model: effective.model,
               thinking: effective.thinking,
-              permissionMode: effective.permissionMode,
               conversation,
             },
             goalWait: waitId
@@ -1638,64 +1328,6 @@ export default function (pi: ExtensionAPI) {
       identify(ctx);
       const value = await route(parentId, "main", params);
       return { content: [{ type: "text", text: JSON.stringify(value) }], details: value };
-    },
-  });
-  pi.registerTool({
-    name: "subagent_message",
-    defaultActive: false,
-    label: "Message subagent",
-    description:
-      "Steer a busy child or queue a follow-up; idle child starts a new turn. Returns a correlated request and optional goal wait ID.",
-    parameters: Type.Object({
-      id: Type.String(),
-      message: Type.String(),
-      mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("followUp")])),
-    }),
-    async execute(_id, params, signal, _update, ctx) {
-      const worker = lookup(params.id),
-        token = generation;
-      if (!worker || !current(worker, token)) throw Error("Unknown or revoked agent");
-      signal?.throwIfAborted();
-      let offer: ReturnType<ResponseOffers["offer"]> | undefined;
-      const abort = () => offer?.release();
-      signal?.addEventListener("abort", abort, { once: true });
-      try {
-        const ack = await worker.dialogue.message(
-          agentEnvelope("message", parentId, params.message),
-          params.mode ?? "followUp",
-          (requestId) => {
-            offer = offers.offer(
-              worker.dialogue,
-              requestId,
-              ctx.sessionManager.getSessionId(),
-              `${ctx.sessionManager.getSessionId()}:${worker.prepared.id}:g${token}`,
-              () => current(worker, token),
-            );
-          },
-        );
-        signal?.throwIfAborted();
-        if (ack.disposition === "handled") offer?.release();
-        const waitId = ack.disposition !== "handled" && offer?.accepted ? offer.waitId : undefined;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                accepted: true,
-                to: actor(worker).id,
-                request_id: ack.requestId,
-                ...(waitId ? { wait_id: waitId } : {}),
-              }),
-            },
-          ],
-          details: { id: worker.id, ...ack, waitId },
-        };
-      } catch (error) {
-        offer?.release();
-        throw error;
-      } finally {
-        signal?.removeEventListener("abort", abort);
-      }
     },
   });
   for (const action of ["check", "cancel", "close"] as const)

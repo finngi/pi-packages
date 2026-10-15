@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { HUMAN_INPUT, USAGE_EVENT } from "pi-contracts";
+import { USAGE_EVENT } from "pi-contracts";
 import { installAccounting } from "pi-runtime/accounting";
 import { MAX_NODE_TIMER_DELAY_MS } from "pi-runtime/timers";
 import { newSemanticId } from "pi-runtime/semantic-id";
@@ -43,6 +44,7 @@ import {
 } from "../lib/presentation.ts";
 import { GoalRequests } from "../lib/usage.ts";
 import { createGoalWaits } from "../lib/wait-delivery.ts";
+import { evaluatorOptions } from "../lib/settings.ts";
 
 type CreateAuthorization = GoalCreateAuthorization & { scope?: GoalCreateScope };
 type GoalCreateScope = {
@@ -60,7 +62,6 @@ export default function (pi: ExtensionAPI) {
   pi.registerFlag?.("goal-evaluator-timeout", {
     type: "string",
     description: "Goal evaluation timeout in seconds; default 30",
-    default: "30",
   });
   let evaluationAbort: AbortController | undefined;
   let initialContext: { messages: unknown[]; throughEntryId?: string } | undefined;
@@ -542,8 +543,13 @@ export default function (pi: ExtensionAPI) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let publishUsage: ((usage?: import("@earendil-works/pi-ai").Usage) => void) | undefined;
     try {
-      const requested = pi.getFlag?.("goal-evaluator-model");
-      const timeout = Number(pi.getFlag?.("goal-evaluator-timeout") ?? "30");
+      const settings = SettingsManager.create(ctx.cwd, getAgentDir(), {
+        projectTrusted: ctx.isProjectTrusted(),
+      }).getSettings();
+      const { model: requested, timeoutSec: timeout } = evaluatorOptions(settings, {
+        model: pi.getFlag?.("goal-evaluator-model"),
+        timeoutSec: pi.getFlag?.("goal-evaluator-timeout"),
+      });
       if (
         typeof requested !== "string" ||
         !requested.includes("/") ||
@@ -552,7 +558,7 @@ export default function (pi: ExtensionAPI) {
         timeout * 1000 > MAX_NODE_TIMER_DELAY_MS
       )
         throw Error(
-          `Configure --goal-evaluator-model provider/model and a positive evaluator timeout no greater than ${MAX_NODE_TIMER_DELAY_MS / 1000} seconds`,
+          `Configure goal.evaluator.model in native settings or --goal-evaluator-model provider/model and a positive evaluator timeout no greater than ${MAX_NODE_TIMER_DELAY_MS / 1000} seconds`,
         );
       const model = ctx.modelRegistry
         .getAll()
@@ -883,11 +889,6 @@ export default function (pi: ExtensionAPI) {
           automaticDisarmed
         )
           return;
-        pi.events.emit(HUMAN_INPUT, {
-          version: 1,
-          sessionId: ctx.sessionManager.getSessionId(),
-          message: authorized.objective,
-        });
         pi.sendUserMessage(
           command === "resume"
             ? `Resume the authorized goal: ${authorized.objective}`

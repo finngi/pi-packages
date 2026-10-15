@@ -2,7 +2,10 @@
 
 Load `pi-context` for personal project context and selected agent instructions. `AGENTS.md`, `CLAUDE.md` and `AGENTS.local.md` remain in Pi's native `<project_context>` section. Selected snippets appear separately in `<instructions>` and can guide communication, delegation, coding or data handling. These labels identify the sources' roles; they do not establish a priority rule between them. Pi's project-trust state controls whether this extension reads project-local sources and whether `/instructions` can save project choices.
 
-Set `resources.instructionCatalogues` in user settings to instruction-library roots and `localContext.instructions` to selected resource IDs. A trusted project's `.pi/settings.json` can override the personal selection with its own list; `[]` selects none. `/instructions` changes this session's selection. Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults for new sessions across projects. Project-only resources are excluded from personal saves. Session choices are recorded in Pi's history and retained on resume, so changing defaults does not rewrite existing sessions. Instruction bodies are still read again before each parent turn.
+Declare instruction directories in a native package's `pi.instructions` field and load that package
+through personal or trusted project settings. Select resource IDs through `/instructions` or
+`session_setup`. Sparse boolean maps save explicit personal/project choices; omitted IDs inherit.
+Session choices are recorded and retained on resume. Bodies refresh before each parent turn.
 
 When no selection is configured, `.agents/instructions/*.md` files in the trusted project are selected in filename order. Selecting a snippet loads its body eagerly as agent guidance; skills remain lazy. Leading closed YAML frontmatter is removed from eager prompt context, including team, local, and ancestor entries. Source files and raw read/grep/edit output are unchanged.
 
@@ -21,7 +24,7 @@ Added files are deduplicated by canonical path across native context, local over
 
 The `/instructions` picker keeps its list to names, selection marks and default badges. Project-local entries carry a short `Project` label; reusable entries come from your instruction library. The details pane shows the behavioral body, selection storage and full source path. A project settings override chooses the set to use there; it does not make the snippets project rules or give their contents higher priority. An empty selection leaves `AGENTS.local.md` active.
 
-Local overlays and selected snippet bodies are read again before the next parent turn, so editing them does not require a process restart. Children receive a launch-time snapshot of both project context and selected instructions; already-running children retain that snapshot. Dynamic parent sections, including running agents and goal state, are not copied.
+Local overlays and selected snippet bodies are read again before the next parent turn, so editing them does not require a process restart. Children receive static personal/project context and the instruction selections saved in personal/project settings, plus their own agent body. Temporary parent session selections do not apply to children. Saved instruction bodies refresh at child launch; already-running children retain that snapshot. Dynamic parent sections, including running agents and goal state, are not copied.
 
 The eager overlay reads local and selected files only when their resolved paths stay within the source root: the enclosing Git checkout when one exists, otherwise the directory that supplied the file. Symlinks within that root remain supported and are deduplicated by their canonical path; links outside it are skipped. Files with multiple hard links are also skipped, because their other paths cannot be confined. These path checks apply to files added by this extension, not to Pi's own context-file loading or to file access by tools and other extensions. Project trust is Pi's separate gate for loading the project-local overlay and changing project instruction selections.
 

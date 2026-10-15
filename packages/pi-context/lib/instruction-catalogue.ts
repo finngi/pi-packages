@@ -1,14 +1,12 @@
-import { readdirSync } from "node:fs";
 import { basename, relative } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { type ResourcePackage, resourcePackageKeywords } from "pi-runtime";
+import { type ResourcePackage, resourcePackageKeywords } from "pi-resources/discovery";
 import {
   catalogueInstructionId,
   effectiveInstructions,
-  instructionCataloguePaths,
   type InstructionSettings,
 } from "./instruction-selection.ts";
-import { localInstructionChoices, readCatalogueInstruction } from "./local-context.ts";
+import { localInstructionChoices } from "./local-context.ts";
 
 interface InstructionMetadata {
   id: string;
@@ -18,6 +16,7 @@ interface InstructionMetadata {
   path: string;
   packName?: string;
   globalDefaultable?: boolean;
+  nativeDefault: boolean;
 }
 
 /** Setup discovery returns metadata only; context files and behavioral bodies stay separate. */
@@ -25,7 +24,6 @@ export function instructionCatalogue(
   global: InstructionSettings,
   project: InstructionSettings,
   cwd: string,
-  agentDir: string,
   trusted: boolean,
   enabled: boolean,
   packs: ResourcePackage[] = [],
@@ -48,6 +46,7 @@ export function instructionCatalogue(
     const item = {
       id,
       path,
+      nativeDefault: id.startsWith("local:"),
       globalDefaultable: !id.startsWith("local:") && pack?.globalDefaultable !== false,
       name: typeof frontmatter.title === "string" ? frontmatter.title : basename(path, ".md"),
       description:
@@ -59,41 +58,6 @@ export function instructionCatalogue(
     };
     if (!candidates.some((candidate) => candidate.id === id)) candidates.push(item);
   };
-  const packMembers = new Map(
-    packs.flatMap((pack) =>
-      pack.instructions.map(
-        (file) =>
-          [
-            catalogueInstructionId(file.catalogue, basename(file.path)),
-            {
-              name: pack.name,
-              keywords: resourcePackageKeywords(pack),
-              globalDefaultable: pack.globalDefaultable,
-            },
-          ] as const,
-      ),
-    ),
-  );
-  try {
-    for (const catalogue of instructionCataloguePaths(global, agentDir)) {
-      try {
-        for (const filename of readdirSync(catalogue)
-          .filter((name) => name.endsWith(".md"))
-          .sort()) {
-          const source = readCatalogueInstruction(catalogue, filename);
-          if (!source) continue;
-          const id = catalogueInstructionId(catalogue, filename);
-          add(id, source.path, source.content, packMembers.get(id));
-        }
-      } catch {
-        problems.push(`${catalogue}: instruction catalogue is unavailable`);
-      }
-    }
-  } catch {
-    problems.push(
-      "Instruction catalogue registration is invalid; check resources.instructionCatalogues.",
-    );
-  }
   for (const pack of packs)
     for (const file of pack.instructions)
       add(catalogueInstructionId(file.catalogue, basename(file.path)), file.path, file.content, {
@@ -110,7 +74,8 @@ export function instructionCatalogue(
         global,
         trusted ? project : {},
         candidates.map((file) => file.id),
-      ) ?? locals.map((file) => `local:${relative(cwd, file.path)}`);
+        locals.map((file) => `local:${relative(cwd, file.path)}`),
+      ) ?? [];
   } catch {
     problems.push("Saved instruction selection is invalid; inspect /instructions.");
   }

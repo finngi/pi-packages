@@ -2,14 +2,13 @@
  * Native Pi adapter for the Responses web-search port.
  * Based on Leechael/pi-codex-search v0.1.6; see LICENSE.pi-codex-search.
  */
-import { clampThinkingLevel, Type } from "@earendil-works/pi-ai";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { calculateCost, clampThinkingLevel, Type } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import type {
   AgentToolUpdateCallback,
   ExtensionAPI,
   ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
-import { SECURITY_PRESENCE } from "pi-contracts";
 import {
   MAX_CONCURRENCY,
   MAX_QUERIES,
@@ -28,7 +27,6 @@ import {
 } from "../lib/search.ts";
 
 const PROVIDER = "openai-codex";
-const SECURITY_EVENT = "pi-security:service:v1";
 const BACKEND_ORIGIN = "https://chatgpt.com";
 
 const citationSchema = Type.Object({
@@ -48,6 +46,8 @@ const usageSchema = Type.Object({
   inputTokens: Type.Optional(Type.Number()),
   outputTokens: Type.Optional(Type.Number()),
   totalTokens: Type.Optional(Type.Number()),
+  cacheReadTokens: Type.Optional(Type.Number()),
+  reasoningTokens: Type.Optional(Type.Number()),
 });
 const successSchema = Type.Object({
   query: Type.String(),
@@ -70,6 +70,7 @@ const failureSchema = Type.Object({
   ]),
   message: Type.String(),
   status: Type.Optional(Type.Number()),
+  usage: Type.Optional(usageSchema),
 });
 const outputSchema = Type.Object({
   model: Type.String(),
@@ -95,29 +96,6 @@ const outputSchema = Type.Object({
 
 export interface SearchExtensionDependencies {
   fetchImpl?: typeof fetch;
-  security?: "required" | "off";
-}
-
-/** Per-call capability issued by the active pi-security service after exact tool admission. */
-export interface SearchCapability {
-  readonly origin: string;
-  readonly signal: AbortSignal;
-  assertCurrent(input: unknown): void;
-  dispatch<T>(
-    input: unknown,
-    url: string,
-    operation: (signal: AbortSignal) => Promise<T>,
-  ): Promise<T>;
-  release(): void;
-}
-
-interface SearchSecurityService {
-  version: 1;
-  prepareSearch(spec: {
-    toolCallId: string;
-    input: unknown;
-    signal?: AbortSignal;
-  }): SearchCapability;
 }
 
 function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
@@ -234,6 +212,9 @@ function buildBatch(
         ...(entry.reason instanceof SearchError && entry.reason.status
           ? { status: entry.reason.status }
           : {}),
+        ...(entry.reason instanceof SearchError && entry.reason.usage
+          ? { usage: entry.reason.usage }
+          : {}),
       });
   });
   return {
@@ -285,24 +266,22 @@ function createTool(deps: SearchExtensionDependencies = {}) {
       signal: AbortSignal | undefined,
       onUpdate: AgentToolUpdateCallback<unknown> | undefined,
       ctx: ExtensionToolContext,
-      grant?: SearchCapability,
     ) {
-      if (!grant || grant.origin !== BACKEND_ORIGIN)
-        throw new Error("Codex search requires an active pi-security search capability.");
       const queries = params.queries.map((query) => query.trim());
       if (queries.some((query) => query.length === 0))
         throw new SearchError("schema", "Search queries must not be empty.");
-      const toolSignal = combineSignals(signal, ctx.signal, grant?.signal);
-      const assertCurrent = () => grant.assertCurrent(params);
+      const toolSignal = combineSignals(signal, ctx.signal);
+      const assertCurrent = () => toolSignal?.throwIfAborted();
       const guardedFetch: typeof fetch = async (input, init) => {
         assertCurrent();
         const url = input instanceof Request ? input.url : String(input);
-        return await grant.dispatch(params, url, (capabilitySignal) =>
-          (deps.fetchImpl ?? fetch)(input, {
-            ...init,
-            signal: combineSignals(init?.signal ?? undefined, capabilitySignal),
-          }),
-        );
+        if (new URL(url).origin !== BACKEND_ORIGIN) throw Error("Unexpected Codex backend origin");
+        const response = await (deps.fetchImpl ?? fetch)(input, {
+          ...init,
+          signal: combineSignals(init?.signal ?? undefined, toolSignal),
+        });
+        assertCurrent();
+        return response;
       };
       toolSignal?.throwIfAborted();
       assertCurrent();
@@ -413,9 +392,80 @@ function createTool(deps: SearchExtensionDependencies = {}) {
       if (reasoningEffort !== undefined) result.submittedReasoningEffort = reasoningEffort;
       toolSignal?.throwIfAborted();
       assertCurrent();
+      let invalid = 0;
+      const receipts = [...result.successes, ...result.failures].map((entry) => {
+        const receipt = entry.usage;
+        if (
+          receipt &&
+          (Object.values(receipt).some(
+            (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0),
+          ) ||
+            (receipt.cacheReadTokens ?? 0) > (receipt.inputTokens ?? 0) ||
+            (receipt.reasoningTokens ?? 0) > (receipt.outputTokens ?? 0))
+        ) {
+          invalid++;
+          return undefined;
+        }
+        return receipt;
+      });
+      const missing = receipts.filter((receipt) => receipt === undefined).length - invalid;
+      const partial = receipts.filter(
+        (receipt) =>
+          receipt && (receipt.inputTokens === undefined || receipt.outputTokens === undefined),
+      ).length;
+      const warnings: string[] = [];
+      if (invalid)
+        warnings.push(`${invalid} search receipt(s) have invalid token counts and were omitted.`);
+      if (missing) warnings.push(`${missing} search request(s) have no provider usage receipt.`);
+      if (partial) warnings.push(`${partial} search receipt(s) have incomplete token counts.`);
+      let usage: Usage | undefined;
+      const pricedModel = receipts.some(
+        (receipt) => receipt?.inputTokens !== undefined || receipt?.outputTokens !== undefined,
+      )
+        ? ctx.modelRegistry.find(PROVIDER, model)
+        : undefined;
+      for (const receipt of receipts) {
+        if (!receipt || (receipt.inputTokens === undefined && receipt.outputTokens === undefined))
+          continue;
+        usage ??= {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        };
+        const cached = receipt.cacheReadTokens ?? 0;
+        usage.input += (receipt.inputTokens ?? 0) - cached;
+        usage.cacheRead += cached;
+        usage.output += receipt.outputTokens ?? 0;
+        if (receipt.reasoningTokens !== undefined)
+          usage.reasoning = (usage.reasoning ?? 0) + receipt.reasoningTokens;
+        if (pricedModel) {
+          const cost = calculateCost(pricedModel, {
+            input: (receipt.inputTokens ?? 0) - cached,
+            output: receipt.outputTokens ?? 0,
+            cacheRead: cached,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          });
+          for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const)
+            usage.cost[key] += cost[key];
+        }
+      }
+      if (usage) {
+        usage.totalTokens = usage.input + usage.cacheRead + usage.output;
+        if (!pricedModel)
+          warnings.push(`No catalogue price for ${PROVIDER}/${model}; search cost is unknown.`);
+      }
+      const warningText = warnings.length
+        ? `\n\nUsage warning: ${warnings.join(" ")} Totals are a known lower bound.`
+        : "";
       return {
-        content: [{ type: "text" as const, text: formatResult(result) }],
-        details: result,
+        content: [{ type: "text" as const, text: formatResult(result) + warningText }],
+        ...(usage ? { usage } : {}),
+        details: { ...result, ...(warnings.length ? { piUsageWarnings: warnings } : {}) },
         structuredContent: result as never,
         ...(result.successes.length === 0 ? { isError: true } : {}),
       };
@@ -427,73 +477,7 @@ export function registerCodexSearch(
   pi: ExtensionAPI,
   deps: SearchExtensionDependencies = {},
 ): void {
-  const tool = createTool(deps);
-  const unwrappedExecute = tool.execute;
-  tool.execute = async (...args: Parameters<typeof unwrappedExecute>) => {
-    const services: unknown[] = [];
-    pi.events.emit(SECURITY_EVENT, {
-      version: 1,
-      respond: (service: unknown) => services.push(service),
-    });
-    const service = services[0] as Partial<SearchSecurityService> | undefined;
-    let selected = process.env.PI_SECURITY_TRANSPORT === "extensions";
-    pi.events.emit(SECURITY_PRESENCE, {
-      respond: (active: boolean) => {
-        selected ||= active;
-      },
-    });
-    if (deps.security === "off" && (selected || services.length))
-      throw Error("Disable pi-security before selecting unrestricted search");
-    if (!selected && services.length === 0 && deps.security !== "required") {
-      const signal = combineSignals(args[2], args[4].signal) ?? new AbortController().signal;
-      const unrestricted: SearchCapability = {
-        origin: BACKEND_ORIGIN,
-        signal,
-        assertCurrent() {
-          signal.throwIfAborted();
-        },
-        async dispatch(_input, url, operation) {
-          signal.throwIfAborted();
-          if (new URL(url).origin !== BACKEND_ORIGIN)
-            throw Error("Unexpected Codex backend origin");
-          const result = await operation(signal);
-          signal.throwIfAborted();
-          return result;
-        },
-        release() {},
-      };
-      return unwrappedExecute(args[0], args[1], args[2], args[3], args[4], unrestricted);
-    }
-    if (
-      services.length !== 1 ||
-      service?.version !== 1 ||
-      typeof service.prepareSearch !== "function"
-    ) {
-      throw new Error(
-        "Codex search requires exactly one active pi-security service; search is refused.",
-      );
-    }
-    const capability = service.prepareSearch({
-      toolCallId: args[0],
-      input: args[1],
-      signal: combineSignals(args[2], args[4].signal),
-    });
-    try {
-      if (
-        !capability ||
-        capability.origin !== BACKEND_ORIGIN ||
-        !(capability.signal instanceof AbortSignal) ||
-        typeof capability.assertCurrent !== "function" ||
-        typeof capability.dispatch !== "function" ||
-        typeof capability.release !== "function"
-      )
-        throw new Error("Invalid pi-security search capability; search is refused.");
-      return await unwrappedExecute(args[0], args[1], args[2], args[3], args[4], capability);
-    } finally {
-      capability?.release?.();
-    }
-  };
-  pi.registerTool(tool);
+  pi.registerTool(createTool(deps));
 }
 
 export function createCodexSearchExtension(deps: SearchExtensionDependencies = {}) {

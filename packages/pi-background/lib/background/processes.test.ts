@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  BackgroundProcesses,
+  type LaunchSpec,
+  OutputBuffer,
+  outputPreview,
+} from "pi-runtime/processes";
 import { MAX_NODE_TIMER_DELAY_MS } from "pi-runtime/timers";
-import { OutputBuffer } from "./output-buffer.ts";
-import { BackgroundProcesses, outputPreview, type LaunchSpec } from "./processes.ts";
 
 const spec = (script: string, extras: Partial<LaunchSpec> = {}): LaunchSpec => ({
   command: process.execPath,
@@ -10,7 +14,6 @@ const spec = (script: string, extras: Partial<LaunchSpec> = {}): LaunchSpec => (
   cwd: process.cwd(),
   owner: "fixture",
   label: "fixture",
-  mode: "sandbox",
   ...extras,
 });
 const wait = async (fn: () => boolean) => {

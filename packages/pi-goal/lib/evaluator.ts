@@ -75,12 +75,6 @@ const CURRENT_EVALUATION_LIMITS: EvaluationLimits = {
   reason: MAX_EVALUATION_REASON_CHARS,
   blockerKey: MAX_EVALUATION_BLOCKER_KEY_CHARS,
 };
-const PERSISTED_V1_EVALUATION_LIMITS: EvaluationLimits = {
-  evidence: 1200,
-  reason: 240,
-  blockerKey: 160,
-};
-
 function validateEvaluationWithLimits(
   value: unknown,
   goal: Pick<GoalState, "criteria">,
@@ -135,14 +129,6 @@ export function validateEvaluation(
   goal: Pick<GoalState, "criteria">,
 ): GoalEvaluation {
   return validateEvaluationWithLimits(value, goal, CURRENT_EVALUATION_LIMITS);
-}
-
-/** Read previously persisted v1 assessments without weakening validation for new model output. */
-export function validatePersistedEvaluation(
-  value: unknown,
-  goal: Pick<GoalState, "criteria">,
-): GoalEvaluation {
-  return validateEvaluationWithLimits(value, goal, PERSISTED_V1_EVALUATION_LIMITS);
 }
 
 export function evaluationFromResponse(
@@ -372,7 +358,7 @@ export function buildEvaluatorInput(
     }
     if (record.kind === "result") {
       messages.push(record.message, record.acknowledgement);
-      previous = validatePersistedEvaluation(record.evaluation, goal);
+      previous = validateEvaluation(record.evaluation, goal);
     }
   }
   const previousResult = records.find(

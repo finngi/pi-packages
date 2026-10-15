@@ -151,3 +151,46 @@ test("combined session totals count child, classifiers and evaluator exactly onc
   assert.match(resumed.notices.at(-1)!, /incomplete \(1\)/);
   assert.equal(resumed.statuses.get("pi-usage"), undefined);
 });
+
+test("native tool receipt warnings survive nested calls and replay without duplicating usage", async () => {
+  const f = fixture();
+  const warnings = [
+    "1 search request(s) have no provider usage receipt.",
+    "Search cost is unknown.",
+  ];
+  assert.equal(
+    f.handlers.get("tool_result")!({
+      toolCallId: "script/1/1",
+      parentToolCallId: "script/1",
+      details: { piUsageWarnings: warnings },
+      usage: { ...emptyUsage(), input: 12, totalTokens: 12 },
+    }),
+    undefined,
+  );
+  assert.equal(
+    f.handlers.get("tool_result")!({ toolCallId: "script/1", parentToolCallId: "script" }),
+    undefined,
+  );
+  const outer = f.handlers.get("tool_result")!({
+    toolCallId: "script",
+    details: { output: "done" },
+  });
+  assert.deepEqual(outer.details.piUsageWarnings, warnings);
+  assert.equal(outer.usage, undefined, "stock Pi aggregates nested native usage");
+  assert.equal(f.handlers.get("tool_result")!({ toolCallId: "script" }), undefined);
+  f.ctx.sessionManager.appendMessage({
+    role: "toolResult",
+    toolCallId: "script",
+    toolName: "codemode",
+    content: [],
+    isError: false,
+    timestamp: 0,
+    details: outer.details,
+    usage: { ...emptyUsage(), input: 12, totalTokens: 12 },
+  });
+  for (const active of [f, fixture(f.ctx.sessionManager)]) {
+    await active.commands.get("costs").handler("", active.ctx);
+    assert.match(active.notices.at(-1)!, /Session total: 12 tokens/);
+    for (const warning of warnings) assert.ok(active.notices.at(-1)!.includes(warning));
+  }
+});

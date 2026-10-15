@@ -32,6 +32,14 @@
     ".": {
       "types": "./dist/extensions/subagent.d.ts",
       "default": "./dist/extensions/subagent.js"
+    },
+    "./child-rpc": {
+      "types": "./lib/subagent/child-rpc.ts",
+      "default": "./lib/subagent/child-rpc.ts"
+    },
+    "./child-resources": {
+      "types": "./lib/subagent/child-resources.ts",
+      "default": "./lib/subagent/child-resources.ts"
     }
   },
   "publishConfig": {
@@ -41,7 +49,7 @@
     "pi-contracts": "0.1.0",
     "pi-runtime": "0.1.0",
     "pi-resource-browser": "0.1.0",
-    "proper-lockfile": "4.1.2"
+    "pi-resources": "0.1.0"
   },
   "license": "MIT",
   "repository": {

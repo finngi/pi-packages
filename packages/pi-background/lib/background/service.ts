@@ -1,6 +1,8 @@
+import type { BackgroundService, LaunchSpec } from "pi-contracts";
 import { BACKGROUND_SERVICE } from "pi-contracts";
-import type { BackgroundService, LaunchSpec, ProcessSnapshot as Snapshot } from "pi-contracts";
+
 export type { BackgroundService } from "pi-contracts";
+
 interface Events {
   emit(name: string, value: unknown): void;
 }
@@ -25,12 +27,4 @@ export function launchBackground(
   options?: { notify?: boolean; notifyIfCurrent?: () => boolean },
 ) {
   return backgroundService(events).launch(spec, options);
-}
-
-/** Optional host policy adapter; the transport itself knows no permission modes or sandbox configuration. */
-export interface BackgroundPolicyUpdate {
-  admit(spec: LaunchSpec): void;
-  cancel(snapshot: Snapshot): boolean;
-  reason: string;
-  pending?: Promise<void>[];
 }

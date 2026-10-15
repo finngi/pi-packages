@@ -13,12 +13,14 @@ resources and the loaded skill pool. This preserves both package filters and CLI
 
 Agent definitions/private bundles and selected eager instruction snippets remain custom because
 Pi has no native resource types with those semantics. The cost is a small contained directory
-reader for those two fields. Revisit it if stock Pi adds equivalent resource types. Remote
-agent/instruction-only packages need a native resolved resource; local packages can be custom-only.
-Stock Pi 1.2 also exposes `-e` skill paths as CLI resources without their package roots. Those
-skills remain individually selectable; custom agents/instructions and package grouping require
-configured native sources. Revisit this when Pi exposes complete resolved package metadata.
-These limits avoid inventing a second identity resolver or reviving stale installations.
+reader for those two fields. Revisit it if stock Pi adds equivalent resource types.
+Configured packages and explicit `-e` sources can contain only agents/instructions. For CLI sources,
+Pi's exported argument parser supplies the requested sources and its installed-path lookup supplies
+already-resolved temporary roots. No cache paths, hashes or source identities are reconstructed.
+Only actual loaded skills are grouped; native exclusions stay authoritative. Explicit CLI copies
+take precedence over configured copies with the same package name. Discovery never installs code
+or changes package settings. Pi 1.2's implementation accepts the temporary lookup scope although
+its exported TypeScript declaration omits it; the call is covered by stock-Pi checks.
 
 ## Discover packages through Pi
 
@@ -31,8 +33,8 @@ not search arbitrary directories or install missing packages.
 
 The resource browser lists packages that contribute available skills, agents or instructions.
 An extension-only package still loads through Pi, but has no guidance to select in that browser.
-Temporary `pi -e SOURCE` resources use Pi's native loader; the package-root metadata limitation
-above still applies to grouping their custom resources.
+Temporary `pi -e SOURCE` resources use Pi's native loader and are grouped from those explicit
+sources, without requiring a project registration or another profile.
 
 ## Use the native package shape
 
@@ -82,8 +84,14 @@ must present its guidance members separately from executable loading and permiss
 `session_setup` is parent-only. Its `packages` array selects the public resources of packages
 already loaded into that process. It stores a selection in the session history, not project
 settings. Tools are selected independently through Pi's active-tool API; permission policy is
-unchanged. Existing children retain their prepared resources; future children use the selected
-public resources plus their own private bundle, narrowed by their agent definition.
+unchanged. Existing children retain their prepared resources; future children resolve saved personal/project guidance plus their private bundle, narrowed
+by their agent definition. Temporary parent guidance selections do not carry over.
+
+The independent `pi-resources` extension owns `/packages` and `/skills`, using the existing
+searchable resource browser. Delegation owns `/agents`; context owns `/instructions`.
+They contribute to the shared setup service without activating one another. Shared discovery, persistence and session selection live in explicit `pi-resources` library
+subpaths. Those modules never import its extension entrypoint. Native Pi still owns installation,
+executable loading and reload.
 
 The `/packages` picker uses the existing searchable resource browser. Enter/Space toggles the
 highlighted package's available public skills, agents and instructions for this session; unrelated
@@ -92,12 +100,12 @@ are selected. Changes use the same session-history override as `session_setup` a
 The model tool's `packages` apply operation instead replaces those three categories with the
 requested packages and same-call explicit choices.
 
-Ctrl+S explicitly saves the current effective skill, agent and instruction selections as project
+Ctrl+S explicitly saves the current effective selections from loaded resource providers as project
 defaults in trusted `.pi/settings.json`. It saves concrete resource IDs, including individual
-choices, rather than a package name that could silently select future new members. Native package
+choices as explicit On/Off entries, rather than a package name that could silently select future new members. Native package
 registrations, tools and permission settings are preserved. Existing session overrides still take
 precedence; reset one to use saved defaults. The picker does not reload code or change already
-launched children. Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only members. Saved project lists still take precedence.
+launched children. Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only members. Explicit project choices still take precedence; inherited choices follow personal defaults.
 
 | Change | Mechanism | When it takes effect |
 |---|---|---|
@@ -107,24 +115,19 @@ launched children. Ctrl+Shift+S saves personal defaults for new sessions across 
 | Try another native package for one invocation | `pi -e SOURCE` | New invocation; no saved package declaration |
 | Install/remove a saved native package | `pi install SOURCE` / `pi remove SOURCE`; choose scope with `--local` | Next start or idle `/reload` |
 | Change ordinary extension code | Native idle `/reload`, where cleanup is safe | Replaces the extension runtime |
-| Replace secured runtime code or affect running children | Stage a tested runtime; exit prior processes before activation | Restart/resume |
+| Replace runtime code while children run | Stage a tested runtime; exit prior processes before activation | Restart/resume |
 
 We do not install or unload executable packages inside a model tool call. Native reload shuts down
 extensions and invalidates their contexts, including the tool performing setup. It can also stop
 owned children. A missing package response names the native loading action instead of changing
 settings, restarting work or constructing a parallel dynamic loader.
 
-## Package security and dependencies normally
+## Dependencies
 
-Security, background processes and delegation remain native extension packages. Shared libraries
+Permissions, background processes and delegation are native extension packages. Shared libraries
 are ordinary npm dependencies and importing one does not activate a sibling extension. Stock Pi
 libraries remain peer dependencies (`*`); the repository pins the tested development versions.
 Policy, credentials and personal preferences stay outside package manifests.
-
-For the secured launcher, retain a tested immutable dependency set and stage updates together.
-Pi gives packages separate module roots and does not guarantee one shared dependency instance.
-Native packaging therefore does not replace ownership checks, capability bindings or controlled
-runtime activation. Independent user packages and their native filters survive runtime upgrades.
 
 Source of truth: the pinned stock Pi [package guide](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md),
 [extension lifecycle](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md),
@@ -142,3 +145,14 @@ content deliberately; the extensions do not infer reusable content or cross-reso
 The isolated TUI preview implements this interaction. The production planner and persistence still
 flatten packages into member selections as described above; updating those mechanisms and their
 resume/default tests is required before activating this policy in the harness.
+
+## Keep implementation with its owner
+
+Child bootstrap, bundle preparation and artifact retention belong to delegation. Resource
+discovery and selection belong to resources, exposed as library subpaths for context and
+delegation. Processes, accounting, IDs, timers and provider-transfer logic remain shared because
+multiple independent capabilities use them. Do not turn `pi-runtime` back into a general import
+barrel for unrelated features. Browser/search components remain a separate shared UI library.
+
+This keeps existing accounting/usage interfaces stable while removing the transitive browser
+dependency from jobs, goals and permissions. No new package, registry or runtime mode is needed.

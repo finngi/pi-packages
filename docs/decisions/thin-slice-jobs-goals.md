@@ -1,6 +1,6 @@
 # Keep jobs and goals independently usable on stock Pi
 
-Status: accepted for this refactor. No installed runtime or running session is changed by this source work.
+Status: implemented with independent native packages.
 
 ## Decision
 
@@ -14,11 +14,10 @@ Use explicit shared-library subpath imports for timers, identifiers and accounti
 
 The pure subprocess manager is shared library code. Other packages may reuse it without loading the `pi-background` extension. That prevents a child agent from requiring a background extension merely to start its own process.
 
-## Security boundary
+## Execution
 
-With no security selected, host permissions are normal. `pi-background` neither invents authorization nor restricts commands. If the existing secured transport was explicitly selected but its provider is absent, it continues to refuse execution. Absence of an optional integration is different from an explicitly requested integration failing.
-
-The older secured transport adapters are retained for callers already using them; the new thin permission extension can observe native tool calls without requiring this transport. These adapters are not a dependency of plain job/goal operation.
+Commands use ordinary host permissions, optionally reviewed by `pi-permissions` before execution.
+The old secured transport adapters are removed. Jobs and goals do not depend on a gate or sandbox.
 
 ## Evidence
 

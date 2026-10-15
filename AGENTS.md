@@ -13,8 +13,8 @@ choices. These packages are experimental and unreleased.
   not activate another extension, start a process or change permissions.
 - Keep model context deliberate and inspectable. Load skill bodies on demand; preserve project
   context and recorded session data. Reuse Pi's resource loading, sessions and accounting.
-- Make effects, failures, cancellation and persistence understandable. If selected security
-  cannot enforce a request, fail clearly; absent security means ordinary host permissions.
+- Make effects, failures, cancellation and persistence understandable. An optional permission gate
+  reviews calls; commands otherwise use ordinary host permissions.
 - Keep personal policies, credentials and presentation preferences outside reusable packages.
   Resolve package resources from their package root, not a particular checkout or home directory.
 - Verify observable behaviour on stock Pi. Test installed packages when distribution changes;
@@ -33,7 +33,7 @@ change and [package-review](.pi/skills/package-review/SKILL.md) when reviewing o
 project skills; they are contributor guidance, not resources shipped by the packages.
 
 Run affected workspace tests and `npm run check`. See [testing](docs/testing.md) for stock-Pi,
-kernel and packed-consumer checks. `npm run check:docs` checks links;
+subprocess and packed-consumer checks. `npm run check:docs` checks links;
 `npm run check:boundary` checks public source boundaries.
 
 Review the diff and stage specific files, preserving unrelated work. Source updates and staged

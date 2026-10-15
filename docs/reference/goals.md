@@ -12,7 +12,7 @@ Here, the host is Pi's user interface or trusted code embedding Pi. A goal scope
 | Main coding model | `create_goal({objective, criteria?, budget?, deadline?})` | Pi asks the user to confirm the exact objective, criteria, budget, and deadline, or trusted embedding code supplies matching preauthorization. A scope change before persistence revokes it. |
 | Trusted embedding code | Emit `goal:create_authorization` | Supplies one-use authorization for the exact objective, optional criteria, budget, and deadline expression. |
 
-Goal authorization belongs to `pi-goal`, whether or not `pi-security` is loaded. When security is loaded, its tool-policy approval is an additional requirement for the model tool effect; it does not replace goal authorization. See the [authorization checks](../../packages/pi-goal/lib/authorization.test.ts).
+Goal authorization belongs to `pi-goal`. If the optional permission gate is loaded, its call review is an additional requirement; it does not replace goal authorization. See the [authorization checks](../../packages/pi-goal/lib/authorization.test.ts).
 
 The exact lower-case first words `start`, `edit`, `pause`, `resume`, `clear`, and `status` are controls. Other first words begin the shorthand objective. Explicit `/goal start` or `/goal edit` consumes the command and one separator, then preserves the rest as objective text; control commands reject extra arguments. Use `/goal start <objective>` when the objective begins with a reserved word. See the [command parser](../../packages/pi-goal/lib/command.ts).
 

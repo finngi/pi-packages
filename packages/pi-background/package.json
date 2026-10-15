@@ -17,8 +17,8 @@
   },
   "scripts": {
     "test": "node --test 'lib/**/*.test.ts' 'extensions/*.test.ts'",
-    "test:e2e": "node stock-check.mjs",
-    "test:standalone": "node stock-check.mjs --standalone",
+    "test:e2e": "node --test extensions/host-background-stock.test.ts",
+    "test:standalone": "node --test extensions/host-background-stock.test.ts",
     "typecheck": "tsc -p tsconfig.json",
     "build": "node ../../scripts/build.mjs --package pi-background"
   },

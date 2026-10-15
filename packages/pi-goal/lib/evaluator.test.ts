@@ -11,7 +11,6 @@ import {
   evaluatorContextFits,
   type GoalEvaluation,
   persistEvaluation,
-  validatePersistedEvaluation,
   validateEvaluation,
 } from "./evaluator.ts";
 import { reduceGoal } from "./goal.ts";
@@ -292,7 +291,7 @@ test("evaluator replay preserves the entire prior prefix and appends only fresh 
   );
 });
 
-test("replaying an existing v1 assessment honors its original field limits", () => {
+test("stored assessments use the same bounds as current model output", () => {
   const state = goal();
   const legacy = {
     verdict: "blocked" as const,
@@ -305,7 +304,6 @@ test("replaying an existing v1 assessment honors its original field limits", () 
     })),
   };
   const storedResponse = response(legacy);
-  assert.equal(validatePersistedEvaluation(legacy, state).requirements[0].evidence.length, 1200);
   assert.throws(() => evaluationFromResponse(storedResponse, state), /invalid verdict/);
   const branch: any[] = [
     { id: "goal-entry", type: "custom", customType: "pi-goal.state", data: { state } },
@@ -354,10 +352,7 @@ test("replaying an existing v1 assessment honors its original field limits", () 
   ];
   const pi = { appendEntry() {} };
   const ctx = { sessionManager: { getBranch: () => branch } } as unknown as ExtensionContext;
-  const next = buildEvaluatorInput(pi, ctx, state, model, "new-cycle");
-  assert.equal(next.previous?.reason.length, 240);
-  assert.equal(next.previous?.requirements[0].evidence.length, 1200);
-  assert.match(String(next.context.messages.at(-1)?.content), /New work/);
+  assert.throws(() => buildEvaluatorInput(pi, ctx, state, model, "new-cycle"), /invalid verdict/);
 });
 
 test("evaluator capacity uses stock token estimates instead of UTF8 bytes", () => {

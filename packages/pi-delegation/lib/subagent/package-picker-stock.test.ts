@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,7 +31,7 @@ test(
     };
     const global = JSON.stringify({
         packages: [pack],
-        subagents: { skills: ["standalone"], agents: [] },
+        subagents: { skills: { standalone: true, "check-evidence": false }, agents: {} },
       }),
       local = JSON.stringify({ keep: "untouched" });
     await put(join(agentDir, "settings.json"), global);
@@ -155,6 +156,7 @@ test(
             path: "fixture:picker",
             factory(pi) {
               subagents(pi);
+              resources(pi);
               context(pi);
             },
           },
@@ -248,9 +250,9 @@ test(
       await session.prompt("/packages");
       const saved = JSON.parse(await readFile(join(cwd, ".pi/settings.json"), "utf8"));
       assert.equal(saved.keep, "untouched");
-      assert.deepEqual(saved.subagents.skills, ["standalone", "check-evidence"]);
-      assert.deepEqual(saved.subagents.agents, ["verifier"]);
-      assert.equal(saved.localContext.instructions.length, 1);
+      assert.deepEqual(saved.subagents.skills, { standalone: true, "check-evidence": true });
+      assert.deepEqual(saved.subagents.agents, { verifier: true });
+      assert.equal(Object.keys(saved.localContext.instructions).length, 1);
       assert.equal(
         saved.skills,
         undefined,
@@ -329,7 +331,7 @@ test(
       };
       await session.prompt("/packages");
       let personal = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-      assert.deepEqual(personal.subagents.agents, ["verifier"]);
+      assert.deepEqual(personal.subagents.agents, { verifier: true });
       assert.deepEqual(personal.packages, [pack]);
       assert.equal(await readFile(join(initialCwd, ".pi/settings.json"), "utf8"), savedProject);
       await close();
@@ -349,8 +351,8 @@ test(
       };
       await session.prompt("/packages");
       personal = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-      assert.deepEqual(personal.subagents.agents, []);
-      assert.deepEqual(personal.localContext.instructions, []);
+      assert.deepEqual(personal.subagents.agents, { verifier: false });
+      assert.deepEqual(Object.values(personal.localContext.instructions), [false]);
       await close();
       cwd = initialCwd;
       await open(sdk.SessionManager.create(cwd, join(agentDir, "sessions")));
@@ -404,7 +406,7 @@ test(
       };
       await session.prompt("/instructions");
       personal = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-      assert.deepEqual(personal.localContext.instructions, []);
+      assert.deepEqual(Object.values(personal.localContext.instructions), [false]);
       action = async (browser) => {
         browser.handleInput("/");
         browser.handleInput("project-only");
@@ -413,9 +415,9 @@ test(
       };
       await session.prompt("/packages");
       personal = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-      assert(!personal.subagents.agents.includes("project-reviewer"));
-      assert(!personal.subagents.skills.includes("project-check"));
-      assert.deepEqual(personal.localContext.instructions, []);
+      assert(!Object.hasOwn(personal.subagents.agents, "project-reviewer"));
+      assert(!Object.hasOwn(personal.subagents.skills, "project-check"));
+      assert.deepEqual(Object.values(personal.localContext.instructions), [false]);
       assert.deepEqual(personal.packages, [pack]);
       // The real command producers expose the preview controls with native persistence.
       await close();
@@ -424,8 +426,8 @@ test(
         join(cwd, ".pi/settings.json"),
         JSON.stringify({
           keep: "untouched",
-          subagents: { agents: [], skills: [] },
-          localContext: { instructions: [] },
+          subagents: { agents: {}, skills: {} },
+          localContext: { instructions: {} },
         }),
       );
       await open(sdk.SessionManager.create(cwd, join(agentDir, "sessions")));
@@ -438,7 +440,7 @@ test(
           browser.handleInput("/");
           browser.handleInput(query);
           browser.handleInput("\x1b[A");
-          await browser.toggleScope("project");
+          await browser.setScopeState("project", "on");
           const text = browser.render(120).map(stripTerminalSequences).join("\n");
           assert.match(text, /Session: ON /);
           assert.match(text, /Project: ON /);
@@ -454,10 +456,27 @@ test(
           browser.handleInput("/");
           browser.handleInput(query);
           browser.handleInput("\x1b[A");
-          await browser.toggleScope("project");
+          await browser.setScopeState("project", "off");
           assert.match(
             browser.render(120).map(stripTerminalSequences).join("\n"),
             /Session: ON .*Project: OFF/,
+          );
+        };
+        await session.prompt(`/${command}`);
+      }
+      for (const [command, query] of [
+        ["agents", "verifier"],
+        ["skills", "standalone"],
+        ["instructions", "evidence"],
+      ]) {
+        action = async (browser) => {
+          browser.handleInput("/");
+          browser.handleInput(query);
+          browser.handleInput("\x1b[A");
+          await browser.setScopeState("project", "inherit");
+          assert.match(
+            browser.render(120).map(stripTerminalSequences).join("\n"),
+            /Session: ON .*Project: INHERIT/,
           );
         };
         await session.prompt(`/${command}`);
@@ -469,9 +488,9 @@ test(
       assert.match(prompts.at(-1)!, /STANDALONE_DESCRIPTION/);
       assert.match(prompts.at(-1)!, /INSTRUCTION_BODY/);
       const savedPerItem = JSON.parse(await readFile(join(cwd, ".pi/settings.json"), "utf8"));
-      assert.deepEqual(savedPerItem.subagents.agents, []);
-      assert.deepEqual(savedPerItem.subagents.skills, []);
-      assert.equal(savedPerItem.localContext.instructions.length, 0);
+      assert.deepEqual(savedPerItem.subagents?.agents, undefined);
+      assert.deepEqual(savedPerItem.subagents?.skills, undefined);
+      assert.equal(savedPerItem.localContext?.instructions, undefined);
       assert.equal(savedPerItem.keep, "untouched");
       const out = process.env.PI_PICKER_CAPTURE;
       if (out) await writeFile(out, JSON.stringify(captures, null, 2));

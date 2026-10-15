@@ -1,7 +1,7 @@
 # pi-resource-browser
 
-A searchable resource picker built with Pi's TUI components. `pi-delegation` uses it for agents, skills and
-package guidance; `pi-context` uses it for instruction snippets. The host extension supplies entries,
+A searchable resource picker built with Pi's TUI components. `pi-delegation` uses it for agents,
+`pi-resources` for skills and package guidance, and `pi-context` for instruction snippets. The host extension supplies entries,
 previews and persistence callbacks. The library registers no tools or event handlers on import.
 
 `showResourceBrowser(context, options)` mounts the picker in Pi's editor slot. `ResourceBrowser`
@@ -25,16 +25,16 @@ or use h/l (Left/Right) to enter the preview and move through its tabs. j/k (Up/
 Toggling an item off changes only the current session until another explicit default save.
 
 Hosts can return `ResourcePreview` with `fields`, `body` and `source` instead of mixing
-metadata into instruction prose. `defaultsInherited` distinguishes an absent project override from
-an explicit saved list; a successful project save clears that flag. String previews remain supported.
+metadata into instruction prose. Explicit `projectState`/`globalState` values describe saved Inherit / On / Off choices;
+`defaultSelected`/`globalDefaultSelected` supply their resolved values and colours.
+`defaultsInherited` is only a fallback for hosts without explicit per-resource states. String previews remain supported.
 
 The preview exposes `searchFocused` so a composing screen can reserve number shortcuts outside search.
-Hosts may supply `globalDefaultSelected` and `setDefault(entry, selected, scope)` for per-resource
+Hosts may supply `globalDefaultSelected` and `setDefault(entry, state, scope)` for per-resource
 Project/Global controls. This callback must change only that saved item using the host's existing
 persistence mechanism, preserving unrelated defaults. Turning a project default on also calls
 the session toggle to enable the same item now; turning it off leaves the current session choice
-unchanged. Global changes apply to future defaults without changing the session. Missing callbacks or unknown
-saved state render as read-only; the browser never invents global state from session selections.
+unchanged. Global changes apply to future defaults without changing the session. Unavailable saved controls show their reason in Overview and on keyboard or mouse use; the browser never invents global state from session selections.
 The standalone preview supplies in-memory callbacks; production hosts retain their existing bulk saves.
 
 Composing hosts can provide `categories`, `activeCategory` and `selectCategory` to put numbered,

@@ -1,21 +1,24 @@
 # pi-background
 
-Session-owned subprocess transport for Pi. It owns process lifetime, bounded output, byte cursors, trusted protocol stdin, cancellation, and completion delivery. It has no mandatory security dependency and does not approve model commands.
+Managed Bash jobs for stock Pi. Load this native package independently; it requires neither
+delegation, goals nor a custom launcher. Commands use ordinary host permissions. An optional
+before-tool gate can review them without changing the process transport.
 
-Install this native Pi package on its own. It requires neither `pi-goal` nor `pi-delegation` nor a custom launcher. Shared process utilities are ordinary imported code; importing them does not load the background extension or register tools. The exit handler is installed only when a Pi session starts, and session shutdown closes its jobs. Process handles do not survive reopening a session.
+`bash` retains Pi's SDK schema/result format and adds `background: true`. That option returns a
+managed job ID immediately. `background_process` lists, reads, inspects and cancels this session's
+jobs. `/jobs` provides human controls; `/background` or a steering message yields a foreground
+wait while its command continues. Explicit cancellation stops the process.
 
-The manager provides separate capacity for shell commands (four by default) and subagents (sixteen by default), so delegation leaves room for parent shell work.
+The shared process library bounds retained output and separates shell capacity (four by default)
+from child-agent capacity (sixteen). Delegation can share the manager or use the library alone.
+Children inherit selected Bash/background tools and own their jobs; they cannot inspect sibling
+jobs. Shutdown stops jobs, and stale handles cannot affect a replacement session. Jobs are not
+resurrected on resume. POSIX process groups clean up ordinary descendants; deliberate daemon
+escapes are not contained.
 
-The model's `background_process` tool lists, inspects, reads, or cancels session jobs. `/jobs list`, `/jobs read ID [CURSOR]`, and `/jobs cancel ID` provide the same controls in the UI. `/background` yields a foreground shell or goal wait so the conversation can continue while the work remains active.
+Run `npm test --workspace=pi-background` for process and lifecycle tests. `npm run test:standalone
+--workspace=pi-background` starts stock Pi with this package, launches/read/cancels jobs, and checks
+shutdown cleanup. No provider request or active installation change is involved.
 
-When security is off, pi-background overrides Pi's stock `bash` tool with the same SDK schema backed by the session process manager and ordinary host Bash access. In this mode, pi-background manages process lifetime; it does not authorize commands or constrain host access. With security enabled, pi-security owns the `bash` tool and authorization. Its default `internal` transport manages secured processes without pi-background. When `PI_SECURITY_TRANSPORT=extensions` selects the extension transport, pi-security launches secured commands through the session manager using a prepared one-use capability. The security lease remains held until the managed job completes or is cancelled, times out, or the session shuts down. On POSIX, process groups clean up ordinary descendants; on Windows, cancellation stops only the direct child. Deliberate daemon/session escapes remain a limitation.
-
-- [Background tool and limits](../../docs/reference/tools.md#background-process-tool).
-- [Trusted background service](../../docs/reference/events.md#background-service).
-- [Launch configuration](../../docs/reference/configuration.md#security-selection-and-launch) and [architecture](../../docs/architecture.md).
-
-Source entrypoint: [extensions/background-process.ts](extensions/background-process.ts). From the repository root, run `npm run test --workspace=pi-background` and `npm run typecheck --workspace=pi-background`.
-
-`npm run test:standalone --workspace=pi-background` loads this extension alone through stock Pi, runs a real host command and background job, reads/cancels it, and checks that shutdown invalidates its handles. It uses a temporary test directory and does not change the installed runtime or running sessions. The full `test:e2e` additionally checks optional legacy security transports.
-
-See [provenance](PROVENANCE.md) for the extraction baseline and [testing](../../docs/testing.md) for integration checks.
+See [tools](../../docs/reference/tools.md#background-process-tool),
+[service](../../docs/reference/events.md#background-service) and [testing](../../docs/testing.md).

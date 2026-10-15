@@ -1,24 +1,28 @@
-# Configure a local profile
+# Personal configuration
 
-The packages supply mechanisms and minimal Pi-theme renderers. An installation supplies policy,
-model choices, agent bundles, skills and optional display overrides. The library does not own the
-user's credentials, personal directories or repository layout.
+Pi reads personal settings from `~/.pi/agent/settings.json` and trusted project settings from
+`.pi/settings.json`. Package sources can be local directories, Git or npm. Keep the existing
+agent directory when changing packages so native login, sessions and retained results remain.
 
-| Reusable package behavior | Local choice |
+| Reusable capability | Personal choice |
 |---|---|
-| Delegation, messaging, workspaces and retained results | Agent definitions, selected tools/skills and models |
-| Process lifecycle and output buffering | Commands and display preferences |
-| Policy validation, kernel execution and narrowed child authority | Hosts, directories, command rules, permission/classifier settings |
-| Goal criteria, evaluation, budgets and waiting | Evaluator provider/model and timeout |
-| Context discovery and metadata stripping | Personal and project instructions |
-| Theme-aware semantic labels | Compact layout, colors, spacing and cost presentation |
+| Delegation | Agent definitions, models, selected tools/skills |
+| Background jobs | Commands and display preferences |
+| Permissions | Whether loaded, mode (off/ask/auto), allow/deny rules, classifier model |
+| Goals | Evaluator model and timeout |
+| Context | Selected instructions and project overlays |
+| Presentation | Themes, layout, timestamps and footer |
 
-For goal evaluation, pass `--goal-evaluator-model provider/model` from trusted launch configuration.
-For security, set `PI_SECURITY_POLICY` to a reviewed local copy of the policy template. Configure
-trusted executable directories for the host installation. MCP servers and credentials use Pi's
-native configuration and authentication.
+`personal-interactive` contains terminal-only rendering and themes. `personal-extensions` contains
+context transformations usable in interactive, print and RPC sessions. These are ordinary private
+Pi packages, not special launcher modes. Use public renderer/header/footer APIs; do not patch
+Pi's private classes. Credential storage and MCP remain native Pi configuration.
 
-Use Pi's `registerToolRenderer` and message-renderer APIs for display overrides. Keep local UI code
-outside the shared packages; it must not replace effect tools or broaden permission checks. Choose
-an installation that explicitly admits those user-owned extensions. Presentation changes apply to
-new processes or a supported resource reload, not by mutating an active runtime installation.
+Configure goal evaluation in native settings:
+
+```json
+{"goal":{"evaluator":{"model":"provider/model","timeoutSec":30}}}
+```
+
+The optional [permission gate](../../packages/pi-permissions/README.md) uses a user-owned policy
+file. Without it, commands use ordinary host permissions. Package selection does not change that.
