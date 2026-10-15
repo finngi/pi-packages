@@ -21,7 +21,7 @@ an async preview. Enter or Space in the list toggles it.
 | `saveGlobalDefaults` | Called by Ctrl+Shift+S, also leaving out `globalDefaultable: false` entries |
 | `setDefault(entry, state, scope)` | Changes one Project or Global selection: `inherit`, `on` or `off` |
 | `setSession(entry, state)` | Changes one Session selection, including removing its override with `inherit` |
-| `setMode(entry, mode, scope)` | Changes only the selected scope's session type: `inherit`, `any` or `interactive` |
+| `setMode(entry, mode, scope)` | Changes only the Project or Global session type: `inherit`, `any` or `interactive` |
 | `globalDefaultSelected` | Resolved personal default for each entry |
 | `categories`, `activeCategory`, `selectCategory` | Numbered, clickable category tabs in the frame |
 
@@ -32,18 +32,19 @@ Each callback changes only the requested resource, scope and setting. A Project 
 selection does not overwrite a Session override, and setting a session type does not select the
 resource. The host refreshes each entry after saving; the browser does not compute inheritance.
 Enter/Space remains a quick explicit Session On/Off toggle. The s/p/g menus also offer Inherit to
-remove an override, plus Any session and Interactive only when the host supports session types.
-Interactive only means TUI sessions, excluding RPC and print mode.
+remove an override. The p/g menus add Any session, Interactive only and Type: Inherit when the host
+supports session types; Session has no type. Interactive only means TUI sessions, excluding RPC and
+print mode.
 
 If a control is unavailable, its reason appears in Overview and when you try it. The browser never
 makes up global state from session choices. Ctrl+S and Ctrl+Shift+S remain explicit bulk snapshots
-of the current selection into project and global defaults. A normal per-item edit never triggers
+of the current On/Off selection into project and global defaults; they do not write session types. A normal per-item edit never triggers
 one of those snapshots.
 
 Previews can be a string, or a `ResourcePreview` with `fields`, `body` and `source` so metadata
 stays out of the instruction text. `sessionState`, `projectState` and `globalState` expose explicit
 Inherit, On or Off choices. `selected` and `effectiveSource` expose the active result separately.
-`sessionMode`, `projectMode` and `globalMode` expose explicit session-type choices; `mode` and
+`projectMode` and `globalMode` expose explicit session-type choices; `mode` and
 `modeSource` expose the resolved type. `defaultSelected` and `globalDefaultSelected` are resolved
 saved values. Hosts that do not offer the new per-session callbacks can continue using boolean
 session toggles. The preview exposes `searchFocused` so a host can keep shortcuts out of search.

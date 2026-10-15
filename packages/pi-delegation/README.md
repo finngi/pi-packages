@@ -11,8 +11,9 @@ to search agents, see their details and turn them on or off for this session. Ct
 defaults; Ctrl+Shift+S saves personal defaults for new sessions. Project defaults win, even an empty
 selection. Resumed sessions keep explicit choices and refresh inherited defaults; `inherit` resets this session to saved defaults,
 and nothing reloads Pi or stops children. Agents from packages are off until selected.
-Each scope can also limit a resource to interactive TUI sessions. `/refresh` rereads defaults
-without closing children; new children exclude saved interactive-only skills and instructions.
+Project and Global can also limit a resource to interactive TUI sessions. New children exclude
+saved interactive-only skills and instructions, with a warning when an agent names one.
+`/agents enable NAME` and `disable NAME` change one agent for this session; others keep inheriting.
 
 ## What a child gets
 

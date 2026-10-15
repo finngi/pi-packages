@@ -36,8 +36,8 @@ selected package snippets.
 
 Saved choices are maps from snippet ID to `true` or `false`; a missing ID inherits from the next
 level. Explicit session choices come back on resume; inherited choices refresh from saved defaults.
-`/refresh` does the same without leaving the session or stopping children. In the picker, Ctrl+S
-saves project defaults and Ctrl+Shift+S saves personal defaults for new sessions.
+Editing a saved scope in the picker rereads defaults for this session. Ctrl+S saves project
+defaults and Ctrl+Shift+S saves personal defaults for new sessions.
 
 A selected snippet's text goes into the prompt in full. Skills are different: only their
 description is listed until the model reads them.
