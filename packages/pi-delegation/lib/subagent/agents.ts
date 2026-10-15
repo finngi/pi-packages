@@ -19,7 +19,7 @@ export interface AgentDef {
   thinking?: string;
   /** Native built-in or extension tool names; omitted inherits selected parent task tools. */
   tools?: string[];
-  /** Skills shown to the agent; undefined keeps every discovered skill, an empty list means none. */
+  /** Omitted or ["*"] uses saved scope skills plus the bundle; [] selects none. */
   skills?: string[];
   /** The default and ceiling for how much of the parent conversation a call may share. */
   context?: ContextSetting;
@@ -86,8 +86,10 @@ function names(value: unknown, key: string): string[] | undefined {
     return item.trim();
   });
   const kept = [...new Set(list.filter(Boolean))];
-  const bad = kept.find((n) => !NAME.test(n));
+  const bad = kept.find((n) => !NAME.test(n) && !(key === "skills" && n === "*"));
   if (bad) throw new Error(`${key}: "${bad}" is not a valid name`);
+  if (key === "skills" && kept.includes("*") && kept.length > 1)
+    throw new Error('skills: use "*" alone or list individual skill names');
   return kept;
 }
 

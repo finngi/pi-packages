@@ -9,16 +9,16 @@ import delegation from "../../extensions/subagent.ts";
 
 for (const scenario of [
   {
-    name: "delegation alone inherits native skills despite an old empty selection",
+    name: "delegation alone ignores a parent session empty selection",
     provider: false,
     explicitEmpty: false,
     expected: ["check"],
   },
   {
-    name: "a skills provider's explicit empty selection excludes inherited native skills",
+    name: "a skills provider's parent session empty selection does not remove saved child skills",
     provider: true,
     explicitEmpty: false,
-    expected: [],
+    expected: ["check"],
   },
   {
     name: "an explicit empty child skill list excludes native skills without a provider",

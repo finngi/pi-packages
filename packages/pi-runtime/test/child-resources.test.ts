@@ -395,6 +395,7 @@ test("selected instructions render once outside project context, including witho
       else assert.equal(projectContext, undefined);
       assert.ok(!projectContext?.includes(behavior));
       assert.match(prompt, /AGENT_BODY/);
+      assert.ok(prompt.indexOf(behavior) < prompt.indexOf("AGENT_BODY"));
     } finally {
       await rm(launch, { recursive: true, force: true });
     }

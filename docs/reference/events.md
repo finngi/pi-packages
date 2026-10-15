@@ -135,3 +135,12 @@ protocol. `PI_PROGRAM_STATUS=0` disables reports; `PI_PROGRAM_STATUS=1` forces t
 ## Human command intent
 
 `pi:human-input:v1` carries `{version: 1, sessionId, message}` from trusted extensions that submit a human slash command as a user message. Goal start, edit and resume send the authorized objective through this channel before dispatch. The optional permission gate uses it as classifier context and passes genuine intent to child review. It accepts only the current parent session; child messages and model tool inputs do not establish human intent.
+
+## Saved child instructions
+
+`pi-context:saved-instructions:v1` requests the saved personal/project instruction text for a
+new child. `pi-context` resolves its already-loaded instruction sources against saved settings;
+parent session overrides are not consulted. Delegation retains the static context file snapshot
+separately. No provider means no inherited selected-instruction section; it never falls back to
+the parent's rendered section. A provider error stops launch with a diagnostic. This in-process
+request is not a model tool or a new instruction-priority level.

@@ -34,7 +34,8 @@ See [delegation](guides/delegation.md) and [delivery](reference/events.md).
 
 Selected native tool extensions, including search and background jobs, can load in children.
 An explicit agent tool list narrows the parent's available set. Private bundle skills remain
-available without being selected for the parent. Native MCP connections are not transferred to
+available without being selected for the parent. Child guidance resolves saved personal/project
+choices plus the bundle; temporary parent guidance selections are not inherited. Native MCP connections are not transferred to
 children; parent MCP remains stock Pi's responsibility. Trusted executable extensions can register
 hooks as well as tools; a tool list does not isolate their initialization code.
 

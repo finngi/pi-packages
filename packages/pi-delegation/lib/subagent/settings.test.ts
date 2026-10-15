@@ -46,16 +46,15 @@ test("inherits and resolves explicit alias/pin with level while preserving empty
     "low",
   );
 });
-test("unavailable model, unselected skill and inactive tool refuse rather than silently inherit", () => {
+test("unavailable model and inactive tool refuse; missing skill warns and is omitted", () => {
   assert.throws(() => resolveSettings({ ...agent, model: "unavailable" }, parent), /unavailable/);
   assert.throws(
     () => resolveSettings({ ...agent, model: "other/sonnet-latest" }, parent),
     /unavailable/,
   );
-  assert.throws(
-    () => resolveSettings({ ...agent, skills: ["unselected"] }, parent),
-    /is unavailable/,
-  );
+  const missing = resolveSettings({ ...agent, skills: ["unselected"] }, parent);
+  assert.deepEqual(missing.skills, []);
+  assert.match(missing.warnings?.[0] ?? "", /Skill "unselected".*omitted/);
   assert.throws(() => resolveSettings({ ...agent, tools: ["write"] }, parent), /unavailable/);
 });
 
@@ -83,4 +82,21 @@ test("per-launch models select authenticated models unless the user fixed the ag
     resolveSettings({ ...agent, thinking: "low" }, parent, "sonnet:high").thinking,
     "low",
   );
+});
+
+test("wildcards use saved scope and bundle; explicit names can select available unselected skills", () => {
+  const bundled = {
+    ...agent,
+    privateSkills: [{ name: "local", description: "Local", path: "/bundle/skills/local/SKILL.md" }],
+  };
+  const scopes = { ...parent, availableSkills: ["selected", "extra"] };
+  assert.deepEqual(resolveSettings({ ...bundled, skills: ["*"] }, scopes).skills, [
+    "selected",
+    "local",
+  ]);
+  assert.deepEqual(
+    resolveSettings({ ...bundled, skills: ["extra", "local", "missing"] }, scopes).skills,
+    ["extra", "local"],
+  );
+  assert.deepEqual(resolveSettings({ ...bundled, skills: [] }, scopes).skills, []);
 });

@@ -21,7 +21,11 @@ reversed by session setup. Agent-private skills are prepared only for that agent
 
 Agent metadata supports `name`, `description`, `model`, `thinking`, `tools`, `skills` and
 `conversation`. Omitted tools inherit available parent tools; an explicit list narrows them.
-Omitted skills include selected public and bundle-private skills; `skills: []` includes none.
+Omitted `skills`, `skills: "*"` or `skills: ["*"]` includes saved personal/project selections
+plus all bundle-private skills. The parent's temporary selection is ignored. An explicit list
+selects names from the bundle or Pi's available native skill pool; `skills: []` includes none.
+Missing names produce warnings and are omitted. Use `"*"` alone. Bundle skills win name
+collisions; otherwise keep Pi's native resolved winner.
 A user-pinned model cannot be overridden by a launch argument; otherwise the parent can choose
 an available model/thinking level per launch. See [delegation](../guides/delegation.md).
 
@@ -48,9 +52,11 @@ not another directory catalogue. Frontmatter stays out of the model-facing body.
 
 `--no-context-files` suppresses the overlay. Optional `localContext.autoGitIgnore` allows adding
 local context files to the trusted repository's exclude file; it is off by default. Children
-receive a static snapshot of the parent's project context and selected instructions, rather than
-rediscovering unrelated context from their scratch directory. Body changes refresh on the next
-parent run; already launched children retain their prepared snapshot.
+receive a snapshot of the parent's static context files and freshly rendered saved personal/project
+instruction choices, followed by the agent body. Temporary parent instruction selections do not
+carry over. Children do not rediscover unrelated context from their scratch directory. Saved
+instruction bodies refresh at child launch; static context files refresh on the next parent run.
+Already launched children retain their prepared snapshot.
 
 ## Goal evaluator settings
 

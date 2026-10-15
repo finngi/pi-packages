@@ -9,6 +9,14 @@ export const HUMAN_INPUT = "pi:human-input:v1";
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
+/** Saved behavioral defaults for a child, independent of temporary parent selections. */
+export const SAVED_INSTRUCTION_CONTEXT = "pi-context:saved-instructions:v1";
+export interface SavedInstructionContextRequest {
+  version: 1;
+  ctx: ExtensionContext;
+  contribute(instructions: string): void;
+  reject(reason: string): void;
+}
 export type SessionSetupKind = "packages" | "skills" | "agents" | "instructions" | "tools";
 export type SessionSetupSelectionKind = Exclude<SessionSetupKind, "packages">;
 export type SessionSetupOverrides = Partial<Record<SessionSetupSelectionKind, string[]>>;
