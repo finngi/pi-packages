@@ -22,6 +22,8 @@ export class WideningError extends Error {
   }
 }
 export const childTools = ["read", "write", "edit", "ls", "find", "grep", "bash"];
+/** Pi base tools, activated in a child with --tools rather than loaded as an extension. */
+const nativeBaseTools = new Set([...childTools, "powershell"]);
 /** Reuse active native tool provenance instead of maintaining a second package loader. */
 export function childToolAuthority(pi: ExtensionAPI, communicationExtension?: string) {
   const registered = new Map((pi.getAllTools?.() ?? []).map((tool) => [tool.name, tool]));
@@ -192,7 +194,7 @@ export function resolveChildResources(
     ...new Set(
       tools.flatMap((name) => {
         const source = inherited.toolSources?.[name];
-        return source && (!source.startsWith("builtin:") || !childTools.includes(name))
+        return source && (!source.startsWith("builtin:") || !nativeBaseTools.has(name))
           ? [source]
           : [];
       }),
