@@ -10,7 +10,7 @@ import type { ResourceBrowser } from "pi-resource-browser";
 import { registerPackagePicker } from "./package-picker.ts";
 initTheme("dark", false);
 
-async function fixture(t: any, trusted = true) {
+async function fixture(t: any, trusted = true, configure?: (contributions: any[]) => void) {
   const root = await mkdtemp(join(tmpdir(), "pi-packages-picker-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, ".pi"));
@@ -128,6 +128,7 @@ async function fixture(t: any, trusted = true) {
       },
     },
   };
+  configure?.(contributions);
   setup.restore(ctx);
   registerPackagePicker(
     pi,
@@ -320,5 +321,46 @@ test("editing a global package preserves legacy OFF for a project-only native si
     assert.equal(saved.localContext.instructions["pack-instructions"], true);
     assert.equal(saved.subagents.skills.standalone, false);
     assert.equal(saved.subagents.agents.standalone, false);
+  });
+});
+
+test("bulk personal save respects skipped package rows instead of saving a partial package", async (t) => {
+  const packId = "@example/pi-evidence";
+  const f = await fixture(t, true, (contributions) => {
+    contributions.find((value) => value.kind === "instructions").candidates[1].globalDefaultable =
+      false;
+    contributions
+      .find((value) => value.kind === "packages")
+      .candidates.push({
+        kind: "packages",
+        id: "other-package",
+        name: "other-package",
+        description: "Eligible package",
+      });
+    contributions
+      .find((value) => value.kind === "skills")
+      .candidates.push({
+        kind: "skills",
+        id: "other-skill",
+        name: "other-skill",
+        description: "Eligible member",
+        packName: "other-package",
+        path: "/other-skill",
+      });
+  });
+  f.setup.execute({ op: "apply", packages: [packId, "other-package"] }, f.ctx);
+  await f.run(async (browser) => {
+    browser.handleInput("\x1b[115;6u");
+    for (let i = 0; i < 100; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (browser.render(180).join("\n").includes("selected saved")) break;
+    }
+    const saved = JSON.parse(await readFile(f.globalFile, "utf8"));
+    assert.equal(saved.subagents.skills["other-skill"], true);
+    assert.equal(Object.hasOwn(saved.subagents.skills, "pack-skills"), false);
+    assert.equal(Object.hasOwn(saved.subagents.agents ?? {}, "pack-agents"), false);
+    assert.equal(Object.hasOwn(saved.localContext?.instructions ?? {}, "pack-instructions"), false);
+    assert.match(browser.render(180).join("\n"), /1 selected saved; 1 selected skipped/);
+    assert.equal(await readFile(f.file, "utf8"), f.before);
   });
 });

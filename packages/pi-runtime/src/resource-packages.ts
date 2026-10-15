@@ -23,6 +23,8 @@ export interface ResourcePackage {
   name: string;
   root: string;
   globalDefaultable?: boolean;
+  /** Enabled native personal skills, before project/CLI sources are added. */
+  personalSkills?: string[];
   description: string;
   keywords: string[];
   skills: string[];
@@ -137,6 +139,7 @@ export async function discoverResourcePackages(
   });
   const roots = new Map<string, string[]>();
   const personalRoots = new Set<string>();
+  const personalSkills = new Map<string, string[]>();
   const temporaryRoots = new Set<string>();
   const problems: string[] = [];
   // CLI packages have already passed Pi's resolver. Look up their roots without installing again.
@@ -170,7 +173,11 @@ export async function discoverResourcePackages(
       if (!resource.metadata.packageRoot) continue;
       const root = realpathSync(resource.metadata.packageRoot);
       const skills = roots.get(root) ?? [];
-      if (resource.metadata.scope === "user") personalRoots.add(root);
+      if (resource.metadata.scope === "user") {
+        personalRoots.add(root);
+        if (kind === "skills" && resource.enabled)
+          personalSkills.set(root, [...(personalSkills.get(root) ?? []), resource.path]);
+      }
       if (
         kind === "skills" &&
         resource.enabled &&
@@ -195,6 +202,7 @@ export async function discoverResourcePackages(
     try {
       const pack = readResourcePackage(root, [...new Set(skills)]);
       pack.globalDefaultable = personalRoots.has(root);
+      pack.personalSkills = personalSkills.get(root) ?? [];
       if (!pack.skills.length && !pack.agents.length && !pack.instructions.length) continue;
       // Explicit CLI content takes precedence over another configured copy of that package.
       if (names.has(pack.name) && !temporaryRoots.has(root) && temporaryNames.has(pack.name))

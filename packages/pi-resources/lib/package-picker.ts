@@ -120,6 +120,7 @@ export function registerPackagePicker(
       const save = async (
         scope: "project" | "global",
         state?: { id: string; value: ResourceDefaultState },
+        saved?: ResourceEntry[],
       ) => {
         if (scope === "project" && !ctx.isProjectTrusted())
           throw Error("Saving package defaults requires a trusted project");
@@ -131,7 +132,12 @@ export function registerPackagePicker(
             .map((kind) => {
               const known = candidates.filter((candidate) => candidate.kind === kind);
               const eligible = known.filter(
-                (candidate) => scope !== "global" || candidate.globalDefaultable !== false,
+                (candidate) =>
+                  (scope !== "global" || candidate.globalDefaultable !== false) &&
+                  (state !== undefined ||
+                    saved === undefined ||
+                    !candidate.packName ||
+                    saved.some((entry) => entry.id === candidate.packName)),
               );
               const targets = state
                 ? eligible.filter((candidate) => candidate.packName === state.id)
@@ -218,18 +224,8 @@ export function registerPackagePicker(
           refresh();
         },
         setDefault: async (entry, state, scope) => save(scope, { id: entry.id, value: state }),
-        saveDefaults: async () => save("project"),
-        saveGlobalDefaults: async () => {
-          await save("global");
-          const skipped = candidates.filter(
-            (candidate) => candidate.globalDefaultable === false,
-          ).length;
-          if (skipped)
-            ctx.ui.notify(
-              `${skipped} project-only resources excluded from personal defaults.`,
-              "info",
-            );
-        },
+        saveDefaults: async (saved) => save("project", undefined, saved),
+        saveGlobalDefaults: async (saved) => save("global", undefined, saved),
       });
     },
   });

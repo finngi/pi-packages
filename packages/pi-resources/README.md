@@ -16,6 +16,12 @@ It reuses Pi's loaded resources and the existing searchable resource browser.
   Ctrl+S and Ctrl+Shift+S deliberately snapshot eligible session choices. Saves affect only
   resource kinds supplied by loaded extensions; other defaults are preserved.
 
+A grey Global control means the resource is available only from this project or temporary
+launch. Its reason appears in Overview and when the control is used. To make a temporary
+package available in future projects, register its source in personal settings with native Pi
+and include the resource in any package filters.
+Saving defaults does not register sources.
+
 This picker selects guidance. Native `pi install SOURCE` saves a personal package source;
 `pi install --local SOURCE` saves a project source. `pi -e SOURCE` tries a package for one
 invocation. These remain Pi operations: this extension does not install packages, unload code,

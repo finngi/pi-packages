@@ -67,6 +67,35 @@ interface BrowserOptions {
 const clean = (text: string) =>
   stripTerminalSequences(text).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 
+async function saveDefaultSnapshot(
+  options: Pick<
+    BrowserOptions,
+    "entries" | "defaultsScope" | "saveDefaults" | "saveGlobalDefaults"
+  >,
+  global: boolean,
+): Promise<string> {
+  const snapshot = options.entries.map((entry) => ({ ...entry }));
+  const eligible = (entry: ResourceEntry) =>
+    entry.defaultable !== false &&
+    (!global || entry.globalDefaultable !== false) &&
+    entry.toggleable !== false;
+  const defaultable = snapshot.filter(eligible);
+  const chosen = (entry: ResourceEntry) => entry.selected || entry.badge === "partial";
+  const skipped = snapshot.filter((entry) => chosen(entry) && !eligible(entry)).length;
+  const selected = defaultable.filter(chosen).length;
+  const scope = global || options.defaultsScope === "global" ? "global" : "project";
+  if (!defaultable.length && snapshot.length)
+    return `No eligible resources for ${scope} defaults; nothing saved.`;
+  await (global ? options.saveGlobalDefaults : options.saveDefaults)?.(defaultable);
+  return skipped
+    ? `${scope === "global" ? "Global" : "Project"} defaults: ${selected} selected saved; ${skipped} selected skipped (ineligible).`
+    : global
+      ? "Personal defaults saved for new sessions across projects."
+      : options.defaultsScope === "project"
+        ? "Project defaults saved."
+        : "Defaults saved for future sessions.";
+}
+
 /** Owns one browser interaction; saved project changes survive closing the dialog. */
 export class ResourceBrowser implements Component {
   focused = true;
@@ -225,30 +254,10 @@ export class ResourceBrowser implements Component {
         ? "Saving project defaults…"
         : "Saving defaults for future sessions…";
     this.redraw();
-    const snapshot = this.options.entries.map((entry) => ({ ...entry }));
-    const defaultable = snapshot.filter(
-      (entry) =>
-        entry.defaultable !== false &&
-        (!global || entry.globalDefaultable !== false) &&
-        entry.toggleable !== false,
-    );
-    const skipped = snapshot.filter(
-      (entry) =>
-        entry.selected &&
-        (entry.defaultable === false ||
-          (global && entry.globalDefaultable === false) ||
-          entry.toggleable === false),
-    ).length;
     try {
-      await save(defaultable);
+      const status = await saveDefaultSnapshot(this.options, global);
       if (!this.alive) return;
-      this.status = global
-        ? `Personal defaults saved for new sessions across projects.${skipped ? ` ${skipped} project-only or fixed choice${skipped === 1 ? " was" : "s were"} skipped.` : ""}`
-        : skipped
-          ? `Defaults saved for future sessions. ${skipped} project-only or fixed choice${skipped === 1 ? " was" : "s were"} not defaulted.`
-          : this.options.defaultsScope === "project"
-            ? "Project defaults saved."
-            : "Defaults saved for future sessions.";
+      this.status = status;
     } catch (error) {
       if (!this.alive) return;
       this.error = true;
@@ -262,7 +271,14 @@ export class ResourceBrowser implements Component {
   async toggleScope(scope: "session" | "project" | "global"): Promise<void> {
     if (scope === "session") return this.toggleCurrent();
     const entry = this.results[this.index];
-    if (!entry || !this.canEditDefault(entry, scope)) return;
+    if (!entry || this.saving || this.savingDefaults || !this.alive) return;
+    const unavailable = this.defaultUnavailable(entry, scope);
+    if (unavailable) {
+      this.error = false;
+      this.status = unavailable;
+      this.redraw();
+      return;
+    }
     const theme = this.options.theme;
     const states = ["inherit", "on", "off"] as const;
     const list = new SelectList(
@@ -310,15 +326,21 @@ export class ResourceBrowser implements Component {
   }
   private canEditDefault(entry: ResourceEntry, scope: "project" | "global") {
     return Boolean(
-      this.options.setDefault &&
-        !this.saving &&
-        !this.savingDefaults &&
-        this.alive &&
-        entry.toggleable !== false &&
-        entry.defaultable !== false &&
-        (scope !== "global" || entry.globalDefaultable !== false) &&
-        this.defaultState(entry, scope) !== undefined,
+      !this.saving && !this.savingDefaults && this.alive && !this.defaultUnavailable(entry, scope),
     );
+  }
+  private defaultUnavailable(entry: ResourceEntry, scope: "project" | "global") {
+    const label = scope === "project" ? "Project" : "Global";
+    if (entry.toggleable === false) return `${label} default unavailable: supplied by the harness.`;
+    if (entry.defaultable === false)
+      return `${label} default unavailable: this resource cannot be defaulted.`;
+    if (scope === "global" && entry.globalDefaultable === false)
+      return "Global default unavailable: loaded only for this project or launch.";
+    if (!this.options.setDefault)
+      return `${label} default unavailable: this browser cannot edit it.`;
+    if (this.defaultState(entry, scope) === undefined)
+      return `${label} default unavailable: saved state is unknown.`;
+    return undefined;
   }
   async setScopeState(scope: "project" | "global", state: ResourceDefaultState): Promise<void> {
     const entry = this.results[this.index];
@@ -676,7 +698,7 @@ export class ResourceBrowser implements Component {
                 ? entry.selected
                 : scope === "global"
                   ? entry.globalDefaultSelected
-                  : this.options.defaultsInherited
+                  : entry.projectState === undefined && this.options.defaultsInherited
                     ? entry.globalDefaultSelected
                     : entry.defaultSelected;
             const savedState = scope === "session" ? undefined : this.defaultState(entry!, scope);
@@ -687,7 +709,9 @@ export class ResourceBrowser implements Component {
                   : value
                     ? "ON "
                     : "OFF"
-                : (savedState?.toUpperCase() ?? "—").padEnd(7);
+                : savedState === "on"
+                  ? "ON "
+                  : (savedState?.toUpperCase() ?? "—");
             const label = `${scope[0].toUpperCase() + scope.slice(1)}: ${stateLabel}`;
             const enabled =
               entry.toggleable !== false &&
@@ -701,7 +725,7 @@ export class ResourceBrowser implements Component {
               scopeLines.push("");
               scopeColumn = 0;
             }
-            if (enabled)
+            if (enabled || scope !== "session")
               this.scopeRanges.push({
                 scope,
                 row: scopeLines.length - 1,
@@ -735,7 +759,7 @@ export class ResourceBrowser implements Component {
           entry?.badge && entry.badge !== "partial" ? `Package/source: ${clean(entry.badge)}` : "",
           preview.source ?? "No separate source path supplied.",
           entry?.globalDefaultable === false
-            ? "Project-only: cannot save as a personal default."
+            ? "Loaded only for this project or launch; cannot save as a personal default."
             : "",
         ]
           .filter(Boolean)
@@ -755,11 +779,18 @@ export class ResourceBrowser implements Component {
         ) ?? [];
       detailLines = new Text(
         [
+          ...(["project", "global"] as const).flatMap((scope) => {
+            const reason = entry && this.defaultUnavailable(entry, scope);
+            return reason ? [reason] : [];
+          }),
+          entry?.globalDefaultable === false
+            ? "Add or enable it in personal settings to reuse it."
+            : undefined,
           typeof this.details === "string" ? this.details : (entry?.description ?? ""),
           fields.length ? "" : undefined,
           ...fields,
           entry?.projectState !== undefined || entry?.globalState !== undefined
-            ? `Effective defaults: project ${entry.defaultSelected === undefined ? "MIXED" : entry.defaultSelected ? "ON" : "OFF"} · global ${entry.globalDefaultSelected === undefined ? "MIXED" : entry.globalDefaultSelected ? "ON" : "OFF"}`
+            ? `Effective defaults: project ${entry.defaultSelected === undefined ? "MIXED" : entry.defaultSelected ? "ON" : "OFF"} · global ${entry.globalDefaultable === false ? "UNAVAILABLE" : entry.globalDefaultSelected === undefined ? "MIXED" : entry.globalDefaultSelected ? "ON" : "OFF"}`
             : undefined,
           this.options.notice ? `Diagnostics: ${clean(this.options.notice)}` : undefined,
         ]
@@ -956,14 +987,7 @@ export async function showResourceBrowser(
     ]);
     if (!chosen || chosen === "Done") return changed;
     if (chosen === "Save personal defaults (all projects)" && options.saveGlobalDefaults) {
-      const globalEntries = options.entries.filter(
-        (entry) =>
-          entry.defaultable !== false &&
-          entry.globalDefaultable !== false &&
-          entry.toggleable !== false,
-      );
-      await options.saveGlobalDefaults(globalEntries);
-      ctx.ui.notify("Personal defaults saved for new sessions across projects.", "info");
+      ctx.ui.notify(await saveDefaultSnapshot(options, true), "info");
       continue;
     }
     if (
@@ -973,18 +997,7 @@ export async function showResourceBrowser(
           ? "Save project defaults"
           : "Save selected as defaults")
     ) {
-      const defaultable = options.entries.filter(
-        (entry) => entry.defaultable !== false && entry.toggleable !== false,
-      );
-      await options.saveDefaults?.(defaultable);
-      const skipped = options.entries.filter(
-        (entry) => entry.selected && (entry.defaultable === false || entry.toggleable === false),
-      ).length;
-      if (skipped)
-        ctx.ui.notify(
-          `${skipped} selected project-only or fixed choice${skipped === 1 ? " was" : "s were"} not saved as defaults.`,
-          "info",
-        );
+      ctx.ui.notify(await saveDefaultSnapshot(options, false), "info");
       continue;
     }
     const entry = options.entries[labels.indexOf(chosen)];

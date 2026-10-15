@@ -607,3 +607,45 @@ test("native temporary skills stay selected in this session but are excluded fro
     f.dispose();
   }
 });
+
+test("personal skill eligibility keeps native provenance after extension discovery relabels paths", async () => {
+  const f = fixture();
+  try {
+    const personal = addSkill(f.root, "personal-skill");
+    const project = addSkill(f.root, "project-skill");
+    const temporary = addSkill(f.root, "temporary-skill");
+    for (const [name, path, scope] of [
+      ["personal-skill", personal, "user"],
+      ["project-skill", project, "project"],
+      ["temporary-skill", temporary, "temporary"],
+    ]) {
+      f.loadedSkills.push({
+        name,
+        description: name,
+        source: "skill",
+        sourceInfo: { path, scope },
+      });
+    }
+    await withAgentDir(f.agentDir, async () => {
+      const ctx = guardedContext(f.project);
+      await f.handlers.get("session_start")!({}, ctx.context);
+      await f.handlers.get("resources_discover")!({}, ctx.context);
+      // Native Pi reports extension-discovered skills as temporary after binding.
+      for (const skill of f.loadedSkills) skill.sourceInfo.scope = "temporary";
+      const browserCtx = guardedContext(f.project, [], async (browser) => {
+        browser.handleInput("\x1b[115;6u"); // Kitty Ctrl+Shift+S.
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (readFileSync(join(f.agentDir, "settings.json"), "utf8").includes("personal-skill"))
+            break;
+        }
+        const saved = JSON.parse(readFileSync(join(f.agentDir, "settings.json"), "utf8"));
+        assert.deepEqual(saved.subagents.skills, { "personal-skill": true });
+        assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
+      });
+      await f.commands.get("skills")!.handler("", browserCtx.context);
+    });
+  } finally {
+    f.dispose();
+  }
+});

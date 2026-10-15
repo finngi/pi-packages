@@ -47,6 +47,7 @@ export default function (pi: ExtensionAPI) {
     problems: [],
   };
   let nativeSkillDefaults: Set<string> | undefined;
+  let nativePersonalSkillPaths = new Set<string>();
   let skillChoicesSnapshot: SkillChoice[] = [],
     metadataRegistered = false;
   let skillIdentities = new Map<string, { dev: number; ino: number }>();
@@ -63,14 +64,13 @@ export default function (pi: ExtensionAPI) {
         source: c.sourceInfo,
       }));
   const personalSkillDefault = (skill: SkillChoice) => {
-    // Native project/CLI selection can expose a member excluded by the personal package filters.
-    if (
-      skill.defaultSelected &&
-      skills().find((loaded) => loaded.name === skill.name)?.source.scope !== "user"
-    )
-      return false;
     const pack = packageResources.packs.find((pack) => pack.name === skill.packName);
-    return pack?.globalDefaultable !== false;
+    // Native metadata may label a CLI-enabled skill as user-scoped even when the personal
+    // package excludes it. Only the resolver's enabled personal members are defaultable.
+    if (pack)
+      return pack.globalDefaultable !== false && !!pack.personalSkills?.includes(skill.path);
+    // Pi re-labels resources_discover paths as temporary; preserve standalone native scope.
+    return !skill.defaultSelected || nativePersonalSkillPaths.has(skill.path);
   };
   const settingsManager = (ctx: ExtensionContext) =>
     SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
@@ -134,6 +134,11 @@ export default function (pi: ExtensionAPI) {
     );
     // Native resources are loaded before resources_discover; catalogue registration must not widen defaults.
     nativeSkillDefaults = new Set(skills().map((skill) => resolve(ctx.cwd, skill.path)));
+    nativePersonalSkillPaths = new Set(
+      skills()
+        .filter((skill) => skill.source.scope === "user")
+        .map((skill) => skill.path),
+    );
     metadataRegistered = false;
     skillChoicesSnapshot = configuredSkillChoices(
       settingsManager(ctx),
