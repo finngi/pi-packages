@@ -138,7 +138,6 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
       PI_CODING_AGENT_DIR: agentDir,
       PI_SUBAGENT_PROVIDER_EXTENSION: provider,
     });
-    delete process.env.PI_SECURITY_TRANSPORT;
     delete process.env.PI_SUBAGENT;
     let session: sdk.AgentSession | undefined,
       mode = "off",

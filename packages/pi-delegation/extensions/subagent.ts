@@ -110,10 +110,6 @@ export default function (pi: ExtensionAPI) {
   let agentPathsSnapshot: Map<string, string> | undefined;
   pi.registerMessageRenderer("subagent-dialogue-reply", renderSubagentReply);
   pi.registerMessageRenderer("agent-message", renderSubagentReply);
-  pi.events.on("pi-subagents:bridge:v1", (request: any) => {
-    if (request?.version === 1 && typeof request.respond === "function")
-      request.respond({ extensionPath: fileURLToPath(import.meta.url) });
-  });
   let generation = 0,
     closed = true;
   let agentDefaultsSnapshot: GlobalSelectionSnapshot = { present: false };

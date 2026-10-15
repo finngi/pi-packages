@@ -148,7 +148,6 @@ export default function(pi) {
         );
         process.env.PI_CODING_AGENT_DIR = agentDir;
         process.env.PI_SUBAGENT_PROVIDER_EXTENSION = provider;
-        delete process.env.PI_SECURITY_TRANSPORT;
         delete process.env.PI_SUBAGENT;
         const pi = {
           events: { emit() {} },

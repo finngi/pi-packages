@@ -79,8 +79,6 @@ export default function(pi) {
         PI_CODING_AGENT_DIR: agentDir,
         PI_SUBAGENT: "1",
       };
-      delete env.PI_SECURITY_TRANSPORT;
-      delete env.PI_SECURITY_POLICY;
       child = spawn(
         process.execPath,
         [
