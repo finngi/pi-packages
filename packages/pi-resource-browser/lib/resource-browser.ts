@@ -153,7 +153,7 @@ export class ResourceBrowser implements Component {
       placeholder: "names, descriptions, tools…",
       placeholderStyle: (text) => options.theme.fg("dim", text),
     });
-    if (options.selectionScope === "session") this.status = "Enter/Space changes this session.";
+    if (options.selectionScope === "session") this.status = "";
     this.search = new ResourceSearch(options.entries);
     this.results = [...options.entries];
     this.refreshPreview();
@@ -618,7 +618,7 @@ export class ResourceBrowser implements Component {
     ) {
       const range = this.scopeRanges.find(
         (range) =>
-          event.y === l.previewY + 1 + range.row &&
+          event.y === l.previewY + range.row &&
           event.x - l.previewX - 2 >= range.start &&
           event.x - l.previewX - 2 < range.end,
       );
@@ -693,7 +693,7 @@ export class ResourceBrowser implements Component {
     this.input.focused = this.focused && this.pane === "query";
     const selected = this.options.entries.filter((entry) => entry.selected).length;
     const searchHintWidth = Math.min(24, Math.floor(width / 2));
-    const searchHint = this.searchFocused ? "[SEARCH ACTIVE · Esc]" : "/ or click to search";
+    const searchHint = this.searchFocused ? "SEARCH ACTIVE · Esc" : "/ or click to search";
     const searchLine =
       this.input.render(width - searchHintWidth)[0] +
       theme.fg(
@@ -749,14 +749,14 @@ export class ResourceBrowser implements Component {
     const tabLine = tabs
       .map((tab) => {
         const label = tab === "body" ? "Instructions" : tab[0].toUpperCase() + tab.slice(1);
-        const shown = this.detailTab === tab ? `[${label}]` : ` ${label} `;
+        const shown = ` ${label} `;
         this.tabRanges.push({ tab, start: tabColumn, end: tabColumn + shown.length });
-        tabColumn += shown.length + 1;
+        tabColumn += shown.length + 2;
         return this.detailTab === tab
           ? theme.bold(theme.fg("accent", shown))
           : theme.fg("muted", shown);
       })
-      .join(" ");
+      .join("  ");
     this.scopeRanges = [];
     let scopeColumn = 0;
     const scopeLines: string[] = [""];
@@ -765,20 +765,20 @@ export class ResourceBrowser implements Component {
           .map((scope) => {
             const savedState = this.defaultState(entry, scope);
             const stateLabel = (savedState?.toUpperCase() ?? "—").padEnd(7);
-            const label = `${scope[0].toUpperCase() + scope.slice(1)}: ${stateLabel}`;
+            const label = `${`${scope[0].toUpperCase() + scope.slice(1)}:`.padEnd(9)}${stateLabel}`;
             const enabled = this.canEditDefault(entry, scope);
-            const shown = enabled ? `[${label}]` : label;
+            const shown = label;
             if (scopeColumn && scopeColumn + shown.length > Math.max(1, right - 4)) {
               scopeLines.push("");
               scopeColumn = 0;
             }
             this.scopeRanges.push({
               scope,
-              row: scopeLines.length - 1,
+              row: scopeLines.length + 1,
               start: scopeColumn,
               end: scopeColumn + shown.length,
             });
-            scopeColumn += shown.length + 2;
+            scopeColumn += shown.length + 3;
             const styled = theme.fg(
               enabled
                 ? savedState === "on"
@@ -789,10 +789,10 @@ export class ResourceBrowser implements Component {
                 : "muted",
               shown,
             );
-            scopeLines[scopeLines.length - 1] += styled + "  ";
+            scopeLines[scopeLines.length - 1] += styled + "   ";
             return styled;
           })
-          .join("  ")
+          .join("   ")
       : "No matching resource";
     const stateLines = entry
       ? scopeLines.map((line) => truncateToWidth(line.trimEnd(), Math.max(1, right - 4)))
@@ -805,12 +805,15 @@ export class ResourceBrowser implements Component {
       : "";
     const pinned = [
       " " + tabLine,
+      "",
       ...stateLines.map((line) => " " + line),
+      "",
       ...[effective, applies]
         .filter(Boolean)
         .flatMap((line) =>
           new Text(line, 0, 0).render(Math.max(1, right - 4)).map((part) => " " + part),
         ),
+      "",
     ];
     if (!this.defaultMenu) previewRows = Math.max(previewRows, pinned.length + 1);
     const contentWidth = Math.max(1, right - 4);
@@ -873,7 +876,6 @@ export class ResourceBrowser implements Component {
       ? [
           ` ${this.defaultMenu.scope[0].toUpperCase() + this.defaultMenu.scope.slice(1)} choices${entry && this.defaultState(entry, this.defaultMenu.scope) === "mixed" ? " · MIXED" : ""}`,
           ...this.defaultMenu.list.render(contentWidth).map((line) => " " + line),
-          " ↑/↓ choose · Enter save · Esc cancel",
         ]
       : [
           ...pinned,
@@ -885,7 +887,7 @@ export class ResourceBrowser implements Component {
       `${this.options.title} · ${selected} selected · ${this.results.length}/${this.options.entries.length} shown`,
       rows,
       left,
-      listRows,
+      wide ? previewRows : listRows,
       this.pane !== "preview",
     );
     const previewBox = box(
@@ -906,28 +908,61 @@ export class ResourceBrowser implements Component {
     if (wide) lines.push(...listBox.map((line, i) => line + " " + previewBox[i]));
     else lines.push(...listBox, "", ...previewBox);
     lines.push(truncateToWidth(theme.fg(this.error ? "error" : "muted", this.status), width));
-    lines.push(
-      truncateToWidth(
-        theme.fg(
-          "dim",
-          "/ search · hjkl/Arrows navigate · Enter/Space toggle · Tab pane · Esc back/close",
-        ),
-        width,
-      ),
-    );
-    if (this.options.setDefault || this.options.setSession)
-      lines.push(
-        truncateToWidth(theme.fg("dim", "s/p/g edit scope choices · click controls"), width),
+    const help = (items: Array<[string, string]>) => {
+      let row = "";
+      for (const [key, label] of items) {
+        const item = `${theme.fg("muted", key)} ${theme.fg("dim", label)}`;
+        if (row && visibleWidth(row) + 3 + visibleWidth(item) > width) {
+          lines.push(row);
+          row = "";
+        }
+        row += (row ? "   " : "") + item;
+      }
+      if (row) lines.push(truncateToWidth(row, width));
+    };
+    if (this.defaultMenu)
+      help([
+        ["↑↓", "Choose"],
+        ["Enter", "Apply"],
+        ["Esc", "Cancel"],
+      ]);
+    else {
+      help(
+        this.searchFocused
+          ? [
+              ["Type", "Filter"],
+              ["Enter", "Browse results"],
+              ["Esc", "Leave search"],
+            ]
+          : [
+              ["/", "Search"],
+              ["↑↓/jk", "Move"],
+              ["←→/hl", "Tabs"],
+              ["Tab", "Pane"],
+              ["Enter/Space", "Toggle"],
+              ["Esc", "Close"],
+            ],
       );
-    const saveHints = [
-      this.options.saveDefaults
-        ? `Ctrl+S snapshot session → ${this.options.defaultsScope === "project" ? "project" : "defaults"}`
-        : "",
-      this.options.saveGlobalDefaults ? "Ctrl+Shift+S snapshot session → global" : "",
-    ].filter(Boolean);
-    const combinedHints = saveHints.join(" · ");
-    for (const hint of visibleWidth(combinedHints) <= width ? [combinedHints] : saveHints) {
-      if (hint) lines.push(truncateToWidth(theme.fg("dim", hint), width));
+      help([
+        ...(!this.searchFocused && (this.options.setDefault || this.options.setSession)
+          ? ([
+              ["s", "Session"],
+              ["p", "Project"],
+              ["g", "Global"],
+            ] as Array<[string, string]>)
+          : []),
+        ...(this.options.saveDefaults
+          ? ([
+              [
+                "Ctrl+S",
+                `Save ${this.options.defaultsScope === "project" ? "project" : "defaults"}`,
+              ],
+            ] as Array<[string, string]>)
+          : []),
+        ...(this.options.saveGlobalDefaults
+          ? ([["Ctrl+Shift+S", "Save global"]] as Array<[string, string]>)
+          : []),
+      ]);
     }
     const border = (text: string) => theme.fg("accent", text);
     this.categoryRanges = [];

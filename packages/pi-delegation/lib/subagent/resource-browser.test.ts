@@ -87,7 +87,11 @@ function fixture(
     title: "Skills",
     entries,
     defaultsScope: overrides.defaultsScope,
-    theme: { fg: (_color, text) => text, bg: (_color, text) => text, bold: (text) => text },
+    theme: {
+      fg: (_color, text) => text,
+      bg: (_color, text) => text,
+      bold: (text) => `\x1b[1m${text}\x1b[22m`,
+    },
     rows: () => 42,
     render() {},
     close: (changed) => closed.push(changed),
@@ -393,13 +397,13 @@ test("structured details separate read-only metadata, instruction body and sourc
   assert.doesNotMatch(text(), /BODY_ONLY|\/agent\/role.md/);
   component.handleInput("\t");
   component.handleInput("\x1b[C");
-  assert.match(text(), /\[Instructions\]/);
+  assert.match(text(), /Instructions/);
   assert.match(text(), /BODY_ONLY/);
   assert.doesNotMatch(text(), /Child skills\s+: private-check/);
   component.handleInput("\r");
   assert.equal(f.entries[0].selected, false, "read-only preview Enter must not change selections");
   component.handleInput("\x1b[C");
-  assert.match(text(), /\[Source\]/);
+  assert.match(text(), /Source/);
   assert.match(text(), /\/agent\/role.md/);
   assert.doesNotMatch(text(), /BODY_ONLY/);
   component.handleInput("\t");
@@ -436,7 +440,7 @@ test("mouse detail tabs switch content without toggling and scrolling preserves 
   });
   await flush();
   const rows = component.render(110).map(stripTerminalSequences);
-  const y = rows.findIndex((row) => row.includes("[Overview]"));
+  const y = rows.findIndex((row) => row.includes(" Overview "));
   const x = rows[y].indexOf(" Instructions ") + 2;
   const result = component.handleMouse({
     type: "click",
@@ -453,12 +457,12 @@ test("mouse detail tabs switch content without toggling and scrolling preserves 
   });
   assert.equal(result?.handled, true);
   let text = component.render(110).map(stripTerminalSequences).join("\n");
-  assert.match(text, /\[Instructions\]/);
+  assert.match(text, /Instructions/);
   assert.match(text, /BODY_ROW/);
   for (let i = 0; i < 4; i++) component.handleInput("\x1b[6~");
   text = component.render(110).map(stripTerminalSequences).join("\n");
   assert.match(text, /Session: OFF/);
-  assert.match(text, /\[Instructions\]/);
+  assert.match(text, /Instructions/);
   component.dispose();
   f.component.dispose();
 });
@@ -472,9 +476,9 @@ test("Vim navigation and explicit search keep query characters out of navigation
   f.component.handleInput("k");
   f.component.handleInput("l");
   f.component.handleInput("l");
-  assert.match(f.text(), /\[Instructions\]/);
+  assert(f.component.render(110).join("\n").includes("\x1b[1m Instructions \x1b[22m"));
   f.component.handleInput("h");
-  assert.match(f.text(), /\[Overview\]/);
+  assert(f.component.render(110).join("\n").includes("\x1b[1m Overview \x1b[22m"));
   f.component.handleInput("h");
   f.component.handleInput("/");
   assert.equal(f.component.searchFocused, true);
@@ -572,8 +576,8 @@ test("clickable scope controls target the displayed resource at wide and narrow 
     });
     await flush();
     const rows = component.render(width).map(stripTerminalSequences);
-    const y = rows.findIndex((row) => /\[Project: OFF\s+\]/.test(row));
-    const x = rows[y].indexOf("[Project: OFF") + 3;
+    const y = rows.findIndex((row) => /Project:\s+OFF/.test(row));
+    const x = rows[y].indexOf("Project:") + 3;
     const result = component.handleMouse({
       type: "click",
       button: "left",
@@ -712,15 +716,15 @@ test("scope controls hold their columns when ON and OFF change", async () => {
     component
       .render(140)
       .map(stripTerminalSequences)
-      .find((row) => row.includes("[Session:"))!;
+      .find((row) => row.includes("Session:"))!;
   const before = state();
   await component.toggleCurrent();
   const after = state();
-  assert.match(after, /\[Session: ON\s+\]/);
-  assert.equal(after.indexOf("[Project:"), before.indexOf("[Project:"));
-  assert.equal(after.indexOf("[Global:"), before.indexOf("[Global:"));
+  assert.match(after, /Session:\s+ON/);
+  assert.equal(after.indexOf("Project:"), before.indexOf("Project:"));
+  assert.equal(after.indexOf("Global:"), before.indexOf("Global:"));
   await chooseDefault(component, "project", "on");
-  assert.equal(state().indexOf("[Global:"), before.indexOf("[Global:"));
+  assert.equal(state().indexOf("Global:"), before.indexOf("Global:"));
   component.dispose();
   f.component.dispose();
 });
@@ -929,8 +933,8 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
   });
   await flush();
   const text = () => component.render(160).map(stripTerminalSequences).join("\n");
-  assert.match(text(), /\[Project: INHERIT\]/);
-  assert.match(text(), /\[Global: MIXED/);
+  assert.match(text(), /Project:\s+INHERIT/);
+  assert.match(text(), /Global:\s+MIXED/);
   assert.match(text(), /Active here: OFF/);
   component.handleInput("g");
   assert.match(text(), /Global choices · MIXED/);
@@ -940,8 +944,8 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
   assert.equal(f.entries[0].globalDefaultSelected, true);
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].selected, false);
-  assert.match(text(), /\[Project: INHERIT\]/);
-  assert.match(text(), /\[Global: INHERIT\]/);
+  assert.match(text(), /Project:\s+INHERIT/);
+  assert.match(text(), /Global:\s+INHERIT/);
   assert.match(text(), /Active here: OFF/);
   component.dispose();
   f.component.dispose();
@@ -996,8 +1000,8 @@ test("narrow terminals show both snapshot shortcut destinations", () => {
     saveGlobalDefaults: async () => {},
   });
   const text = f.text(70);
-  assert.match(text, /Ctrl\+S snapshot session → project/);
-  assert.match(text, /Ctrl\+Shift\+S snapshot session → global/);
+  assert.match(text, /Ctrl\+S Save project/);
+  assert.match(text, /Ctrl\+Shift\+S Save global/);
   f.component.dispose();
 });
 
@@ -1033,8 +1037,8 @@ test("Project On uses its resolved value despite the initial inherited flag", as
   await chooseDefault(component, "project", "on");
   colors.length = 0;
   const text = component.render(140).map(stripTerminalSequences).join("\n");
-  assert.match(text, /\[Session: OFF\s+\].*\[Project: ON\s+\].*\[Global: OFF\s+\]/);
-  assert(colors.some(([color, text]) => color === "success" && /\[Project: ON\s+\]/.test(text)));
+  assert.match(text, /Session:\s+OFF.*Project:\s+ON.*Global:\s+OFF/);
+  assert(colors.some(([color, text]) => color === "success" && /Project:\s+ON/.test(text)));
   assert.equal(f.entries[0].selected, false);
   component.dispose();
   f.component.dispose();
@@ -1069,7 +1073,6 @@ test("unavailable saved controls explain the restriction in Overview, keyboard a
   const text = () => component.render(140).map(stripTerminalSequences).join("\n");
   assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
   assert.match(text(), /Active here: ON/);
-  assert.doesNotMatch(text(), /\[Global:/, "ineligible global choice is not an enabled control");
   component.handleInput("l");
   component.handleInput("l");
   assert.doesNotMatch(text(), /Global default unavailable/);
@@ -1080,8 +1083,8 @@ test("unavailable saved controls explain the restriction in Overview, keyboard a
   await component.toggleCurrent();
   assert.doesNotMatch(text(), /Global default unavailable/);
   const rows = component.render(140).map(stripTerminalSequences);
-  const y = rows.findIndex((row) => row.includes("Global: OFF"));
-  const x = rows[y].indexOf("Global: OFF") + 2;
+  const y = rows.findIndex((row) => row.includes("Global:"));
+  const x = rows[y].indexOf("Global:") + 2;
   component.handleMouse({
     type: "click",
     button: "left",

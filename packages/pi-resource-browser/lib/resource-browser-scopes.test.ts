@@ -99,11 +99,21 @@ test("scope controls separate explicit values from effective selection and fit n
   const { browser, entry } = fixture();
   await flush();
   const text = plain(browser);
-  assert.match(text, /Session: OFF\s+\]/);
-  assert.match(text, /Project: INHERIT\]/);
-  assert.match(text, /Global: ON\s+\]/);
+  assert.match(text, /Session:\s+OFF/);
+  assert.match(text, /Project:\s+INHERIT/);
+  assert.match(text, /Global:\s+ON/);
   assert.match(text, /Active here: OFF — session choice/);
   assert.match(text, /Applies in: Interactive only — project/);
+  const rendered = text.split("\n");
+  const scopeRow = rendered.findIndex((line) => line.includes("Session:"));
+  const controls = rendered[scopeRow];
+  assert.doesNotMatch(controls, /[\[\]]/, "scope options use colour without brackets");
+  assert.equal(
+    controls.indexOf("Project:") - controls.indexOf("Session:"),
+    controls.indexOf("Global:") - controls.indexOf("Project:"),
+  );
+  for (const row of [scopeRow - 1, scopeRow + 1])
+    assert.match(rendered[row].split("│").at(-2)!, /^\s*$/, "scope controls have vertical padding");
   const globalColumn = text
     .split("\n")
     .find((line) => line.includes("Global:"))!
@@ -131,8 +141,8 @@ test("scope click opens choices, wheel never writes, and searching consumes scop
   const { browser, writes } = fixture();
   await flush();
   const lines = browser.render(160).map(stripTerminalSequences);
-  const y = lines.findIndex((line) => line.includes("[Global:"));
-  const x = lines[y].indexOf("[Global:") + 2;
+  const y = lines.findIndex((line) => line.includes("Global:"));
+  const x = lines[y].indexOf("Global:") + 2;
   browser.handleMouse({
     type: "click",
     button: "left",

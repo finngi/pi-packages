@@ -542,7 +542,7 @@ test(
     for (const choice of choices)
       await f.run(choice.command, async (browser) => {
         await search(browser, choice.query);
-        assert.match(text(browser), /\[Session: OFF\s*\]/);
+        assert.match(text(browser), /Session:\s+OFF/);
         f.capture(`${choice.command}-resumed`, browser);
       });
     await f.close();
@@ -552,8 +552,8 @@ test(
     for (const choice of choices)
       await f.run(choice.command, async (browser) => {
         await search(browser, choice.query);
-        assert.match(text(browser), /\[Session: INHERIT\]/);
-        assert.match(text(browser), /\[Global: ON\s*\]/);
+        assert.match(text(browser), /Session:\s+INHERIT/);
+        assert.match(text(browser), /Global:\s+ON/);
         f.capture(`${choice.command}-new-session`, browser);
       });
   },
