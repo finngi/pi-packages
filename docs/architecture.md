@@ -58,7 +58,7 @@ and missing-usage explanations. See [accounting](accounting.md).
 `pi-permissions` is a before-tool gate. Explicit deny rules precede allow rules; unmatched actions
 ask the human or configured classifier. It leaves Pi's file, process, GPU and network access at
 ordinary host permissions. The selected gate contributes its trusted configuration and genuine
-user context to child launches; there is no separate secured launcher or kernel helper.
+user context to child launches.
 See [the permission package](../packages/pi-permissions/README.md).
 
 ## Resources

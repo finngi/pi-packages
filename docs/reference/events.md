@@ -15,8 +15,7 @@ The process remains session-owned when a foreground wait yields.
 
 A trusted loaded extension can contribute its child entrypoint and initialization data through
 `pi-child-launch:contribute:v1`. The optional permission gate uses this to carry its policy and
-genuine root-user context. Model task text cannot register a contribution. There is one native
-child launcher, not a separate secured transport.
+genuine root-user context. Model task text cannot register a contribution.
 
 ## Goal services
 

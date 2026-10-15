@@ -104,7 +104,7 @@ no parent registration. Standalone package skills are independently selectable b
 session; an agent can explicitly reference them. The launcher does not rescan excluded native
 skill roots. See [agent metadata](../reference/configuration.md#agent-definitions).
 
-Security-off children inherit the parent's selected task tools, including native package tools
+Children inherit the parent's selected task tools, including native package tools
 such as `codex_search` and `background_process`. An explicit agent `tools` list narrows that set;
 `tools: []` selects none. Delegation messaging stays bound separately. Parent orchestration tools
 (`subagent`, its lifecycle tools and `session_setup`) are not inherited.

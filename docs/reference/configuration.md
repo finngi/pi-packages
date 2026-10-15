@@ -6,8 +6,7 @@ Native settings select executable packages. Session choices select their loaded 
 
 Pi reads package sources from personal `~/.pi/agent/settings.json` and trusted project
 `.pi/settings.json`. Temporary `-e SOURCE` packages apply to one invocation. Native package
-filters and CLI exclusions remain authoritative. No custom launcher flags or sandbox environment
-variables are needed.
+filters and CLI exclusions remain authoritative.
 
 `pi-permissions` is optional. Its user policy chooses off/manual/auto, ordered deny and allow
 rules, and the classifier. Approved tools use ordinary host access. See the

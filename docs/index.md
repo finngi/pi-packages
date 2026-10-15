@@ -28,7 +28,7 @@ Start with [getting started](getting-started.md) to build the packages and launc
 | --- | --- |
 | [Packages](reference/packages.md) | Responsibilities, dependencies, entrypoints, SDK pins, and licences |
 | [Tools and commands](reference/tools.md) | Parameters, returned values, and limits |
-| [Configuration](reference/configuration.md) | Security selection, policy paths, agent metadata, and context settings |
+| [Configuration](reference/configuration.md) | Package loading, permission policy, agent metadata, and context settings |
 | [Permission policy](../packages/pi-permissions/README.md) | Allow/deny rules and manual/automatic review |
 | [Goals](reference/goals.md) | Authorization, assessment roles, provider accounting, persisted state, and waits |
 | [Events and delivery](reference/events.md) | In-process services, RPC frames, session records, and response ownership |

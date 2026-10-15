@@ -195,8 +195,6 @@ export interface ProcessSnapshot {
   id: string;
   owner: string;
   label: string;
-  mode: string;
-  adapterMetadata?: unknown;
   status: ProcessStatus;
   exitCode: number | null;
   signal: NodeJS.Signals | null;
@@ -214,8 +212,6 @@ export interface LaunchSpec {
   env?: NodeJS.ProcessEnv;
   owner: string;
   label: string;
-  mode?: string;
-  adapterMetadata?: unknown;
   timeoutMs?: number;
   stdin?: "closed" | "pipe";
   onData?: (stream: Stream, data: Buffer) => void;
