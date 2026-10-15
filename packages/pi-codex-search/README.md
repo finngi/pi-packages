@@ -9,8 +9,9 @@ Costs remain estimates and do not establish a separate subscription charge.
 
 Security is optional. Selected or active security requires exactly one valid per-call capability and cannot be bypassed after failure. Without security, the adapter gets credentials directly from Pi's model registry. The HTTP adapter is trusted in-process code, outside kernel effect-tool confinement.
 
-Loading this package adds `codex_search` to the parent session. `pi-delegation` children do not
-automatically load this extension or inherit its search tool.
+Loading this package registers `codex_search`. Security-off `pi-delegation` children inherit it
+when selected in the parent and allowed by their agent tool list. They use the same native Codex
+authentication backing, independently of the worker model provider.
 
 - [Search parameters, outputs, and bounds](../../docs/reference/tools.md#search-tool).
 - [Security setup](../../docs/guides/security.md) and [service contract](../../docs/reference/events.md#security-services).

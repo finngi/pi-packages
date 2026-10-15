@@ -122,6 +122,8 @@ export interface ResourceSpec {
 }
 export interface ResourceAuthority {
   tools: string[];
+  /** Native registration entrypoints; supplied by the host, never a task argument. */
+  toolSources?: Record<string, string>;
   skills: Skill[];
   model?: SelectedModel;
   models?: readonly Model<Api>[];
@@ -130,6 +132,7 @@ export interface ResourceAuthority {
   userMessages?: string[];
 }
 export interface ChildResources {
+  extensions?: string[];
   instructions: string;
   tools: string[];
   skills: Skill[];
@@ -143,6 +146,7 @@ export interface ChildResources {
 export interface ChildAuth {
   model: Model<Api>;
   auth: Extract<Awaited<ReturnType<ModelRegistry["getApiKeyAndHeaders"]>>, { ok: true }>;
+  providerHeaders?: Record<string, string>;
   fixture?: boolean;
 }
 export interface ChildAuthOptions {

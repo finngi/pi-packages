@@ -3,10 +3,14 @@ import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  type ExtensionAPI,
+  type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { ChildLaunchService, Communication, PreparedChild, ResourceSpec } from "pi-contracts";
 import {
-  childTools,
+  childToolAuthority,
   installChildResources,
   resolveChildAuth,
   resolveChildResources,
@@ -69,7 +73,7 @@ export function createUnrestrictedLauncher(
     return resolveChildResources(
       spec as ResourceSpec,
       {
-        tools: pi.getActiveTools().filter((name) => childTools.includes(name)),
+        ...childToolAuthority(pi, messagingExtension),
         skills: pi
           .getCommands()
           .filter((command) => command.source === "skill")
@@ -146,6 +150,7 @@ export function createUnrestrictedLauncher(
         const env = {
           ...process.env,
           PI_SUBAGENT: "1",
+          PI_CHILD_AGENT_DIR: getAgentDir(),
           PI_SUBAGENT_CONTEXT: JSON.stringify({ ...communication, workspace }),
           PI_SUBAGENT_SECURITY: "off",
           PI_CODING_AGENT_DIR: agentDir,
@@ -167,15 +172,16 @@ export function createUnrestrictedLauncher(
           "NODE_PATH",
         ])
           delete (env as NodeJS.ProcessEnv)[key];
-        const cli = fileURLToPath(
-          new URL("./cli.js", import.meta.resolve("@earendil-works/pi-coding-agent")),
-        );
+        const cli = fileURLToPath(new URL(import.meta.resolve("pi-runtime/child-rpc")));
         const argv = [
           process.execPath,
           cli,
           "--mode",
           "rpc",
           "--no-extensions",
+          "--no-mcp",
+          "--no-themes",
+          "--no-session",
           "--no-skills",
           "--no-prompt-templates",
           "--no-context-files",
@@ -183,9 +189,9 @@ export function createUnrestrictedLauncher(
           selected.tools.join(","),
           "-e",
           messagingExtension,
-          ...(!auth.fixture
-            ? ["-e", fileURLToPath(new URL(import.meta.resolve("pi-runtime/child-auth")))]
-            : []),
+          ...(selected.extensions ?? [])
+            .filter((source) => source !== messagingExtension)
+            .flatMap((source) => ["-e", source]),
           ...(fixtureProviderExtension ? ["-e", fixtureProviderExtension] : []),
           "--append-system-prompt",
           installed.instructions,

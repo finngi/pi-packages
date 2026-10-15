@@ -4,14 +4,15 @@ Session-owned subprocess transport for Pi. It owns process lifetime, bounded out
 
 Install this native Pi package on its own. It requires neither `pi-goal` nor `pi-delegation` nor a custom launcher. Shared process utilities are ordinary imported code; importing them does not load the background extension or register tools. The exit handler is installed only when a Pi session starts, and session shutdown closes its jobs. Process handles do not survive reopening a session.
 
-Delegation can share this parent process manager. Child sessions still use their own stock
-Bash/file tools and messaging; they do not inherit the parent’s `background_process` tool.
+Delegation can share this parent process manager. Security-off children inherit selected native
+Bash and `background_process` tools. Each child owns its jobs; its inspector does not expose parent
+or sibling jobs, and closing the child stops its jobs.
 
 The manager provides separate capacity for shell commands (four by default) and subagents (sixteen by default), so delegation leaves room for parent shell work.
 
 The model's `background_process` tool lists, inspects, reads, or cancels session jobs. `/jobs list`, `/jobs read ID [CURSOR]`, and `/jobs cancel ID` provide the same controls in the UI. `/background` yields a foreground shell or goal wait so the conversation can continue while the work remains active.
 
-When security is off, pi-background overrides Pi's stock `bash` tool with the same SDK schema backed by the session process manager and ordinary host Bash access. In this mode, pi-background manages process lifetime; it does not authorize commands or constrain host access. With security enabled, pi-security owns the `bash` tool and authorization. Its default `internal` transport manages secured processes without pi-background. When `PI_SECURITY_TRANSPORT=extensions` selects the extension transport, pi-security launches secured commands through the session manager using a prepared one-use capability. The security lease remains held until the managed job completes or is cancelled, times out, or the session shuts down. On POSIX, process groups clean up ordinary descendants; on Windows, cancellation stops only the direct child. Deliberate daemon/session escapes remain a limitation.
+When security is off, pi-background overrides Pi's stock `bash` tool with the SDK schema plus an optional `background` boolean, backed by the session process manager and ordinary host Bash access. `bash({ command: "…", background: true })` returns a managed process ID immediately for `background_process` to read or cancel. Foreground commands keep the native result format. In this mode, pi-background manages process lifetime; it does not authorize commands or constrain host access. With security enabled, pi-security owns the `bash` tool and authorization. Its default `internal` transport manages secured processes without pi-background. When `PI_SECURITY_TRANSPORT=extensions` selects the extension transport, pi-security launches secured commands through the session manager using a prepared one-use capability. The security lease remains held until the managed job completes or is cancelled, times out, or the session shuts down. On POSIX, process groups clean up ordinary descendants; on Windows, cancellation stops only the direct child. Deliberate daemon/session escapes remain a limitation.
 
 - [Background tool and limits](../../docs/reference/tools.md#background-process-tool).
 - [Trusted background service](../../docs/reference/events.md#background-service).

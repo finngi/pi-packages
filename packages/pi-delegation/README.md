@@ -43,3 +43,9 @@ This writes only a native session entry: resume restores it, while new sessions 
 `session_setup({op: "reset"})` removes the override. Tools change immediately; selected instruction
 and skill prompt sections change on the next run. See [session setup](../../docs/reference/tools.md#session-setup)
 for package expansion, exact IDs, validation and the distinction between selection and permissions.
+
+Security-off children inherit selected native package tools through their registered source paths.
+An explicit agent tool list narrows that selection. Native Pi still loads extensions, filters tools,
+resolves authentication and owns RPC; children do not install packages or save defaults. See
+[child tool selection](../../docs/guides/delegation.md#use-private-skills-and-scripts) and the
+[launch decision](../../docs/decisions/native-child-tools.md) for the boundaries.

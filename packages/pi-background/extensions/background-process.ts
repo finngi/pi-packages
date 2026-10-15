@@ -361,35 +361,76 @@ export default function (pi: ExtensionAPI) {
   }
   function registerHostBash() {
     const cwd = process.cwd();
-    const definition = createBashToolDefinition(cwd, {
-      operations: {
-        async exec(command, shellCwd, options) {
-          const { result, yielded } = await runManagedShell({
-            command: "/bin/bash",
-            args: ["-lc", command],
-            cwd: shellCwd,
-            env: options.env ?? process.env,
-            signal: options.signal,
-            timeout: options.timeout,
-            mode: "host",
-            label: "host bash",
-            requireNoSecurity: true,
-            onData: (_stream, data) => options.onData(data),
-          });
-          if (yielded) {
-            options.onData(
-              Buffer.from(
-                `[Process ${yielded.details.id} is continuing in the background. Use background_process to inspect it.]\n`,
-              ),
-            );
-            return { exitCode: 0 };
-          }
-          const details = result?.structuredContent as { exit_code?: number } | undefined;
-          return { exitCode: details?.exit_code ?? 1 };
-        },
+    const base = createBashToolDefinition(cwd);
+    const parameters = Type.Object({
+      ...base.parameters.properties,
+      background: Type.Optional(
+        Type.Boolean({
+          description: "Return immediately while the command runs in the background",
+        }),
+      ),
+    });
+    type BashDetails = Awaited<ReturnType<typeof base.execute>>["details"];
+    type BackgroundResult = NonNullable<Awaited<ReturnType<typeof runManagedShell>>["yielded"]>;
+    pi.registerTool<typeof parameters, BashDetails | BackgroundResult["details"]>({
+      ...base,
+      defaultActive: false,
+      description: `${base.description} Set background:true to return a managed process ID immediately; use background_process to read or cancel it.`,
+      parameters,
+      outputSchema: Type.Union([
+        base.outputSchema!,
+        Type.Object({ id: Type.String(), running: Type.Literal(true) }),
+      ]),
+      renderResult(result, options, theme, context) {
+        return base.renderResult!(
+          {
+            ...result,
+            details: result.details && "id" in result.details ? undefined : result.details,
+          },
+          options,
+          theme,
+          context,
+        );
+      },
+      async execute(id, input, signal, onUpdate, ctx) {
+        let backgroundResult: BackgroundResult | undefined;
+        const definition = createBashToolDefinition(cwd, {
+          operations: {
+            async exec(command, shellCwd, options) {
+              const { result, yielded } = await runManagedShell({
+                command: "/bin/bash",
+                args: ["-lc", command],
+                cwd: shellCwd,
+                env: options.env ?? process.env,
+                signal: options.signal,
+                timeout: options.timeout,
+                foreground: input.background !== true,
+                mode: "host",
+                label: "host bash",
+                requireNoSecurity: true,
+                onData: (_stream, data) => options.onData(data),
+              });
+              if (yielded) {
+                if (input.background === true) backgroundResult = yielded;
+                else
+                  options.onData(
+                    Buffer.from(
+                      `[Process ${yielded.details.id} is continuing in the background. Use background_process to inspect it.]\n`,
+                    ),
+                  );
+                return { exitCode: 0 };
+              }
+              const details = result?.structuredContent as { exit_code?: number } | undefined;
+              return { exitCode: details?.exit_code ?? 1 };
+            },
+          },
+        });
+        const result = await definition.execute(id, input, signal, onUpdate, ctx);
+        return backgroundResult
+          ? { ...backgroundResult, structuredContent: backgroundResult.details }
+          : result;
       },
     });
-    pi.registerTool({ ...definition, defaultActive: false });
     bashRegistered = true;
   }
   function registerBackgroundProcessTool(skip: boolean, defaultActive: boolean) {

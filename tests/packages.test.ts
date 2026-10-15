@@ -191,6 +191,23 @@ test(
       });
       assert.equal(run.status, 0, run.stderr);
       assert.match(run.stdout, /"ready"/);
+      const subprocessEnv = { ...process.env };
+      delete subprocessEnv.NODE_TEST_CONTEXT;
+      const childTools = spawnSync(
+        process.execPath,
+        [
+          "--test",
+          join(root, "packages/pi-delegation/lib/subagent/native-package-tools-stock.test.ts"),
+        ],
+        {
+          cwd: directory,
+          encoding: "utf8",
+          timeout: 30000,
+          env: { ...subprocessEnv, PI_CHILD_PACKAGED_ROOT: join(directory, "node_modules") },
+        },
+      );
+      assert.equal(childTools.status, 0, childTools.stdout + childTools.stderr);
+      assert.match(childTools.stdout, /pass 3/);
       const codemode = spawnSync(
         process.execPath,
         ["--test", join(root, "packages/pi-security/test/mcp/codemode-stock.test.mjs")],
@@ -198,7 +215,7 @@ test(
           cwd: directory,
           encoding: "utf8",
           env: {
-            ...process.env,
+            ...subprocessEnv,
             PI_SECURITY_CODEMODE_EXTENSION: join(
               directory,
               "node_modules/pi-security/dist/src/extension.js",
@@ -211,6 +228,7 @@ test(
         },
       );
       assert.equal(codemode.status, 0, codemode.stdout + codemode.stderr);
+      assert.match(codemode.stdout, /pass [1-9][0-9]*/);
 
       // Writable kernel integration is supported by the macOS backend only.
       if (process.platform === "darwin") {

@@ -95,8 +95,8 @@ skip model review, and unmatched actions require manual approval or an available
 Missing policy/model, malformed response, cancellation and ambiguous verdicts block the action.
 The model sees user context, worker reasoning/explanation and the exact action as evidence.
 
-The gate is process-local. Ordinary agent children deliberately disable inherited executable
-extensions, so a parent permission package does not automatically review each child action.
+The gate is process-local. Children load selected tool entrypoints; hook-only permission packages
+do not accompany those tools automatically, so a parent gate does not review each child action.
 Reviewing a `subagent` launch grants that launch; it is not evidence of per-child tool review.
 Child tasks are worker-authored, not root-user authorization. Do not claim sandbox confinement
 or automatic descendant enforcement. Existing explicitly selected sandbox service failures still

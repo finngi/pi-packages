@@ -88,10 +88,25 @@ implemented with Pi's native custom UI, input, Markdown and mouse APIs.
 
 An omitted `skills` field in an agent definition inherits the project's selected public skills and adds every skill in that agent's bundle. `skills: []` selects none; an explicit list narrows across both public and private skills, with a bundle skill winning a same-name collision. Bundle skills need no separate parent registration. Deliberately exporting one through a public skill path makes it independently selectable by the parent. See [agent metadata](../reference/configuration.md#agent-definitions) for the exact rules.
 
-Children inherit supported parent tools: `read`, `write`, `edit`, `ls`, `find`, `grep` and `bash`,
-plus delegation messaging. Parent extension tools such as `codex_search` and `background_process`
-are not installed automatically in children. Loading those parent packages does not change this
-child tool set.
+Security-off children inherit the parent's selected task tools, including native package tools
+such as `codex_search` and `background_process`. An explicit agent `tools` list narrows that set;
+`tools: []` selects none. Delegation messaging stays bound separately. Parent orchestration tools
+(`subagent`, its lifecycle tools and `session_setup`) are not inherited.
+
+The launcher takes entrypoints from Pi's native tool source metadata and loads them through Pi's
+resource loader. Native tool filtering excludes unselected sibling tools from the same extension.
+No second package catalogue or extension opt-in field is needed. Inline SDK tools without a
+loadable source and native MCP connections cannot be transferred. Existing children keep their
+launch-time selection.
+
+Children use Pi's native authentication backing at the original agent directory, so search can
+use Codex OAuth even when the worker model belongs to another provider. Resource settings and
+transcripts stay isolated and in memory: starting a child never installs configured packages.
+Each child owns its jobs; `bash({command: "…", background: true})` returns a job ID for that child's
+`background_process` calls. Closing the child stops its remaining jobs.
+
+The separate secured launcher still restricts children to its existing tool set; equivalent native
+package support is prepared separately and requires security-boundary approval.
 
 ### Use private skills and scripts
 

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ChildAuth, ChildAuthOptions, SelectedModel } from "pi-contracts";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -36,7 +36,8 @@ export async function resolveChildAuth(
     throw Error("child custom provider cannot be transferred; requires trusted provider adapter");
   const auth = await registry.getApiKeyAndHeaders(model);
   if (!auth?.ok) throw Error("child selected provider authentication unavailable");
-  const plain = JSON.stringify({ model, auth });
+  const providerHeaders = (config as { headers?: Record<string, string> } | undefined)?.headers;
+  const plain = JSON.stringify({ model, auth, ...(providerHeaders ? { providerHeaders } : {}) });
   if (plain.length > 1024 * 1024) throw Error("child authentication configuration too large");
   return { ...JSON.parse(plain), ...(callback || !supported ? { fixture: true } : {}) };
 }
@@ -51,7 +52,7 @@ export async function resolveClassifierAuth(
   if (!model) throw Error("child classifier unavailable or unsupported provider adapter");
   return resolveChildAuth(registry, { provider: model.provider, id: model.id }, options);
 }
-export default async function childAuth(pi: ExtensionAPI) {
+export default async function childAuth(pi: ExtensionAPI, nativeRuntime?: ModelRuntime) {
   const payload = JSON.parse(
     process.env.PI_CHILD_AUTH ?? process.env.PI_SECURITY_CHILD_AUTH ?? "null",
   );
@@ -77,18 +78,43 @@ export default async function childAuth(pi: ExtensionAPI) {
     {
       model: ChildAuth["model"];
       auth: ChildAuth["auth"];
+      providerHeaders?: ChildAuth["providerHeaders"];
       api: NonNullable<ReturnType<typeof getApiProvider>>;
     }[]
   >();
-  for (const { model, auth } of selected) {
+  for (const { model, auth, providerHeaders, fixture } of selected) {
+    if (fixture) continue;
     const api = getApiProvider(model.api);
     if (!api) throw Error("child API adapter unavailable");
     const effective = { ...model, ...(auth.baseUrl ? { baseUrl: auth.baseUrl } : {}) };
     const entries = providers.get(model.provider) ?? [];
-    entries.push({ model: effective, auth, api });
+    entries.push({ model: effective, auth, providerHeaders, api });
     providers.set(model.provider, entries);
   }
-  for (const [provider, entries] of providers)
+  for (const [provider, entries] of providers) {
+    if (nativeRuntime && (await nativeRuntime.getAuth(provider))) {
+      const models = new Map(
+        nativeRuntime
+          .getAllModels(provider)
+          .map((model) => [`${model.type ?? "chat"}:${model.id}`, model]),
+      );
+      const changedModels = entries.some(
+        ({ model }) =>
+          JSON.stringify(models.get(`${model.type ?? "chat"}:${model.id}`)) !==
+          JSON.stringify(model),
+      );
+      const providerHeaders = entries.find(
+        (entry) => entry.providerHeaders !== undefined,
+      )?.providerHeaders;
+      if (providerHeaders !== undefined || changedModels) {
+        for (const { model } of entries) models.set(`${model.type ?? "chat"}:${model.id}`, model);
+        pi.registerProvider(provider, {
+          ...(providerHeaders !== undefined ? { headers: providerHeaders } : {}),
+          ...(changedModels ? { models: [...models.values()] } : {}),
+        });
+      }
+      continue;
+    }
     pi.registerProvider(provider, {
       api: entries[0].model.api,
       apiKey: "resolved-child-auth",
@@ -107,4 +133,5 @@ export default async function childAuth(pi: ExtensionAPI) {
         });
       },
     });
+  }
 }

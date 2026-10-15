@@ -504,8 +504,8 @@ test("a bad file in a trusted level is a problem and the level's other agents st
 test("metadata targets filter deployment copies and invalid authored tools/modes refuse", () => {
   assert.deepEqual(withFields({ targets: ["pi"] }).targets, ["pi"]);
   assert.throws(() => withFields({ targets: ["codex"] }), /targets/);
-  assert.throws(() => withFields({ tools: ["Read"] }), /Pi child tool/);
-  assert.throws(() => withFields({ tools: ["subagent"] }), /Pi child tool/);
+  assert.deepEqual(withFields({ tools: ["Read"] }).tools, ["Read"]);
+  assert.deepEqual(withFields({ tools: ["subagent"] }).tools, ["subagent"]);
   assert.throws(() => withFields({ permissionMode: "typo" }), /authored mode/);
   const dir = mkdtempSync(join(tmpdir(), "agents-targets-"));
   writeFileSync(join(dir, "x.md"), "ignored");
@@ -606,3 +606,15 @@ test(
     }
   },
 );
+
+test("agent tools may name selected native extension tools; availability is checked at launch", () => {
+  const definition = parseAgent(agentFile("worker"), "/fixture/worker.md", () => ({
+    frontmatter: {
+      name: "worker",
+      description: "Task worker",
+      tools: ["codex_search", "background_process"],
+    },
+    body: "Complete the task.",
+  }));
+  assert.deepEqual(definition.tools, ["codex_search", "background_process"]);
+});

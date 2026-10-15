@@ -17,7 +17,7 @@ export interface AgentDef {
   /** `inherit`, `provider/id[:level]`, or a bare alias matched against authenticated models. */
   model?: string;
   thinking?: string;
-  /** Pi tool names; undefined keeps pi's default set, an empty list means no tools. */
+  /** Native built-in or extension tool names; omitted inherits selected parent task tools. */
   tools?: string[];
   /** Skills shown to the agent; undefined keeps every discovered skill, an empty list means none. */
   skills?: string[];
@@ -114,8 +114,6 @@ export function parseAgent(source: string, filePath: string, parse: ParseFrontma
   )
     throw new Error("permissionMode is not a supported authored mode");
   const tools = names(frontmatter.tools, "tools");
-  if (tools?.some((t) => !["read", "edit", "write", "bash", "grep", "find", "ls"].includes(t)))
-    throw new Error("tools must contain Pi child tool names only");
   const thinking = text(frontmatter.thinking, "thinking");
   if (thinking && !THINKING_LEVELS.includes(thinking))
     throw new Error(`thinking must be one of ${THINKING_LEVELS.join(", ")}`);

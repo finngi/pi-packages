@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  childToolAuthority,
   installChildResources,
   readBundleFile,
   resolveChildResources,
@@ -453,4 +454,68 @@ test("bundle metadata cannot widen tools or use a skill outside its canonical bu
     parent(),
   );
   assert.deepEqual(resolved.skills, []);
+});
+
+test("selected native package tools inherit, and explicit lists cannot widen the parent's tools", () => {
+  const selected = {
+    ...parent(),
+    tools: ["read", "bash", "codex_search", "background_process"],
+    toolSources: {
+      codex_search: "/packages/search.js",
+      background_process: "/packages/background.js",
+    },
+  };
+  assert.deepEqual(resolveChildResources({}, selected).tools, selected.tools);
+  assert.deepEqual(resolveChildResources({ tools: ["read", "codex_search"] }, selected).tools, [
+    "read",
+    "codex_search",
+  ]);
+  assert.deepEqual(resolveChildResources({ tools: [] }, selected).tools, []);
+  assert.throws(
+    () => resolveChildResources({ tools: ["codex_search"] }, { ...parent(), tools: ["read"] }),
+    /unavailable|widened/,
+  );
+  assert.deepEqual(selected.tools, ["read", "bash", "codex_search", "background_process"]);
+  assert.throws(
+    () => resolveChildResources({}, { ...parent(), tools: ["codex_search"] }),
+    /native tool source unavailable/,
+  );
+});
+
+test("child tool entrypoints follow native active registrations, not unused package tools", () => {
+  const native = (name: string, source: string) => ({ name, sourceInfo: { path: source } });
+  const pi = {
+    getActiveTools: () => [
+      "read",
+      "codex_search",
+      "background_process",
+      "session_setup",
+      "subagent",
+      "agent_message",
+      "mcp__fixture__read",
+    ],
+    getAllTools: () => [
+      native("read", "builtin:read"),
+      native("mcp__fixture__read", "builtin:mcp"),
+      native("codex_search", "/packages/search/extension.js"),
+      native("background_process", "/packages/jobs/extension.js"),
+      native("unused", "/packages/unused/extension.js"),
+      native("subagent", "/packages/delegation/extension.js"),
+      native("agent_message", "/packages/delegation/extension.js"),
+    ],
+  };
+  const authority = {
+    ...childToolAuthority(pi as any, "/packages/delegation/extension.js"),
+    skills: [],
+    thinking: "off" as const,
+  };
+  assert.deepEqual(authority.tools, ["read", "codex_search", "background_process"]);
+  assert.deepEqual(resolveChildResources({ tools: ["codex_search"] }, authority).extensions, [
+    "/packages/search/extension.js",
+  ]);
+  assert.deepEqual(resolveChildResources({ tools: [] }, authority).extensions, undefined);
+  assert.throws(
+    () => resolveChildResources({ tools: ["unused"] }, authority),
+    /unavailable|widened/,
+  );
 });

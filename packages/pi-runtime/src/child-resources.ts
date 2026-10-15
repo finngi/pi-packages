@@ -14,6 +14,7 @@ import {
 import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ChildResources, ResourceAuthority, ResourceSpec } from "pi-contracts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export class WideningError extends Error {
   constructor(message: string) {
     super(message);
@@ -21,6 +22,30 @@ export class WideningError extends Error {
   }
 }
 export const childTools = ["read", "write", "edit", "ls", "find", "grep", "bash"];
+/** Reuse active native tool provenance instead of maintaining a second package loader. */
+export function childToolAuthority(pi: ExtensionAPI, communicationExtension?: string) {
+  const registered = new Map((pi.getAllTools?.() ?? []).map((tool) => [tool.name, tool]));
+  const toolSources: Record<string, string> = {};
+  const tools = pi.getActiveTools().filter((name) => {
+    const source = registered.get(name)?.sourceInfo?.path;
+    // A live MCP connection is not an executable entrypoint that can be transferred.
+    if (source === "builtin:mcp") return false;
+    if (name === "session_setup" || name === "subagent" || name.startsWith("subagent_"))
+      return false;
+    if (
+      (communicationExtension !== undefined && source === communicationExtension) ||
+      name === "agent_message" ||
+      name === "agent_list"
+    )
+      return false;
+    if (source && (path.isAbsolute(source) || source.startsWith("builtin:"))) {
+      toolSources[name] = source;
+      return true;
+    }
+    return childTools.includes(name);
+  });
+  return { tools, toolSources };
+}
 const fail: (message: string) => never = (message) => {
   throw new WideningError(message);
 };
@@ -92,12 +117,16 @@ export function resolveChildResources(
   )
     fail("invalid child instructions");
   const inherited: ResourceAuthority = parent ?? { tools: childTools, skills: [], thinking: "off" };
-  const tools =
-    spec.tools === undefined
-      ? inherited.tools.filter((x) => childTools.includes(x))
-      : names(spec.tools, "tools");
-  if (tools.some((x) => !childTools.includes(x) || !inherited.tools.includes(x)))
-    fail("child tools unavailable or widened");
+  const tools = spec.tools === undefined ? [...inherited.tools] : names(spec.tools, "tools");
+  if (tools.some((x) => !inherited.tools.includes(x))) fail("child tools unavailable or widened");
+  for (const name of tools) {
+    const source = inherited.toolSources?.[name];
+    if (
+      !childTools.includes(name) &&
+      (!source || (!path.isAbsolute(source) && !source.startsWith("builtin:")))
+    )
+      fail(`child native tool source unavailable: ${name}`);
+  }
   const requestedSkills = spec.skills === undefined ? undefined : names(spec.skills, "skills");
   const agentBundle = spec.agentBundle ? canonicalBundle(spec.agentBundle) : undefined;
   const privateSkills = agentBundle?.privateSkills ?? [];
@@ -169,7 +198,18 @@ export function resolveChildResources(
       Buffer.byteLength(JSON.stringify(spec.staticContext)) > 512 * 1024)
   )
     fail("invalid inherited static context");
+  const extensions = [
+    ...new Set(
+      tools.flatMap((name) => {
+        const source = inherited.toolSources?.[name];
+        return source && (!source.startsWith("builtin:") || !childTools.includes(name))
+          ? [source]
+          : [];
+      }),
+    ),
+  ];
   return {
+    ...(extensions.length ? { extensions } : {}),
     instructions: spec.instructions ?? "",
     tools: [
       ...tools,
