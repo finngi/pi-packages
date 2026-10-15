@@ -179,12 +179,14 @@ if (name === "pi-resources") {
 if (name === "pi-permissions") {
   await put(join(cwd, "input.txt"), "stock read works");
   await put(
-    join(agentDir, "permissions.json"),
+    join(agentDir, "settings.json"),
     JSON.stringify({
-      mode: "auto",
-      classifier: { model: "fixture/unavailable" },
-      deny: [{ tool: "write" }],
-      allow: [{ tool: "read" }],
+      permissions: {
+        mode: "auto",
+        model: "fixture/unavailable",
+        deny: ["write"],
+        allow: ["read"],
+      },
     }),
   );
 }
@@ -384,7 +386,7 @@ try {
     index = 0;
     await session.prompt("Read input.txt; the fixture policy must block writing blocked.txt.");
     assert.match(JSON.stringify(results[0].content), /stock read works/);
-    assert.match(JSON.stringify(results[1].content), /pi-permissions: deny rule/);
+    assert.match(results[1].content[0].text, /pi-permissions: denied by rule "write"/);
     await assert.rejects(access(join(cwd, "blocked.txt")), { code: "ENOENT" });
     assert.deepEqual(errors, []);
   } else throw Error(`Missing installed behaviour proof for ${name}`);

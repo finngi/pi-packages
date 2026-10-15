@@ -122,9 +122,9 @@ extensions and invalidates their contexts, including the tool performing setup. 
 owned children. A missing package response names the native loading action instead of changing
 settings, restarting work or constructing a parallel dynamic loader.
 
-## Package security and dependencies normally
+## Dependencies
 
-Security, background processes and delegation remain native extension packages. Shared libraries
+Permissions, background processes and delegation are native extension packages. Shared libraries
 are ordinary npm dependencies and importing one does not activate a sibling extension. Stock Pi
 libraries remain peer dependencies (`*`); the repository pins the tested development versions.
 Policy, credentials and personal preferences stay outside package manifests.

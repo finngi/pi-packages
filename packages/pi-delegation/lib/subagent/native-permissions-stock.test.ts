@@ -25,15 +25,14 @@ const { createNativeLauncher } = await import(
   entry("pi-delegation", "./native-launcher.ts", "dist/lib/subagent/native-launcher.js")
 );
 
-test("native launcher carries optional tool policy and genuine root intent into a child with a parent-only model", async () => {
+test("native launcher carries permission settings and root user messages into a child with a parent-only model", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-native-child-permissions-"));
   const agentDir = join(root, "native-agent"),
-    project = join(root, "project"),
-    policyPath = join(root, "permissions.json");
+    project = join(root, "project");
   await Promise.all([mkdir(agentDir), mkdir(project)]);
   await writeFile(
-    policyPath,
-    JSON.stringify({ mode: "manual", deny: [{ tool: "write" }], allow: [{ tool: "read" }] }),
+    join(agentDir, "settings.json"),
+    JSON.stringify({ permissions: { mode: "ask", deny: ["write"], allow: ["read"] } }),
   );
   const savedEnv = { ...process.env },
     savedCwd = process.cwd();
@@ -97,8 +96,6 @@ test("native launcher carries optional tool policy and genuine root intent into 
       },
     },
     registerCommand() {},
-    registerFlag() {},
-    getFlag: () => policyPath,
     appendEntry() {},
     getActiveTools: () => ["write"],
     getAllTools: () => [{ name: "write" }],
@@ -129,7 +126,7 @@ test("native launcher carries optional tool policy and genuine root intent into 
     });
     const inherited = JSON.parse(prepared.env.PI_CHILD_EXTENSION_PERMISSIONS!);
     assert.deepEqual(inherited.userMessages, ["Inspect the requested file only."]);
-    assert.equal(inherited.policy.deny[0].tool, "write");
+    assert.deepEqual(inherited.settings.deny, ["write"]);
     assert.equal(prepared.env.PI_CHILD_AUTH, undefined);
     assert.equal(prepared.env.PI_CHILD_AGENT_DIR, agentDir);
     const provider = JSON.parse(await readFile(prepared.env.PI_CHILD_PROVIDER_CONFIG!, "utf8"));
@@ -148,7 +145,7 @@ test("native launcher carries optional tool policy and genuine root intent into 
       input: { path: "denied.txt", content: "must not run" },
     });
     assert.equal(denied?.block, true);
-    assert.match(denied?.reason ?? "", /deny rule/);
+    assert.match(denied?.reason ?? "", /denied by rule "write"/);
     assert.equal(
       await readFile(join(prepared.cwd, "denied.txt"), "utf8").catch(() => undefined),
       undefined,

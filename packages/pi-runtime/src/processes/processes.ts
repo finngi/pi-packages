@@ -109,8 +109,6 @@ export class BackgroundProcesses {
         id,
         owner: spec.owner,
         label: spec.label,
-        mode: spec.mode ?? "",
-        adapterMetadata: spec.adapterMetadata,
         status: "running",
         exitCode: null,
         signal: null,

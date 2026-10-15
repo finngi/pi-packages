@@ -38,7 +38,7 @@ to one line while preserving custom prompts and explicit section overrides.
 
 Source entrypoint: [extensions/context.ts](extensions/context.ts). From the repository root, run `npm run test --workspace=pi-context`, `npm run typecheck --workspace=pi-context`, and `npm run test:e2e --workspace=pi-context`. The integration fixture exercises Pi 1.2.0 prompt/reload and Git metadata with isolated resources and no model calls.
 
-This extension provides `/instructions` and the `session_setup` tool on stock Pi without agents, background jobs or security.
+This extension provides `/instructions` and the `session_setup` tool on stock Pi without delegation, background jobs or permissions.
 
 [Resource packages](../pi-resources/README.md) add available instructions to `/instructions`.
 Package metadata helps search; selected text enters `<instructions>` with its source path.

@@ -20,12 +20,14 @@ try {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   await writeFile(path.join(cwd, "input.txt"), "stock read works");
   await writeFile(
-    path.join(agentDir, "permissions.json"),
+    path.join(agentDir, "settings.json"),
     JSON.stringify({
-      mode: "auto",
-      classifier: { model: "fixture/unavailable" },
-      deny: [{ tool: "bash", match: { program: "sudo" } }],
-      allow: [{ tool: "read" }, { tool: "bash", match: { program: "printf" } }],
+      permissions: {
+        mode: "auto",
+        model: "fixture/unavailable",
+        deny: ["bash:sudo"],
+        allow: ["read", "bash:printf"],
+      },
     }),
   );
   const model = {
@@ -132,8 +134,8 @@ try {
       .join("\n");
   assert.match(text(results[0]), /stock read works/);
   assert.match(text(results[1]), /allowed/);
-  assert.match(text(results[2]), /pi-permissions: deny rule deny\[0\]/);
-  assert.match(text(results[3]), /classifier model fixture\/unavailable is unavailable/);
+  assert.match(text(results[2]), /pi-permissions: denied by rule "bash:sudo"/);
+  assert.match(text(results[3]), /fixture\/unavailable is unavailable; no one is available to ask/);
   await assert.rejects(access(path.join(cwd, "should-not-exist")));
   assert.equal(
     session.getAllTools().filter((tool) => tool.sourceInfo?.source === "extension").length,
@@ -141,7 +143,7 @@ try {
     "gate registers no replacement tools",
   );
   console.log(
-    "Stock Pi: one native permission package; original read/bash execute; deny and missing classifier block before writes.",
+    "Stock Pi: one native permission package; allowed read/bash run; denied and unapprovable calls are blocked before writing.",
   );
 } finally {
   if (session) {

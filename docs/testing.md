@@ -22,7 +22,7 @@ while developing; run the combined checks before merging a cross-package migrati
 | Resources/context tests | Native filters, session/project/global selection, project trust, prompt separation and resume |
 | Background tests | Actual managed commands, output cursors, cancellation and process ownership |
 | Search tests | Native registry auth, scripted HTTP, citations, usage and abort/error handling |
-| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule precedence, constrained classifier output, genuine user context, native hooks and block-before-write |
+| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and blocking before a write on stock Pi |
 | Goal tests | Independent scripted evaluator, deadlines/budgets, stop/resume, wait delivery and accounting |
 | `test:packages` | Installs each artifact alone with stock Pi in a separate consumer, exercises extension behavior and library APIs, then runs a separate combined child integration |
 | `test:e2e` | Native context, child tools, jobs, permissions and installed-consumer workflows |
@@ -59,6 +59,6 @@ The npm download cache may be shared, but consumers do not share `node_modules`.
 
 Only the seven extension entrypoints activate; the three helper artifacts are ordinary libraries.
 A separate combined install checks shared session setup, resume/reset and compiled child tools.
-The permissions fixture covers the baseline package contract; it does not review another branch's
-permission redesign. These deterministic providers and HTTP responses prove package mechanics,
+The permissions fixture checks the configured read allowance and write denial. These
+deterministic providers and HTTP responses prove package mechanics,
 not live search quality, model judgement or a future Pi version.
