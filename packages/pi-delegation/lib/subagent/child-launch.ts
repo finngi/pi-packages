@@ -127,6 +127,18 @@ export async function launchChild({
                 continue;
               }
               if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+              // Only select is forwarded to the parent. Cancel other dialogs so an inherited
+              // tool that asks for confirmation or text does not wait forever.
+              if (
+                value.type === "extension_ui_request" &&
+                ["confirm", "input", "editor"].includes(value.method as string)
+              ) {
+                const response = { type: "extension_ui_response", id: value.id, cancelled: true };
+                void transport
+                  .write(id, Buffer.from(JSON.stringify(response) + "\n"))
+                  .catch(() => cancelTransport("child dialog reply failed"));
+                continue;
+              }
               if (value.type === "extension_ui_request" && value.method === "select") {
                 const sourceRequestIds = worker?.activeRequestIds() ?? [];
                 void Promise.resolve()

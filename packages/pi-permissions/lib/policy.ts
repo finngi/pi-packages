@@ -48,7 +48,11 @@ export function readSettings(raw: unknown): PermissionSettings {
     if (!Array.isArray(list)) throw Error(`permissions.${key}: expected a list`);
     for (const rule of list)
       if (typeof rule !== "string" || !RULE.test(rule))
-        throw Error(`permissions.${key}: "${String(rule)}" is not "tool" or "tool:prefix"`);
+        throw Error(`permissions.${key}: "${String(rule)}" is not "tool" or "bash:prefix"`);
+    // Only Bash commands have a prefix to match; any other prefixed rule would never apply.
+    for (const rule of list as string[])
+      if (parseRule(rule).prefix !== undefined && parseRule(rule).tool !== "bash")
+        throw Error(`permissions.${key}: "${rule}" has a prefix, but only bash rules can`);
     return list as string[];
   };
   return {

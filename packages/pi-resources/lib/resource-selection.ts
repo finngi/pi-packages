@@ -77,7 +77,11 @@ export function validateResourceSelection(
   kind: ResourceKind,
 ): ResourceSelectionValue {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (Array.isArray(value))
+    throw Error(
+      `${kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
+    );
+  if (!value || typeof value !== "object")
     throw Error(`${kind} selection must be an ID-to-boolean map`);
   const entries = Object.entries(value);
   if (entries.some(([id, selected]) => !id.trim() || typeof selected !== "boolean"))

@@ -2,9 +2,7 @@ import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const BACKGROUND_SERVICE = "background:service";
-export const CHILD_CONTEXT = "pi-subagents:context:v1";
 export const USAGE_EVENT = "pi-runtime:usage:v1";
-/** Trusted extensions forward human slash-command intent; model tool inputs must never emit this. */
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
@@ -131,7 +129,6 @@ export interface ResourceAuthority {
   models?: readonly Model<Api>[];
   thinking?: ThinkingLevel | "off";
   communicationExtension?: string;
-  userMessages?: string[];
 }
 export interface ChildResources {
   extensions?: string[];
@@ -164,7 +161,6 @@ export interface PreparedChild {
     skills: readonly string[];
     model?: Readonly<SelectedModel>;
     thinking: string;
-    permissions?: Readonly<{ write: boolean; network: boolean }>;
   }>;
   isCurrent?(): boolean;
   beforeCleanup?(callback: () => Promise<void>): void;

@@ -483,6 +483,21 @@ test("selected native package tools inherit, and explicit lists cannot widen the
   );
 });
 
+test("inherited Pi base tools such as powershell load with --tools, not as extensions", () => {
+  const selected = {
+    ...parent(),
+    tools: ["read", "powershell", "codex_search"],
+    toolSources: {
+      read: "builtin:read",
+      powershell: "builtin:powershell",
+      codex_search: "/packages/search.js",
+    },
+  };
+  const resolved = resolveChildResources({}, selected);
+  assert.deepEqual(resolved.tools, ["read", "powershell", "codex_search"]);
+  assert.deepEqual(resolved.extensions, ["/packages/search.js"]);
+});
+
 test("child tool entrypoints follow native active registrations, not unused package tools", () => {
   const native = (name: string, source: string) => ({ name, sourceInfo: { path: source } });
   const pi = {

@@ -338,13 +338,13 @@ async function uiBridgeFixture(
     expire() {
       current = false;
     },
-    request() {
+    request(method = "select") {
       receive(
         "stdout",
         Buffer.from(
           JSON.stringify({
             type: "extension_ui_request",
-            method: "select",
+            method,
             id: "permission",
             title: "Allow write?",
             options: ["Allow once", "Deny"],
@@ -392,6 +392,21 @@ test("a headless parent cancels a native child selection explicitly", async () =
     await f.child.close();
   }
 });
+
+for (const method of ["confirm", "input", "editor"])
+  test(`a native child ${method} dialog is cancelled instead of left waiting`, async () => {
+    const f = await uiBridgeFixture(async () => assert.fail("only select reaches the parent"));
+    try {
+      f.request(method);
+      await f.tick();
+      assert.deepEqual(
+        f.writes.find((value) => value.id === "permission"),
+        { type: "extension_ui_response", id: "permission", cancelled: true },
+      );
+    } finally {
+      await f.child.close();
+    }
+  });
 
 test("a stale native child selection cannot send approval and cancels pending UI", async () => {
   let resolve!: (value: string) => void;

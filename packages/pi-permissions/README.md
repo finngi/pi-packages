@@ -47,8 +47,8 @@ When there is no UI to ask, such as in print mode, calls that would need you are
 
 ## Rules
 
-A rule is a tool name (`"edit"`) or a Bash command prefix (`"bash:git status"`). Deny rules are
-checked first, then allow rules.
+A rule is a tool name (`"edit"`) or a Bash command prefix (`"bash:git status"`); other tools
+take no prefix. Deny rules are checked first, then allow rules.
 
 - A Bash allow rule only matches a single plain command: no `;`, `&&`, `|`, redirects or `$(...)`.
   Anything more complex goes to the mode.

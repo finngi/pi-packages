@@ -67,7 +67,7 @@ test("setup instruction discovery returns trusted metadata, pack membership and 
         },
       },
     };
-    const result = instructionCatalogue(global, saved, project, agentDir, true, true, packs);
+    const result = instructionCatalogue(global, saved, project, true, true, packs);
     assert.equal(
       result.candidates.length,
       4,
@@ -96,7 +96,6 @@ test("setup instruction discovery returns trusted metadata, pack membership and 
       { ...global, localContext: { instructions: { [globalId]: true } } },
       { localContext: { instructions: { [packId]: true } } },
       project,
-      agentDir,
       true,
       true,
       packs,
@@ -105,18 +104,15 @@ test("setup instruction discovery returns trusted metadata, pack membership and 
       new Set(sparse.selected),
       new Set([globalId, packId, "local:.agents/instructions/local.md"]),
     );
-    const untrusted = instructionCatalogue(global, saved, project, agentDir, false, true, packs);
+    const untrusted = instructionCatalogue(global, saved, project, false, true, packs);
     assert.deepEqual(untrusted.selected, [globalId]);
     assert.ok(!untrusted.candidates.some((item) => item.id.startsWith("local:")));
     assert.deepEqual(
-      instructionCatalogue(global, saved, project, agentDir, true, false, packs).candidates,
+      instructionCatalogue(global, saved, project, true, false, packs).candidates,
       [],
     );
-    assert.deepEqual(
-      instructionCatalogue(global, saved, project, agentDir, true, false, packs).selected,
-      [],
-    );
-    assert.deepEqual(instructionCatalogue({}, {}, project, agentDir, true, true, packs).selected, [
+    assert.deepEqual(instructionCatalogue(global, saved, project, true, false, packs).selected, []);
+    assert.deepEqual(instructionCatalogue({}, {}, project, true, true, packs).selected, [
       "local:.agents/instructions/local.md",
     ]);
   } finally {

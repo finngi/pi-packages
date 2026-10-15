@@ -88,7 +88,6 @@ export function createNativeLauncher(
       return {
         tools: selected.tools,
         skills: selected.skills.map((skill) => skill.name),
-        permissions: { write: true, network: true },
         scope: {
           execution: "host permissions",
           approval: "native tool-call hooks",
@@ -207,7 +206,6 @@ export function createNativeLauncher(
             skills: selected.skills.map((skill) => skill.name),
             model: selected.model,
             thinking: selected.thinking,
-            permissions: { write: true, network: true },
           },
           isCurrent: () => live,
           beforeCleanup(callback) {

@@ -296,3 +296,14 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
 test("settings list compatibility is rejected rather than converted", () => {
   assert.throws(() => validateResourceSelection(["old"], "skills"), /ID-to-boolean map/);
 });
+
+test("the old list format names the setting to edit", () => {
+  assert.throws(
+    () => validateResourceSelection(["tdd"], "skills"),
+    /subagents\.skills in settings\.json uses the old list format/,
+  );
+  assert.throws(
+    () => validateResourceSelection(["a"], "instructions"),
+    /localContext\.instructions in settings\.json/,
+  );
+});
