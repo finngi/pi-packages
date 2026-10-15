@@ -1,93 +1,57 @@
 import type { FoundAgent } from "./agents.ts";
 import { escapeXml } from "./messages.ts";
 
-export interface AgentPreview {
-  tools: string[];
-  scope: Record<string, unknown>;
-}
-
-const previewScopeFields = [
-  "workspaceModes",
-  "execution",
-  "approval",
-  "read",
-  "write",
-  "network",
-  "capabilities",
-  "unavailable",
+/** Scope fields the native launcher reports, in display order. */
+const scopeFields = [
+  ["workspaceModes", "workspace"],
+  ["execution", "execution"],
+  ["approval", "approval"],
+  ["read", "read"],
+  ["write", "write"],
+  ["network", "network"],
+  ["unavailable", "unavailable"],
 ] as const;
 
-function previewText(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length > 512) return undefined;
-  const normalized = value.normalize("NFKC");
-  if (/[%&\\/\u0000-\u001f\u2044\u2215\u29f8]/u.test(normalized)) return undefined;
-  return value;
+type ScopeField = (typeof scopeFields)[number][0];
+
+export interface AgentPreview {
+  tools: string[];
+  scope: Partial<Record<ScopeField, string | string[]>>;
 }
 
-function previewValue(value: unknown): unknown {
-  const text = previewText(value);
-  if (text !== undefined) return text;
-  if (
-    Array.isArray(value) &&
-    value.length <= 128 &&
-    value.every((item) => typeof item === "string" && previewText(item) !== undefined)
-  )
-    return value.map((item) => previewText(item));
-  return undefined;
-}
+const isText = (value: unknown): value is string | string[] =>
+  typeof value === "string" ||
+  (Array.isArray(value) && value.every((item) => typeof item === "string"));
 
-/** Keep launcher internals such as private skills and policy deny paths out of parent context. */
+/** Keep the tools and scope summary; launcher details such as child skills stay out of parent context. */
 export function publicAgentPreview(value: unknown): AgentPreview {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw Error("Child capability preview is invalid");
-  const preview = value as Record<string, unknown>;
+  const preview = (value ?? {}) as { tools?: unknown; scope?: unknown };
   if (
     !Array.isArray(preview.tools) ||
-    preview.tools.length > 256 ||
     !preview.tools.every(
       (tool) => typeof tool === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(tool),
     ) ||
     !preview.scope ||
-    typeof preview.scope !== "object" ||
-    Array.isArray(preview.scope)
+    typeof preview.scope !== "object"
   )
     throw Error("Child capability preview is invalid");
-
   const rawScope = preview.scope as Record<string, unknown>;
-  const scope: Record<string, unknown> = {};
-  for (const field of previewScopeFields) {
-    const safe = previewValue(rawScope[field]);
-    if (safe !== undefined) scope[field] = safe;
+  const scope: AgentPreview["scope"] = {};
+  for (const [field] of scopeFields) {
+    const value = rawScope[field];
+    if (isText(value)) scope[field] = value;
   }
   return { tools: [...preview.tools], scope };
 }
 
-/** Render the capability summary; full policy data stays in inspection results. */
 export function scopeCatalogue(scope: AgentPreview["scope"]): string {
-  const rows: Array<[string, unknown]> = [
-    ["workspace", scope.workspaceModes ?? ["scratch"]],
-    ["execution", scope.execution],
-    ["approval", scope.approval],
-    ["read", scope.read],
-    ["write", scope.write],
-    ["network", scope.network],
-    ["capabilities", scope.capabilities],
-    ["unavailable", scope.unavailable],
-  ];
-  const text = (value: unknown): string | undefined => {
-    if (typeof value === "string") return value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string"))
-      return value.length ? value.join(", ") : "none";
-    return undefined;
-  };
-  return [
-    "    <scope>",
-    ...rows.flatMap(([name, value]) => {
-      const content = text(value);
-      return content === undefined ? [] : [`      <${name}>${escapeXml(content)}</${name}>`];
-    }),
-    "    </scope>",
-  ].join("\n");
+  const rows = scopeFields.flatMap(([field, tag]) => {
+    const value = field === "workspaceModes" ? (scope[field] ?? ["scratch"]) : scope[field];
+    if (value === undefined) return [];
+    const content = typeof value === "string" ? value : value.join(", ") || "none";
+    return [`      <${tag}>${escapeXml(content)}</${tag}>`];
+  });
+  return ["    <scope>", ...rows, "    </scope>"].join("\n");
 }
 
 export function agentCatalogue(
