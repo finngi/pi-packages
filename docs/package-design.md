@@ -13,12 +13,14 @@ resources and the loaded skill pool. This preserves both package filters and CLI
 
 Agent definitions/private bundles and selected eager instruction snippets remain custom because
 Pi has no native resource types with those semantics. The cost is a small contained directory
-reader for those two fields. Revisit it if stock Pi adds equivalent resource types. Remote
-agent/instruction-only packages need a native resolved resource; local packages can be custom-only.
-Stock Pi 1.2 also exposes `-e` skill paths as CLI resources without their package roots. Those
-skills remain individually selectable; custom agents/instructions and package grouping require
-configured native sources. Revisit this when Pi exposes complete resolved package metadata.
-These limits avoid inventing a second identity resolver or reviving stale installations.
+reader for those two fields. Revisit it if stock Pi adds equivalent resource types.
+Configured packages and explicit `-e` sources can contain only agents/instructions. For CLI sources,
+Pi's exported argument parser supplies the requested sources and its installed-path lookup supplies
+already-resolved temporary roots. No cache paths, hashes or source identities are reconstructed.
+Only actual loaded skills are grouped; native exclusions stay authoritative. Explicit CLI copies
+take precedence over configured copies with the same package name. Discovery never installs code
+or changes package settings. Pi 1.2's implementation accepts the temporary lookup scope although
+its exported TypeScript declaration omits it; the call is covered by stock-Pi checks.
 
 ## Discover packages through Pi
 
@@ -31,8 +33,8 @@ not search arbitrary directories or install missing packages.
 
 The resource browser lists packages that contribute available skills, agents or instructions.
 An extension-only package still loads through Pi, but has no guidance to select in that browser.
-Temporary `pi -e SOURCE` resources use Pi's native loader; the package-root metadata limitation
-above still applies to grouping their custom resources.
+Temporary `pi -e SOURCE` resources use Pi's native loader and are grouped from those explicit
+sources, without requiring a project registration or another profile.
 
 ## Use the native package shape
 

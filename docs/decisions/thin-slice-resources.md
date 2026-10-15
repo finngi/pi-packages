@@ -64,10 +64,10 @@ No package needs a launcher-controlled runtime to discover resource files.
 
 ## Limits kept explicit
 
-The native resource API does not enumerate a temporary `-e` package that yields no native resource
-records. Custom-only agent/instruction packages should therefore be registered in personal/project
-`packages` settings. Native `-e` skills still work through Pi's loader. We did not add CLI parsing,
-cache scanning or a second package resolver to infer invisible temporary roots.
+The native resource list does not enumerate a temporary `-e` package with no native resource
+records. Pi's exported argument parser and native installed-path lookup provide those roots
+without installing, scanning caches or saving settings. Only native loaded skills enter the
+package group. A direct `-e` extension file does not cause a scan of its containing directory.
 
 Existing explicit standalone directories remain supported; this change does not migrate user
 settings or remove authored files. Installing/loading executable extensions remains a native Pi

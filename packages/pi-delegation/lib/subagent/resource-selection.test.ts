@@ -501,3 +501,44 @@ test("pack-only skills and agents are inactive until selected while explicitly n
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("native temporary skills retain package ownership when a legacy catalogue has the same name", async () => {
+  const root = mkdtempSync(join(tmpdir(), "native-skill-priority-"));
+  try {
+    const pack = join(root, "package"),
+      legacy = join(root, "legacy"),
+      agentDir = join(root, "agent");
+    const nativePath = skill(join(pack, "skills"), "check");
+    skill(legacy, "check");
+    writeFileSync(
+      join(pack, "package.json"),
+      JSON.stringify({ name: "temporary-package", pi: { extensions: [], skills: ["skills"] } }),
+    );
+    const settings = SettingsManager.inMemory({ resources: { skillCatalogues: [legacy] } } as any);
+    const loaded = [{ name: "check", path: nativePath }];
+    const packs = (
+      await discoverResourcePackages(
+        settings,
+        root,
+        agentDir,
+        [{ path: nativePath, source: "cli", scope: "temporary", origin: "top-level" }],
+        [pack],
+      )
+    ).packs;
+    const choices = configuredSkillChoices(
+      settings,
+      root,
+      agentDir,
+      loaded,
+      false,
+      new Set([nativePath]),
+      packs,
+    );
+    assert.equal(choices.length, 1);
+    assert.equal(choices[0].path, nativePath);
+    assert.equal(choices[0].packName, "temporary-package");
+    assert.equal(choices[0].defaultSelected, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

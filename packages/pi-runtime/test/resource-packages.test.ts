@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import test from "node:test";
 import { SettingsManager, loadSkills } from "@earendil-works/pi-coding-agent";
 import {
@@ -233,7 +233,7 @@ test("the read cap holds when a regular file grows after its descriptor was insp
   }
 });
 
-test("package candidates respect actual native --no-skills loading; temporary -e skills remain native resources", async () => {
+test("package candidates respect native skill exclusions and group explicit temporary package resources", async () => {
   const { DefaultResourceLoader } = await import("@earendil-works/pi-coding-agent");
   const f = fixture();
   try {
@@ -270,8 +270,12 @@ test("package candidates respect actual native --no-skills loading; temporary -e
       f.root,
       join(f.root, "agent"),
       loaded.map((skill) => skill.sourceInfo),
+      [f.pack],
     );
-    assert.deepEqual(allowed.packs, []);
+    assert.deepEqual(allowed.problems, []);
+    assert.equal(allowed.packs.length, 1);
+    assert.deepEqual(allowed.packs[0].skills, [f.skill]);
+    assert.equal(allowed.packs[0].globalDefaultable, false);
     assert.equal(loaded[0].sourceInfo.origin, "top-level");
     assert.equal(loaded[0].sourceInfo.baseDir, undefined);
   } finally {
@@ -334,6 +338,86 @@ test("native project package identity supersedes a different user version withou
       false,
     );
   } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("native temporary lookup discovers relative custom-only packages without settings writes or code execution", async () => {
+  const { DefaultPackageManager } = await import("@earendil-works/pi-coding-agent");
+  const f = fixture();
+  try {
+    f.manifest.pi.skills = [];
+    put(join(f.pack, "package.json"), JSON.stringify(f.manifest));
+    const settings = SettingsManager.inMemory();
+    const manager = new DefaultPackageManager({
+      settingsManager: settings,
+      cwd: f.root,
+      agentDir: join(f.root, "agent"),
+    });
+    const source = relative(f.root, f.pack);
+    const native = await manager.resolveExtensionSources([source], { temporary: true });
+    assert.deepEqual(Object.values(native).flat(), []);
+    const found = await discoverResourcePackages(
+      settings,
+      f.root,
+      join(f.root, "agent"),
+      [],
+      [source],
+    );
+    assert.deepEqual(found.problems, []);
+    assert.equal(found.packs.length, 1);
+    assert.deepEqual(found.packs[0].skills, []);
+    assert.deepEqual(found.packs[0].agents, [join(f.pack, "agents")]);
+    assert.match(found.packs[0].instructions[0].content, /INSTRUCTION_BODY/);
+    assert.equal(found.packs[0].globalDefaultable, false);
+    assert.deepEqual(settings.getGlobalSettings(), {});
+    assert.deepEqual(settings.getProjectSettings(), {});
+    // A standalone extension file is not permission to scan its containing package.
+    const fileOnly = await discoverResourcePackages(
+      settings,
+      f.root,
+      join(f.root, "agent"),
+      [],
+      [join(f.pack, "extensions/must-not-run.ts")],
+    );
+    assert.deepEqual(fileOnly.packs, []);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("temporary roots use Pi's cache lookup and explicit packages supersede configured copies", async () => {
+  const { DefaultPackageManager } = await import("@earendil-works/pi-coding-agent");
+  const f = fixture();
+  const original = DefaultPackageManager.prototype.getInstalledPath;
+  try {
+    f.manifest.pi.skills = [];
+    put(join(f.pack, "package.json"), JSON.stringify(f.manifest));
+    const configured = join(f.root, "configured");
+    cpSync(f.pack, configured, { recursive: true });
+    const calls: string[] = [];
+    DefaultPackageManager.prototype.getInstalledPath = function (source, scope) {
+      if ((scope as string) === "temporary") {
+        calls.push(source);
+        return source === "npm:sample@0.1.0" ? f.pack : undefined;
+      }
+      return original.call(this, source, scope);
+    };
+    const settings = SettingsManager.inMemory({ packages: [configured] });
+    const found = await discoverResourcePackages(
+      settings,
+      f.root,
+      join(f.root, "agent"),
+      [],
+      ["npm:sample@0.1.0", "npm:missing@0.0.0"],
+    );
+    assert.deepEqual(calls, ["npm:sample@0.1.0", "npm:missing@0.0.0"]);
+    assert.deepEqual(found.problems, []);
+    assert.equal(found.packs.length, 1);
+    assert.equal(found.packs[0].root, f.pack);
+    assert.equal(found.packs[0].globalDefaultable, false);
+  } finally {
+    DefaultPackageManager.prototype.getInstalledPath = original;
     rmSync(f.root, { recursive: true, force: true });
   }
 });

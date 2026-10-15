@@ -67,8 +67,8 @@ activate executable dependencies or grant permissions. A plain Pi installation w
 capability extensions ignores the extra metadata.
 
 Configured custom-only Git/npm packages are now discoverable through Pi's installed package
-records. A temporary `-e` custom-only package produces no native resource record in Pi 1.2;
-use a configured package for that case. We do not infer cache paths or add a second resolver.
+records. Explicit `-e` sources use Pi's argument parser and temporary installed-path lookup,
+including custom-only packages. We do not infer cache paths or add a second resolver.
 
 ## Personal packaging
 

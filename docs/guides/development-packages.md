@@ -79,9 +79,14 @@ New executable packages need native installation/configuration and an idle `/rel
 ordinary changes. Runtime/security replacements or already-running children need a managed
 restart. Existing children keep their launched configuration.
 
-Configured packages containing only agents/instructions are discoverable. Temporary `-e`
-packages containing only those custom types are not yet discoverable as package groups;
-configure them through native settings. Do not add a fake extension to work around this.
+Configured and temporary `-e` packages containing only agents/instructions are discoverable.
+Pass each package explicitly with `-e` to try it from any directory without saved registrations.
+No fake extension, alternate profile or particular project directory is required.
+
+`/packages` selects available guidance; it does not add package registrations. Ctrl+S saves
+resource-selection defaults, not executable loading. To register a source for future starts,
+use native `pi install SOURCE --local` for the current project or `pi install SOURCE` for personal
+settings. Ordinary extension changes need an idle `/reload` or a new session.
 
 See [session setup](../reference/tools.md#session-setup),
 [distribution](distribution.md) and [checks](../testing.md).

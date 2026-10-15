@@ -91,11 +91,12 @@ export function configuredSkillChoices(
     packs.flatMap((pack) => pack.skills.map((path) => [path, pack] as const)),
   );
   const roots = [
+    // Pi has already resolved name collisions; catalogues must not replace its loaded definition.
+    ...loaded.map((skill) => skill.path),
     ...validGlobalSkills.filter((path) => !path.startsWith("!")),
     ...validCatalogues,
     ...packSkills.keys(),
     ...validProjectSkills.filter((path): path is string => typeof path === "string"),
-    ...loaded.map((skill) => skill.path),
   ];
   const discovered = loadSkills({
     cwd,

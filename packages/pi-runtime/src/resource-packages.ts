@@ -14,6 +14,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   DefaultPackageManager,
+  parseArgs,
   type SettingsManager,
   type SourceInfo,
 } from "@earendil-works/pi-coding-agent";
@@ -126,6 +127,7 @@ export async function discoverResourcePackages(
   cwd: string,
   agentDir: string,
   loaded?: SourceInfo[],
+  temporarySources: string[] = parseArgs(process.argv.slice(2)).extensions ?? [],
 ) {
   const manager = new DefaultPackageManager({ settingsManager: settings, cwd, agentDir });
   const skipped = new Set<string>();
@@ -135,6 +137,34 @@ export async function discoverResourcePackages(
   });
   const roots = new Map<string, string[]>();
   const personalRoots = new Set<string>();
+  const temporaryRoots = new Set<string>();
+  const problems: string[] = [];
+  // CLI packages have already passed Pi's resolver. Look up their roots without installing again.
+  for (const source of temporarySources) {
+    if (source.startsWith("builtin:")) continue;
+    try {
+      // Pi 1.2 implements this scope, but its exported declaration omits it.
+      // @ts-expect-error Native getInstalledPath supports temporary package locations.
+      const directory = manager.getInstalledPath(source, "temporary");
+      if (!directory || !statSync(directory).isDirectory()) continue;
+      const root = realpathSync(directory);
+      temporaryRoots.add(root);
+      roots.set(
+        root,
+        (loaded ?? [])
+          .filter((skill) => {
+            try {
+              return withinResourceRoot(root, realpathSync(skill.path));
+            } catch {
+              return false;
+            }
+          })
+          .map((skill) => skill.path),
+      );
+    } catch {
+      problems.push(`${source}: temporary package resources could not be resolved`);
+    }
+  }
   for (const [kind, resources] of Object.entries(paths))
     for (const resource of resources) {
       if (!resource.metadata.packageRoot) continue;
@@ -158,16 +188,20 @@ export async function discoverResourcePackages(
     if (statSync(root).isDirectory() && !roots.has(root)) roots.set(root, []);
   }
   const packs: ResourcePackage[] = [],
-    problems: string[] = [],
-    names = new Set<string>();
+    names = new Set<string>(),
+    temporaryNames = new Set<string>();
   for (const [root, skills] of roots) {
     if (!existsSync(join(root, "package.json"))) continue;
     try {
       const pack = readResourcePackage(root, [...new Set(skills)]);
       pack.globalDefaultable = personalRoots.has(root);
       if (!pack.skills.length && !pack.agents.length && !pack.instructions.length) continue;
+      // Explicit CLI content takes precedence over another configured copy of that package.
+      if (names.has(pack.name) && !temporaryRoots.has(root) && temporaryNames.has(pack.name))
+        continue;
       if (names.has(pack.name)) throw Error("duplicate package name");
       names.add(pack.name);
+      if (temporaryRoots.has(root)) temporaryNames.add(pack.name);
       packs.push(pack);
     } catch {
       problems.push(`${root}: package resources could not be read`);

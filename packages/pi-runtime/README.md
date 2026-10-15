@@ -17,12 +17,11 @@ Pi owns package installation, source identity, project trust and native resource
 `pi.instructions`, each a list of relative directories contained in the package. There is no
 `plugin.json` loader, namespace directory or `resources.packCatalogues` registration.
 
-Native skill candidates must be enabled by package filters and present in the loaded skill pool;
-CLI exclusions therefore remain effective. Native `-e` skills remain individually selectable, but stock Pi 1.2 does not expose their
-package roots to extensions; custom agent/instruction grouping requires a configured package source. Local packages containing only agents
-or instructions are supported. Remote packages need at least one resolved native resource because
-Pi does not expose an empty remote package's resolved identity to extensions; stale cached remote
-packages are never used as a fallback.
+Native skill candidates must be enabled by Pi and present in the loaded skill pool; CLI exclusions
+remain effective. Configured packages and explicit `-e` packages can supply agents/instructions,
+including packages with no native resource types. The shared reader uses Pi's argument parser and
+native installed-path lookup for temporary sources. It does not install packages, scan caches or
+execute their extensions. Temporary-only resources cannot become personal defaults implicitly.
 
 Package name, description and keywords aid resource search. Agent/private-skill and selected
 instruction behavior stays in the owning extensions. Public skill bodies remain lazy; selected
