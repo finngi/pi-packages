@@ -11,10 +11,10 @@ import type { ChildLaunchService, Communication, PreparedChild, ResourceSpec } f
 import {
   childToolAuthority,
   installChildResources,
-  prepareChildProvider,
-  childLaunchContributions,
   resolveChildResources,
-} from "pi-runtime";
+} from "./child-resources.ts";
+import { prepareChildProvider } from "./child-provider.ts";
+import { childLaunchContributions } from "./child-launch-contributions.ts";
 
 export async function cleanupNativeLaunch({
   root,
@@ -157,7 +157,7 @@ export function createNativeLauncher(
           ...contributions.env,
         };
         for (const key of ["NODE_OPTIONS", "NODE_PATH"]) delete (env as NodeJS.ProcessEnv)[key];
-        const cli = fileURLToPath(new URL(import.meta.resolve("pi-runtime/child-rpc")));
+        const cli = fileURLToPath(new URL(import.meta.resolve("pi-delegation/child-rpc")));
         const argv = [
           process.execPath,
           cli,

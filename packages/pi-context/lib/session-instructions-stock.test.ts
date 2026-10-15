@@ -13,7 +13,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
-import { type installSessionSetup, savedInstructionContext, sessionSetupService } from "pi-runtime";
+import { type installSessionSetup, sessionSetupService } from "pi-resources/session-setup";
+import { savedInstructionContext } from "pi-resources/instructions";
 import context from "../extensions/context.ts";
 import { catalogueInstructionId } from "./instruction-selection.ts";
 const {

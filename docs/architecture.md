@@ -68,3 +68,24 @@ recognizes `pi.agents` and `pi.instructions`, since Pi has no equivalent resourc
 already resolved package roots; it does not install packages or rebuild excluded native skills.
 Session setup changes selected guidance and active tools, never executable package installation.
 [Package decisions](package-design.md) explain these boundaries.
+
+## Shared library boundaries
+
+```mermaid
+flowchart TD
+  D[Delegation: children and artifacts] --> R[Resources: pure discovery/selection APIs]
+  C[Context: overlays and instructions] --> R
+  R --> B[Resource browser/search library]
+  D --> B
+  C --> B
+  D --> U[Runtime: processes/accounting/provider helpers]
+  J[Background jobs] --> U
+  G[Goals] --> U
+  P[Optional permissions] --> U
+  U --> T[Contracts]
+  R --> T
+```
+
+The resources library subpaths do not import or activate its extension entrypoint. Each selected
+extension explicitly registers its own tools and commands. Shared accounting/session event names
+and stored entry schemas remain unchanged; moving files does not migrate or rewrite user state.

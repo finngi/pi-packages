@@ -8,7 +8,7 @@ import {
   SESSION_SETUP_STATE,
   sessionSetupService,
   validateSessionSetupRequest,
-} from "../src/session-setup.ts";
+} from "../lib/session-setup.ts";
 
 const contributions: SessionSetupContribution[] = [
   {

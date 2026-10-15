@@ -38,3 +38,20 @@ Stock-Pi checks cover independent providers, both loading orders and resumed sel
 
 When resuming recorded skill choices, load `pi-resources` again. If a required provider is
 missing, setup names it and offers reset; it does not silently replace saved choices with defaults.
+
+## Library APIs
+
+Other extensions can import these modules without activating `/skills`, `/packages` or parent
+skill filtering:
+
+| Import | Responsibility |
+| --- | --- |
+| `pi-resources/discovery` | Native resolved package resources and custom agent/instruction descriptors |
+| `pi-resources/selection` | Saved personal/project selections and explicit persistence |
+| `pi-resources/session-setup` | Shared session selection service, installed by an explicit function call |
+| `pi-resources/instructions` | Request saved instruction text from the loaded context provider |
+
+The default package entrypoint is the extension. Library subpaths never import it. Delegation and
+context depend on these library APIs but remain independently loadable: each explicitly installs
+the session setup service it needs. Pi still owns package installation, trust and native filters.
+No library import scans a new catalogue, loads another extension or writes settings.

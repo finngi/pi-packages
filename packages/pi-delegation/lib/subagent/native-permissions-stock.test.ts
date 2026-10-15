@@ -12,7 +12,7 @@ const entry = (name: string, source: string, compiled: string) =>
     ? pathToFileURL(join(packaged, name, compiled)).href
     : new URL(source, import.meta.url).href;
 const { createChildRuntime } = await import(
-  entry("pi-runtime", "../../../pi-runtime/src/child-rpc.ts", "dist/child-rpc.js")
+  entry("pi-delegation", "./child-rpc.ts", "dist/lib/subagent/child-rpc.js")
 );
 const { default: permissions } = await import(
   entry(

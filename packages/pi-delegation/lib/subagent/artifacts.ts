@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, opendir, realpath, rm, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { PreparedChild } from "pi-contracts";
-import { newSemanticId } from "./semantic-id.ts";
+import { newSemanticId } from "pi-runtime/semantic-id";
 
 export interface ArtifactResult {
   id: string;

@@ -126,7 +126,7 @@ Artifact descriptors contain `id`, `directory`, up to eight relative `files` and
 | Retained replies | 128 replies and 32 MiB |
 | Undelimited child RPC input buffer | 4 MiB; oversize cancels the child |
 
-Sources: [tool registration](../../packages/pi-delegation/extensions/subagent.ts), [message validation](../../packages/pi-delegation/lib/subagent/messages.ts), [resource validation](../../packages/pi-runtime/src/child-resources.ts), and [dialogue retention](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
+Sources: [tool registration](../../packages/pi-delegation/extensions/subagent.ts), [message validation](../../packages/pi-delegation/lib/subagent/messages.ts), [resource validation](../../packages/pi-delegation/lib/subagent/child-resources.ts), and [dialogue retention](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
 
 ## Codemode
 

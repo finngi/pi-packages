@@ -84,13 +84,14 @@ must present its guidance members separately from executable loading and permiss
 `session_setup` is parent-only. Its `packages` array selects the public resources of packages
 already loaded into that process. It stores a selection in the session history, not project
 settings. Tools are selected independently through Pi's active-tool API; permission policy is
-unchanged. Existing children retain their prepared resources; future children use the selected
-public resources plus their own private bundle, narrowed by their agent definition.
+unchanged. Existing children retain their prepared resources; future children resolve saved personal/project guidance plus their private bundle, narrowed
+by their agent definition. Temporary parent guidance selections do not carry over.
 
 The independent `pi-resources` extension owns `/packages` and `/skills`, using the existing
 searchable resource browser. Delegation owns `/agents`; context owns `/instructions`.
-They contribute to the shared setup service without activating one another. Generic persistence
-lives in `pi-runtime`; native Pi still owns installation, executable loading and reload.
+They contribute to the shared setup service without activating one another. Shared discovery, persistence and session selection live in explicit `pi-resources` library
+subpaths. Those modules never import its extension entrypoint. Native Pi still owns installation,
+executable loading and reload.
 
 The `/packages` picker uses the existing searchable resource browser. Enter/Space toggles the
 highlighted package's available public skills, agents and instructions for this session; unrelated
@@ -144,3 +145,14 @@ content deliberately; the extensions do not infer reusable content or cross-reso
 The isolated TUI preview implements this interaction. The production planner and persistence still
 flatten packages into member selections as described above; updating those mechanisms and their
 resume/default tests is required before activating this policy in the harness.
+
+## Keep implementation with its owner
+
+Child bootstrap, bundle preparation and artifact retention belong to delegation. Resource
+discovery and selection belong to resources, exposed as library subpaths for context and
+delegation. Processes, accounting, IDs, timers and provider-transfer logic remain shared because
+multiple independent capabilities use them. Do not turn `pi-runtime` back into a general import
+barrel for unrelated features. Browser/search components remain a separate shared UI library.
+
+This keeps existing accounting/usage interfaces stable while removing the transitive browser
+dependency from jobs, goals and permissions. No new package, registry or runtime mode is needed.

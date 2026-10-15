@@ -21,20 +21,22 @@ import {
 import {
   assertSafeProjectSettingsLocation,
   configuredSkillChoices,
-  discoverResourcePackages,
   filterPromptSkills,
   type GlobalSelectionSnapshot,
-  installSessionSetup,
-  type ResourcePackage,
   readResourceSelection,
-  resourcePackageKeywords,
   resolveResourceSelection,
   selectedSkills,
   type SkillChoice,
   type ResourceDefaultState,
   writeResourceDefault,
   writeResourceDefaults,
-} from "pi-runtime";
+} from "pi-resources/selection";
+import {
+  discoverResourcePackages,
+  type ResourcePackage,
+  resourcePackageKeywords,
+} from "pi-resources/discovery";
+import { installSessionSetup } from "pi-resources/session-setup";
 import { registerPackagePicker } from "../lib/package-picker.ts";
 
 /** Session-only selection of native loaded resources. Importing shared helpers has no effect. */

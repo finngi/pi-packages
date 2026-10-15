@@ -6,7 +6,7 @@ import {
   resolveResourceSelection,
   validateResourceSelection,
   type ResourceSelectionValue,
-} from "pi-runtime";
+} from "pi-resources/selection";
 
 export type InstructionSettings = {
   localContext?: { instructions?: ResourceSelectionValue };
