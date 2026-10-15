@@ -4,6 +4,9 @@ Session-owned subprocess transport for Pi. It owns process lifetime, bounded out
 
 Install this native Pi package on its own. It requires neither `pi-goal` nor `pi-delegation` nor a custom launcher. Shared process utilities are ordinary imported code; importing them does not load the background extension or register tools. The exit handler is installed only when a Pi session starts, and session shutdown closes its jobs. Process handles do not survive reopening a session.
 
+Delegation can share this parent process manager. Child sessions still use their own stock
+Bash/file tools and messaging; they do not inherit the parent’s `background_process` tool.
+
 The manager provides separate capacity for shell commands (four by default) and subagents (sixteen by default), so delegation leaves room for parent shell work.
 
 The model's `background_process` tool lists, inspects, reads, or cancels session jobs. `/jobs list`, `/jobs read ID [CURSOR]`, and `/jobs cancel ID` provide the same controls in the UI. `/background` yields a foreground shell or goal wait so the conversation can continue while the work remains active.

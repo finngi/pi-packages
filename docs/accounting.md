@@ -16,6 +16,11 @@ Usage records are saved as `pi-runtime.usage.v1` custom session entries. A recor
 
 Known unreported usage is attached once to a top-level tool result through Pi's `usage` field. `details.piUsageIds` records which entries were forwarded, so session replay does not forward them again. Nested tool results do not also drain those records. The extension neither fabricates assistant messages nor bypasses the read-only session manager.
 
+Native tools can attach reported usage directly to their result. Codex search uses this path;
+those receipts are already included in normal session totals and are not added to the ledger
+again. Its missing-receipt or unknown-price warnings persist with the tool result and appear in
+`/costs`, including when search runs inside a nested tool.
+
 Accounting installation is owned by the current Pi event bus. Separate installed library copies can share that one in-process owner. Parent and child Pi processes each have their own bus; child reports cross the RPC boundary before entering the parent's ledger.
 
 ## Read the displays

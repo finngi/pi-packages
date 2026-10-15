@@ -88,6 +88,11 @@ implemented with Pi's native custom UI, input, Markdown and mouse APIs.
 
 An omitted `skills` field in an agent definition inherits the project's selected public skills and adds every skill in that agent's bundle. `skills: []` selects none; an explicit list narrows across both public and private skills, with a bundle skill winning a same-name collision. Bundle skills need no separate parent registration. Deliberately exporting one through a public skill path makes it independently selectable by the parent. See [agent metadata](../reference/configuration.md#agent-definitions) for the exact rules.
 
+Children inherit supported parent tools: `read`, `write`, `edit`, `ls`, `find`, `grep` and `bash`,
+plus delegation messaging. Parent extension tools such as `codex_search` and `background_process`
+are not installed automatically in children. Loading those parent packages does not change this
+child tool set.
+
 ### Use private skills and scripts
 
 The entrypoint body establishes the child's role. Selected skills supply descriptions and staged

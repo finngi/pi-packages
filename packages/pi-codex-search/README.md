@@ -2,7 +2,15 @@
 
 Codex Responses web search for Pi using OAuth resolved at runtime through Pi's model registry. The tool returns provider answer text, actual URL citations, search calls, usage, and partial failures. It exposes search queries only, through a fixed backend protocol.
 
+Reported search tokens enter Pi’s normal totals through native tool-result usage, including
+nested calls. Model-catalogue prices supply estimates; missing receipts or prices produce explicit
+accounting warnings in results and `/costs` when the shared accounting extension is loaded.
+Costs remain estimates and do not establish a separate subscription charge.
+
 Security is optional. Selected or active security requires exactly one valid per-call capability and cannot be bypassed after failure. Without security, the adapter gets credentials directly from Pi's model registry. The HTTP adapter is trusted in-process code, outside kernel effect-tool confinement.
+
+Loading this package adds `codex_search` to the parent session. `pi-delegation` children do not
+automatically load this extension or inherit its search tool.
 
 - [Search parameters, outputs, and bounds](../../docs/reference/tools.md#search-tool).
 - [Security setup](../../docs/guides/security.md) and [service contract](../../docs/reference/events.md#security-services).

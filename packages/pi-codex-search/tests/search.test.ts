@@ -428,7 +428,7 @@ describe("pi-codex-search v0.1.6 Responses port", () => {
           new Response(
             streamFrom([
               new TextEncoder().encode(
-                'event: response.failed\r\ndata: {"error":{"message":"Rate limit exceeded"}}\r\n\r\n',
+                'event: response.failed\r\ndata: {"response":{"error":{"code":"rate_limit_exceeded","message":"Rate limit exceeded"}}}\r\n\r\n',
               ),
             ]),
           ),
@@ -438,6 +438,71 @@ describe("pi-codex-search v0.1.6 Responses port", () => {
         error.kind === "rate_limit" &&
         !error.message.includes("Rate limit exceeded"),
     );
+  });
+
+  it("classifies nested and standalone provider errors and retains reported failure usage", async () => {
+    for (const [event, data, kind] of [
+      [
+        "response.failed",
+        {
+          response: {
+            error: { code: "rate_limit_exceeded" },
+            usage: { input_tokens: 8, output_tokens: 2, total_tokens: 10 },
+          },
+        },
+        "rate_limit",
+      ],
+      ["error", { error: { message: "Unauthorized: private-secret" } }, "auth"],
+      ["error", { code: "rate_limit_exceeded", message: "private-secret" }, "rate_limit"],
+    ] as const) {
+      await assert.rejects(
+        runResponsesSearch({
+          ...baseOptions,
+          fetchImpl: async () =>
+            new Response(
+              streamFrom([
+                new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+              ]),
+            ),
+        }),
+        (error: unknown) => {
+          assert(error instanceof SearchError);
+          assert.equal(error.kind, kind);
+          assert(!error.message.includes("private-secret"));
+          if (event === "response.failed")
+            assert.deepEqual(error.usage, { inputTokens: 8, outputTokens: 2, totalTokens: 10 });
+          return true;
+        },
+      );
+    }
+  });
+
+  it("retains cached input and reasoning subsets from provider receipts", async () => {
+    const usage = {
+      input_tokens: 12,
+      output_tokens: 7,
+      total_tokens: 19,
+      input_tokens_details: { cached_tokens: 4 },
+      output_tokens_details: { reasoning_tokens: 3 },
+    };
+    const result = await runResponsesSearch({
+      ...baseOptions,
+      fetchImpl: async () =>
+        new Response(
+          streamFrom([
+            new TextEncoder().encode(
+              `event: response.completed\ndata: ${JSON.stringify({ response: { usage } })}\n\n`,
+            ),
+          ]),
+        ),
+    });
+    assert.deepEqual(result.usage, {
+      inputTokens: 12,
+      outputTokens: 7,
+      totalTokens: 19,
+      cacheReadTokens: 4,
+      reasoningTokens: 3,
+    });
   });
 
   it("joins multiple SSE data lines as the upstream parser does", async () => {

@@ -11,6 +11,7 @@ import {
   type AssistantMessageEventStream,
   type Model,
   type ModelThinkingLevel,
+  calculateCost,
 } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -28,6 +29,7 @@ import {
   registerCodexSearch,
   resolveNativeReasoningEffort,
 } from "../extensions/search.ts";
+import { installAccounting } from "../../pi-runtime/src/accounting.ts";
 import { accountIdFromToken } from "../lib/search.ts";
 import { responsesFixture, streamFrom } from "./fixtures/responses-sse.ts";
 
@@ -46,7 +48,14 @@ function resultStream(
     api: model.api,
     provider: model.provider,
     model: model.id,
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: response ? "toolUse" : "stop",
     timestamp: Date.now(),
   } as unknown as AssistantMessage;
@@ -94,6 +103,10 @@ async function sessionFor(
     responseDelayMs?: number;
     concurrencyStats?: { active: number; max: number };
     codexModel?: boolean;
+    searchCost?: Model<Api>["cost"];
+    accounting?: boolean;
+    responseSse?: (query: string) => string;
+    sessionManager?: SessionManager;
     thinkingLevel?: ModelThinkingLevel;
     codexReasoning?: boolean;
     codexThinkingLevelMap?: Model<Api>["thinkingLevelMap"];
@@ -176,12 +189,12 @@ async function sessionFor(
       return resultStream(model, call, "");
     },
   });
-  if (options.codexModel) {
+  if (options.codexModel || options.searchCost) {
     runtime.registerProvider("openai-codex", {
       api: "openai-codex-responses",
       models: [
         {
-          id: "gpt-6-luna",
+          id: options.codexModel ? "gpt-6-luna" : "codex-default",
           name: "Synthetic Codex model",
           api: "openai-codex-responses",
           baseUrl: "https://chatgpt.com/backend-api",
@@ -189,7 +202,7 @@ async function sessionFor(
           reasoning: options.codexReasoning ?? true,
           contextWindow: 4096,
           maxTokens: 256,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: options.searchCost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           ...(options.codexThinkingLevelMap
             ? { thinkingLevelMap: options.codexThinkingLevelMap }
             : {}),
@@ -247,7 +260,9 @@ async function sessionFor(
       await new Promise((resolve) => setTimeout(resolve, options.responseDelayMs));
     if (body?.input?.[0]?.content?.[0]?.text?.includes("failure"))
       return new Response("synthetic-token response secret", { status: 429 });
-    const response = new Response(streamFrom([new TextEncoder().encode(responsesFixture)]), {
+    const fixture =
+      options.responseSse?.(body?.input?.[0]?.content?.[0]?.text ?? "") ?? responsesFixture;
+    const response = new Response(streamFrom([new TextEncoder().encode(fixture)]), {
       headers: { "content-type": "text/event-stream" },
     });
     if (options.concurrencyStats) options.concurrencyStats.active--;
@@ -326,6 +341,7 @@ async function sessionFor(
     security: options.security ?? "required",
   });
   const factories: ExtensionFactory[] = [
+    ...(options.accounting ? [installAccounting] : []),
     ...(denySearch
       ? [
           (pi: import("@earendil-works/pi-coding-agent").ExtensionAPI) =>
@@ -358,7 +374,7 @@ async function sessionFor(
     ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
     tools: route === "direct" ? ["codex_search"] : ["codemode", "codex_search"],
     resourceLoader,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: options.sessionManager ?? SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false } }),
   });
   await sessionResult.session.bindExtensions({ mode: "print" });
@@ -366,6 +382,157 @@ async function sessionFor(
 }
 
 describe("Pi 1.2.0 native SDK paths", () => {
+  for (const route of ["direct", "codemode"] as const) {
+    it(`accounts search receipts once through ${route}, including cache, reasoning and resume`, async () => {
+      const path = await mkdtemp(join(tmpdir(), "pi-search-usage-"));
+      let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      let resumed: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      try {
+        const searchCost = {
+          input: 2,
+          output: 8,
+          cacheRead: 0.5,
+          cacheWrite: 0,
+          tiers: [{ inputTokensAbove: 20, input: 20, output: 80, cacheRead: 5, cacheWrite: 0 }],
+        };
+        const manager = SessionManager.create(path, join(path, "sessions"));
+        created = await sessionFor(
+          path,
+          route,
+          [],
+          [],
+          ["repeat", "repeat"],
+          false,
+          "before",
+          "acct_test",
+          {
+            searchCost,
+            sessionManager: manager,
+            responseSse: () =>
+              responsesFixture.replace(
+                '"total_tokens":19',
+                '"total_tokens":19,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}',
+              ),
+          },
+        );
+        await created.session.prompt("Search twice.");
+        const stats = created.session.getSessionStats();
+        assert.deepEqual(stats.tokens, {
+          input: 16,
+          output: 14,
+          cacheRead: 8,
+          cacheWrite: 0,
+          total: 38,
+        });
+        const perRequest = {
+          input: 8,
+          output: 7,
+          cacheRead: 4,
+          cacheWrite: 0,
+          totalTokens: 19,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        };
+        calculateCost(created.runtime.getModel("openai-codex", "codex-default")!, perRequest);
+        assert.equal(
+          stats.cost,
+          perRequest.cost.total * 2,
+          "price tiers apply per request, not per batch",
+        );
+        const messages = manager
+          .getEntries()
+          .filter((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        assert.equal(messages.length, 1, "nested search receipts persist on the outer result only");
+        const message = messages[0];
+        assert.ok(message?.type === "message" && message.message.role === "toolResult");
+        assert.equal(message.message.usage?.reasoning, 6, "reasoning remains an output subset");
+        const file = manager.getSessionFile()!;
+        created.session.dispose();
+        created = undefined;
+        resumed = await sessionFor(path, route, [], [], undefined, false, "before", "acct_test", {
+          searchCost,
+          sessionManager: SessionManager.open(file),
+        });
+        assert.deepEqual(resumed.session.getSessionStats().tokens, stats.tokens);
+        assert.equal(resumed.session.getSessionStats().cost, stats.cost);
+      } finally {
+        created?.session.dispose();
+        resumed?.session.dispose();
+        await rm(path, { recursive: true, force: true });
+      }
+    });
+
+    it(`reports missing and partial search receipts honestly through ${route}`, async () => {
+      const path = await mkdtemp(join(tmpdir(), "pi-search-missing-usage-"));
+      let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
+      try {
+        created = await sessionFor(
+          path,
+          route,
+          [],
+          [],
+          ["complete", "missing", "partial", "provider-error", "invalid"],
+          false,
+          "before",
+          "acct_test",
+          {
+            accounting: true,
+            responseSse: (query) =>
+              query === "provider-error"
+                ? 'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"message":"provider failed"},"usage":{"input_tokens":3,"output_tokens":2}}}\n\n'
+                : query === "invalid"
+                  ? responsesFixture.replace('"input_tokens":12', '"input_tokens":1.5')
+                  : query === "missing"
+                    ? responsesFixture.replace(
+                        '"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}',
+                        '"status":"completed"',
+                      )
+                    : query === "partial"
+                      ? responsesFixture.replace(
+                          '{"input_tokens":12,"output_tokens":7,"total_tokens":19}',
+                          '{"input_tokens":5}',
+                        )
+                      : responsesFixture,
+          },
+        );
+        let result: any;
+        created.session.subscribe((event) => {
+          if (event.type === "tool_execution_end" && event.toolName === "codex_search")
+            result = event.result;
+        });
+        await created.session.prompt("Search the batch.");
+        assert.equal(created.session.getSessionStats().tokens.total, 29);
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search request\(s\) have no provider usage receipt/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search receipt\(s\) have incomplete token counts/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /No catalogue price for openai-codex\/codex-default/,
+        );
+        assert.match(
+          result.details.piUsageWarnings.join(" "),
+          /1 search receipt\(s\) have invalid token counts and were omitted/,
+        );
+        assert.match(result.content[0].text, /Totals are a known lower bound/);
+        const persisted = created.session.sessionManager
+          .getEntries()
+          .find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+        assert.ok(persisted?.type === "message" && persisted.message.role === "toolResult");
+        assert.deepEqual(
+          (persisted.message.details as any).piUsageWarnings,
+          result.details.piUsageWarnings,
+        );
+      } finally {
+        created?.session.dispose();
+        await rm(path, { recursive: true, force: true });
+      }
+    });
+  }
+
   for (const route of ["direct", "codemode"] as const) {
     it(`discovers and executes codex_search through ${route}`, async () => {
       const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-"));

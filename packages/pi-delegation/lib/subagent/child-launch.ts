@@ -76,10 +76,12 @@ export async function launchChild({
     buffer = "",
     decoder = new StringDecoder("utf8");
   const pending: { stream: "stdout" | "stderr"; bytes: Buffer }[] = [];
-  let id = "";
+  let id = "",
+    transportSettled = false;
   // Background process records are bounded and may be evicted after completion. This ID is
   // transport-private; a missing record here means the process already exited and was reaped.
   const cancelTransport = (reason?: string) => {
+    if (transportSettled) return;
     try {
       transport.cancel(id, reason);
     } catch (error) {
@@ -175,6 +177,9 @@ export async function launchChild({
       },
       { notify: false },
     );
+    void run.done.then(() => {
+      transportSettled = true;
+    });
     id = run.id;
     worker = new RpcDialogue(
       transport,

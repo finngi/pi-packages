@@ -181,3 +181,101 @@ test("artifact collection failure still invokes child cleanup", async () => {
   await assert.rejects(child.close(), /Child artifact collection and cleanup failed/);
   assert.equal(cleanups, 1);
 });
+
+for (const lifecycle of ["session_shutdown", "session_start"]) {
+  test(`shared background ${lifecycle} collects artifacts and removes child scratch state`, async () => {
+    const { mkdtemp, mkdir, writeFile, readFile, lstat, realpath, rm } = await import(
+      "node:fs/promises"
+    );
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { default: background } = await import(
+      "../../../pi-background/extensions/background-process.ts"
+    );
+    const { cleanupUnrestrictedLaunch } = await import("./unrestricted-launcher.ts");
+    const { launchChild } = await import("./child-launch.ts");
+    const root = await realpath(await mkdtemp(join(tmpdir(), "pi-child-shared-shutdown-")));
+    const scratch = join(root, "child"),
+      workspace = join(scratch, "workspace"),
+      configuration = join(scratch, "launch"),
+      agentDir = join(scratch, "agent");
+    const handlers = new Map<string, (...args: any[]) => any>();
+    const listeners = new Map<string, (value: any) => void>();
+    const pi = {
+      on(name: string, handler: (...args: any[]) => any) {
+        handlers.set(name, handler);
+      },
+      events: {
+        on(name: string, handler: (value: any) => void) {
+          listeners.set(name, handler);
+        },
+        emit(name: string, value: any) {
+          listeners.get(name)?.(value);
+        },
+      },
+      registerTool() {},
+      registerCommand() {},
+      getActiveTools: () => ["bash"],
+    } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
+    background(pi);
+    try {
+      await Promise.all(
+        [workspace, configuration, agentDir].map((path) => mkdir(path, { recursive: true })),
+      );
+      await writeFile(join(workspace, "answer.txt"), "retained child answer");
+      await writeFile(join(configuration, "auth.json"), "synthetic credentials");
+      await handlers.get("session_start")!();
+      let transport!: import("../background/service.ts").BackgroundService;
+      pi.events.emit("background:service", {
+        respond(value: typeof transport) {
+          transport = value;
+        },
+      });
+      let beforeCleanup: (() => Promise<void>) | undefined;
+      const info = await lstat(workspace);
+      const launcher = {
+        async prepareChildLaunch() {
+          return {
+            id: "child",
+            argv: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+            env: process.env,
+            cwd: workspace,
+            tmp: workspace,
+            workspaceKind: "scratch",
+            workspaceIdentity: { path: workspace, dev: info.dev, ino: info.ino },
+            beforeCleanup(callback: () => Promise<void>) {
+              beforeCleanup = callback;
+            },
+            cleanup() {
+              return cleanupUnrestrictedLaunch({
+                root: scratch,
+                privateTmp: workspace,
+                configuration,
+                agentDir,
+                beforeCleanup,
+              });
+            },
+          };
+        },
+      } as unknown as import("pi-contracts").ChildLaunchService;
+      const child = await launchChild({
+        launcher,
+        transport,
+        spec: {},
+        isCurrent: () => true,
+        artifactDirectory: join(root, "artifacts"),
+      });
+      await handlers.get(lifecycle)!();
+      await child.close();
+      assert.throws(() => transport.status(child.id), /belongs to an ended session/);
+      assert.equal(
+        await readFile(join(child.artifacts()!.directory, "answer.txt"), "utf8"),
+        "retained child answer",
+      );
+      await assert.rejects(lstat(scratch), { code: "ENOENT" });
+    } finally {
+      await handlers.get("session_shutdown")!();
+      await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+}

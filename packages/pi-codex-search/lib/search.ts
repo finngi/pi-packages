@@ -71,6 +71,8 @@ export interface Usage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cacheReadTokens?: number;
+  reasoningTokens?: number;
 }
 
 export interface SearchSuccess {
@@ -88,6 +90,7 @@ export interface SearchFailure {
   kind: SearchErrorKind;
   message: string;
   status?: number;
+  usage?: Usage;
 }
 
 export interface SearchBatch {
@@ -107,12 +110,14 @@ export interface SearchBatch {
 export class SearchError extends Error {
   readonly kind: SearchErrorKind;
   readonly status?: number;
+  readonly usage?: Usage;
 
-  constructor(kind: SearchErrorKind, message: string, status?: number) {
+  constructor(kind: SearchErrorKind, message: string, status?: number, usage?: Usage) {
     super(message);
     this.name = "SearchError";
     this.kind = kind;
     if (status !== undefined) this.status = status;
+    if (usage !== undefined) this.usage = usage;
   }
 }
 
@@ -130,7 +135,7 @@ export function classifyError(error: unknown): SearchErrorKind {
 }
 
 export function classifyEventError(message: string): SearchErrorKind {
-  const value = message.toLowerCase();
+  const value = message.toLowerCase().replaceAll("_", " ");
   if (/rate[- ]?limit|too many requests|quota|429/.test(value)) return "rate_limit";
   if (/auth|unauthori[sz]ed|forbidden|401|403/.test(value)) return "auth";
   if (/timeout|timed out/.test(value)) return "timeout";
@@ -226,11 +231,35 @@ interface OutputItem {
 interface EventData {
   response?: {
     id?: string;
-    usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      input_tokens_details?: { cached_tokens?: number };
+      output_tokens_details?: { reasoning_tokens?: number };
+    };
+    error?: { message?: string; code?: string };
   };
   item?: OutputItem;
   delta?: string;
   error?: { message?: string; code?: string };
+  message?: string;
+  code?: string;
+}
+
+function responseUsage(source: NonNullable<EventData["response"]>["usage"]): Usage | undefined {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return;
+  return {
+    inputTokens: optionalNumber(source.input_tokens),
+    outputTokens: optionalNumber(source.output_tokens),
+    totalTokens: optionalNumber(source.total_tokens),
+    ...(source.input_tokens_details?.cached_tokens !== undefined
+      ? { cacheReadTokens: optionalNumber(source.input_tokens_details.cached_tokens) }
+      : {}),
+    ...(source.output_tokens_details?.reasoning_tokens !== undefined
+      ? { reasoningTokens: optionalNumber(source.output_tokens_details.reasoning_tokens) }
+      : {}),
+  };
 }
 
 interface Cookie {
@@ -563,23 +592,19 @@ async function consumeResponsesStream(
       if (!data.response || typeof data.response !== "object" || Array.isArray(data.response))
         throw new SearchError("schema", "Codex search returned an unsupported completion event.");
       completed = true;
-      const source = data.response?.usage;
-      if (source && typeof source === "object" && !Array.isArray(source))
-        usage = {
-          inputTokens: optionalNumber(source.input_tokens),
-          outputTokens: optionalNumber(source.output_tokens),
-          totalTokens: optionalNumber(source.total_tokens),
-        };
+      usage = responseUsage(data.response.usage);
       break;
     }
-    if (event.type === "response.failed") {
+    if (event.type === "response.failed" || event.type === "error") {
+      const failure = data.response?.error ?? data.error ?? data;
       const message =
-        optionalString(data.error?.message) ??
-        optionalString(data.error?.code) ??
+        [optionalString(failure.code), optionalString(failure.message)].filter(Boolean).join(" ") ||
         "Codex web search failed";
       throw new SearchError(
         classifyEventError(message),
-        `Codex search failed: ${safeEventMessage(message)}.`,
+        `Codex search failed: ${safeEventMessage(message.replaceAll("_", " "))}.`,
+        undefined,
+        responseUsage(data.response?.usage),
       );
     }
   }

@@ -2,8 +2,8 @@
  * Native Pi adapter for the Responses web-search port.
  * Based on Leechael/pi-codex-search v0.1.6; see LICENSE.pi-codex-search.
  */
-import { clampThinkingLevel, Type } from "@earendil-works/pi-ai";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { calculateCost, clampThinkingLevel, Type } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import type {
   AgentToolUpdateCallback,
   ExtensionAPI,
@@ -48,6 +48,8 @@ const usageSchema = Type.Object({
   inputTokens: Type.Optional(Type.Number()),
   outputTokens: Type.Optional(Type.Number()),
   totalTokens: Type.Optional(Type.Number()),
+  cacheReadTokens: Type.Optional(Type.Number()),
+  reasoningTokens: Type.Optional(Type.Number()),
 });
 const successSchema = Type.Object({
   query: Type.String(),
@@ -70,6 +72,7 @@ const failureSchema = Type.Object({
   ]),
   message: Type.String(),
   status: Type.Optional(Type.Number()),
+  usage: Type.Optional(usageSchema),
 });
 const outputSchema = Type.Object({
   model: Type.String(),
@@ -233,6 +236,9 @@ function buildBatch(
         message: publicMessage(entry.reason),
         ...(entry.reason instanceof SearchError && entry.reason.status
           ? { status: entry.reason.status }
+          : {}),
+        ...(entry.reason instanceof SearchError && entry.reason.usage
+          ? { usage: entry.reason.usage }
           : {}),
       });
   });
@@ -413,9 +419,80 @@ function createTool(deps: SearchExtensionDependencies = {}) {
       if (reasoningEffort !== undefined) result.submittedReasoningEffort = reasoningEffort;
       toolSignal?.throwIfAborted();
       assertCurrent();
+      let invalid = 0;
+      const receipts = [...result.successes, ...result.failures].map((entry) => {
+        const receipt = entry.usage;
+        if (
+          receipt &&
+          (Object.values(receipt).some(
+            (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0),
+          ) ||
+            (receipt.cacheReadTokens ?? 0) > (receipt.inputTokens ?? 0) ||
+            (receipt.reasoningTokens ?? 0) > (receipt.outputTokens ?? 0))
+        ) {
+          invalid++;
+          return undefined;
+        }
+        return receipt;
+      });
+      const missing = receipts.filter((receipt) => receipt === undefined).length - invalid;
+      const partial = receipts.filter(
+        (receipt) =>
+          receipt && (receipt.inputTokens === undefined || receipt.outputTokens === undefined),
+      ).length;
+      const warnings: string[] = [];
+      if (invalid)
+        warnings.push(`${invalid} search receipt(s) have invalid token counts and were omitted.`);
+      if (missing) warnings.push(`${missing} search request(s) have no provider usage receipt.`);
+      if (partial) warnings.push(`${partial} search receipt(s) have incomplete token counts.`);
+      let usage: Usage | undefined;
+      const pricedModel = receipts.some(
+        (receipt) => receipt?.inputTokens !== undefined || receipt?.outputTokens !== undefined,
+      )
+        ? ctx.modelRegistry.find(PROVIDER, model)
+        : undefined;
+      for (const receipt of receipts) {
+        if (!receipt || (receipt.inputTokens === undefined && receipt.outputTokens === undefined))
+          continue;
+        usage ??= {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        };
+        const cached = receipt.cacheReadTokens ?? 0;
+        usage.input += (receipt.inputTokens ?? 0) - cached;
+        usage.cacheRead += cached;
+        usage.output += receipt.outputTokens ?? 0;
+        if (receipt.reasoningTokens !== undefined)
+          usage.reasoning = (usage.reasoning ?? 0) + receipt.reasoningTokens;
+        if (pricedModel) {
+          const cost = calculateCost(pricedModel, {
+            input: (receipt.inputTokens ?? 0) - cached,
+            output: receipt.outputTokens ?? 0,
+            cacheRead: cached,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          });
+          for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const)
+            usage.cost[key] += cost[key];
+        }
+      }
+      if (usage) {
+        usage.totalTokens = usage.input + usage.cacheRead + usage.output;
+        if (!pricedModel)
+          warnings.push(`No catalogue price for ${PROVIDER}/${model}; search cost is unknown.`);
+      }
+      const warningText = warnings.length
+        ? `\n\nUsage warning: ${warnings.join(" ")} Totals are a known lower bound.`
+        : "";
       return {
-        content: [{ type: "text" as const, text: formatResult(result) }],
-        details: result,
+        content: [{ type: "text" as const, text: formatResult(result) + warningText }],
+        ...(usage ? { usage } : {}),
+        details: { ...result, ...(warnings.length ? { piUsageWarnings: warnings } : {}) },
         structuredContent: result as never,
         ...(result.successes.length === 0 ? { isError: true } : {}),
       };
