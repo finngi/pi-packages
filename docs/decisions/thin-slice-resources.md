@@ -53,6 +53,18 @@ package instructions without loading the picker or delegation. Missing providers
 empty selections and package saves preserve their existing defaults. Session entry IDs and
 settings keys are unchanged; this is an ownership split, not a data-format migration.
 
+## Per-resource saved defaults
+
+Whole-category selection arrays cannot express one inherited item beside an explicit Off item.
+Saved resource keys therefore also accept sparse ID-to-boolean maps. The same resolver drives
+skills, agents, instructions and package aggregates; missing IDs inherit from the next scope.
+An empty map inherits all entries, while legacy empty arrays still mean an exact empty selection.
+A row edit patches only its target IDs; an explicit bulk snapshot updates the known eligible rows
+and removes stale unknown entries. Legacy conversion preserves known sibling values, including
+ineligible rows that are not part of the edit. Session records remain the existing concrete
+selections, so later defaults cannot rewrite resumed sessions. This uses the current settings files,
+atomic writer, session service and native picker components, with no second override layer or store.
+
 ## What was reused and removed
 
 - Kept native package discovery, the existing agent parser/private-skill loader, RPC dialogue,

@@ -11,7 +11,10 @@ It reuses Pi's loaded resources and the existing searchable resource browser.
   are optional and are never activated by opening this picker.
 - Changes apply to this session and survive resume. Ctrl+S saves project defaults;
   Ctrl+Shift+S saves personal defaults for future sessions. Project defaults take precedence.
-  Saves affect only resource kinds supplied by loaded extensions; other defaults are preserved.
+  Saved Project and Global controls offer Inherit / On / Off. Project Inherit follows Global;
+  Global Inherit follows Pi's native default. Changing one row preserves the other rows.
+  Ctrl+S and Ctrl+Shift+S deliberately snapshot eligible session choices. Saves affect only
+  resource kinds supplied by loaded extensions; other defaults are preserved.
 
 This picker selects guidance. Native `pi install SOURCE` saves a personal package source;
 `pi install --local SOURCE` saves a project source. `pi -e SOURCE` tries a package for one

@@ -10,7 +10,9 @@ Ctrl+Shift+S saves personal defaults for new sessions, excluding project-only re
 Resume and branch navigation restore recorded choices.
 
 Packages declare instruction directories in `pi.instructions`. `localContext.instructions`
-sets personal defaults; project settings can override them, including with an empty list.
+sets personal defaults. Saved choices use ID-to-boolean maps: a missing project ID inherits
+the personal choice, and a missing personal ID uses the local/native default. Legacy exact lists
+remain readable. Unavailable IDs in saved maps stay dormant and do not load instruction bodies.
 Standalone `resources.instructionCatalogues` paths are also supported. A leading YAML header
 with a closing delimiter is removed before selected text enters the prompt.
 

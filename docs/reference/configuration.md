@@ -71,21 +71,36 @@ it does not change tool registration, model pins or security policy.
 
 | Setting or command | Behavior |
 |---|---|
-| Global `subagents.agents` | Optional list of user-agent names to advertise and permit. When omitted, pi-delegation keeps its standard full discovery behavior. |
-| Project `subagents.agents` | Optional list in trusted `.pi/settings.json`; replaces the global list. `[]` disables named-agent launches. Unknown or untrusted names make the selection fail closed. |
-| Project `subagents.skills` | Optional list of public skill names visible to the parent model and inherited by children. `[]` hides all public skills; when omitted, Pi's currently loaded skill set remains available. |
+| Global `subagents.agents` | Saved agent choices: an ID-to-boolean map (`true` On, `false` Off); omitted IDs inherit native agent defaults. Legacy exact lists remain readable. |
+| Project `subagents.agents` | Per-agent overrides in trusted `.pi/settings.json`; omitted map IDs inherit personal defaults. Legacy lists, including `[]`, remain exact selections. |
+| Project `subagents.skills` | Per-skill On/Off overrides for parent visibility and child inheritance; omitted map IDs inherit personal defaults, then Pi's native selection. |
 | Project `subagents.skillPaths` | Extension-maintained paths added to the native project skill list for selected catalogue skills. The `/skills` commands use this ownership list, plus a creation marker, to remove only paths and settings they added. |
 | Global `resources.skillCatalogues` | Paths to skill directories offered by `/skills`; these are discovery roots and do not load skills into the model. |
-| Global `subagents.skills` | Optional list of public skill names used as the default selection when a project has no `subagents.skills` entry. |
+| Global `subagents.skills` | Personal per-skill defaults as an ID-to-boolean map; omitted IDs inherit Pi's native selection. Legacy exact lists remain readable. |
 | Ctrl+S in a resource picker | Saves project defaults; individual pickers save one category and `/packages` saves guidance categories whose providers are loaded; absent categories are preserved. |
 | Ctrl+Shift+S in a resource picker | Saves personal defaults for new sessions across projects; project-only resources are excluded and project defaults still take precedence. |
 | Project `skills` | Pi's native list of skill paths. pi-resources writes paths here when a selected standalone skill must be loaded; Pi can still auto-discover other project and user skills. |
 | `/agents` and `/skills` | Interactive session selectors; `enable NAME`, `disable NAME`, `none`, `all`, and `inherit` are also accepted. Selection updates lookup immediately without reloading. |
 | Global `resources.instructionCatalogues` | Trusted directories of Markdown instruction snippets offered in `/instructions`. |
-| Global/project `localContext.instructions` | Default and project-specific resource IDs for instruction snippets. Project `[]` disables the global selection. |
+| Global/project `localContext.instructions` | Personal and project instruction choices as ID-to-boolean maps. Omitted project IDs inherit personal choices; omitted personal IDs use native defaults (local snippets on, package/library snippets off). |
 | `/instructions` | Search and select trusted global snippets and project `.agents/instructions` snippets. Changes apply to this session; saving defaults is explicit. |
 
-Effective selection is session choice, otherwise project list, otherwise personal default. New sessions record their starting resource choices in native session history; resume and branch navigation restore those choices even if defaults changed later. Project context files remain independent. `inherit` resets one session category to saved defaults without deleting project settings. Agent selection filters the prompt catalogue and launch lookup. Skill selection filters the parent model's skill prompt, public skills inherited by children and manual `/skill:name` invocation. Private bundle skills remain child resources. Neither selection nor saving defaults reloads Pi or stops children.
+Effective selection is the recorded session choice. New sessions resolve each resource through project override, personal override, then its native default. New sessions record their starting resource choices in native session history; resume and branch navigation restore those choices even if defaults changed later. Project context files remain independent. `inherit` resets one session category to saved defaults without deleting project settings. Agent selection filters the prompt catalogue and launch lookup. Skill selection filters the parent model's skill prompt, public skills inherited by children and manual `/skill:name` invocation. Private bundle skills remain child resources. Neither selection nor saving defaults reloads Pi or stops children.
+
+Saved scope controls offer **Inherit**, **On** and **Off**. Project Inherit follows the personal
+choice; Global Inherit follows the resource's native default. The Session control is the actual
+ON/OFF membership. Clicking a saved scope (or pressing `p` / `g`) opens the same three-choice menu
+in every picker. Project On also enables that item in this session; Project Off/Inherit and all
+Global edits leave the session choice alone. Package controls apply only to the package's members;
+MIXED means their saved choices differ.
+
+A row edit changes only that resource's saved override. Ctrl+S and Ctrl+Shift+S deliberately
+snapshot eligible known session choices to project or personal defaults. Snapshots can clear stale
+choices, preserve known ineligible rows, and leave unloaded resource categories untouched.
+Unavailable IDs in sparse maps stay stored but dormant; they cannot load or advertise resources.
+Existing exact arrays remain readable. On the first saved edit, a legacy array becomes a map
+preserving currently known On/Off choices; resources discovered later inherit their lower-scope
+default. Resource selection stays separate from Pi's top-level `skills` path list.
 
 For example, a user settings file can keep the default model catalogue small while allowing project opt-in:
 
@@ -94,8 +109,8 @@ For example, a user settings file can keep the default model catalogue small whi
   "skills": [],
   "resources": { "skillCatalogues": ["~/.config/agents/skills"] },
   "subagents": {
-    "agents": ["general-purpose"],
-    "skills": ["writing-instructions"]
+    "agents": { "general-purpose": true, "reviewer": false },
+    "skills": { "writing-instructions": true }
   }
 }
 ```

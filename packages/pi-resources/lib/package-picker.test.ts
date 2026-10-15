@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { initTheme, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { SESSION_SETUP_CONTRIBUTIONS } from "pi-contracts";
-import { installSessionSetup } from "pi-runtime";
+import { installSessionSetup, readResourceSelection, resolveResourceSelection } from "pi-runtime";
 import type { ResourceBrowser } from "pi-resource-browser";
 import { registerPackagePicker } from "./package-picker.ts";
 initTheme("dark", false);
@@ -14,6 +14,16 @@ async function fixture(t: any, trusted = true) {
   const root = await mkdtemp(join(tmpdir(), "pi-packages-picker-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, ".pi"));
+  const agentDir = join(root, "agent");
+  await mkdir(agentDir);
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  t.after(() => {
+    if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousDir;
+  });
+  const globalFile = join(agentDir, "settings.json");
+  await writeFile(globalFile, "{}");
   const file = join(root, ".pi/settings.json"),
     before = JSON.stringify({
       keep: 1,
@@ -50,6 +60,7 @@ async function fixture(t: any, trusted = true) {
           id: "standalone",
           name: "standalone",
           description: "Individual choice",
+          nativeDefault: true,
           path: "/standalone",
         },
         {
@@ -127,6 +138,8 @@ async function fixture(t: any, trusted = true) {
   let action: (browser: ResourceBrowser) => Promise<void> = async () => {};
   return {
     root,
+    agentDir,
+    globalFile,
     file,
     before,
     setup,
@@ -168,9 +181,12 @@ test("Ctrl+S persists concrete project resource sets atomically and preserves un
     await browser.toggleCurrent();
     await browser.saveDefaults();
     const saved = JSON.parse(await readFile(f.file, "utf8"));
-    assert.deepEqual(saved.subagents.skills, ["standalone", "pack-skills"]);
-    assert.deepEqual(saved.subagents.agents, ["standalone", "pack-agents"]);
-    assert.deepEqual(saved.localContext.instructions, ["standalone", "pack-instructions"]);
+    assert.deepEqual(saved.subagents.skills, { standalone: true, "pack-skills": true });
+    assert.deepEqual(saved.subagents.agents, { standalone: true, "pack-agents": true });
+    assert.deepEqual(saved.localContext.instructions, {
+      standalone: true,
+      "pack-instructions": true,
+    });
     assert.deepEqual(saved.packages, ["native-source"]);
     assert.equal(saved.keep, 1);
     assert.equal(saved.subagents.model, "inherit");
@@ -229,9 +245,80 @@ test("saving package defaults preserves settings for absent resource providers",
     const saved = JSON.parse(await readFile(f.file, "utf8"));
     assert.deepEqual(saved.subagents.agents, ["saved-agent"]);
     assert.deepEqual(saved.localContext.instructions, ["saved-instruction"]);
-    assert.deepEqual(saved.subagents.skills, ["standalone", "pack-skills"]);
+    assert.deepEqual(saved.subagents.skills, { standalone: true, "pack-skills": true });
     assert.deepEqual(saved.packages, ["native-source"]);
     assert.equal(f.setup.selection("agents"), undefined);
     assert.equal(f.setup.selection("instructions"), undefined);
+  });
+});
+
+test("package scope edits isolate members and inherit without rewriting session or other choices", async (t) => {
+  const f = await fixture(t);
+  await writeFile(
+    f.file,
+    JSON.stringify({
+      subagents: { skills: { standalone: false }, agents: { standalone: false } },
+      localContext: { instructions: { standalone: false } },
+    }),
+  );
+  await f.run(async (browser) => {
+    assert.match(browser.render(160).join("\n"), /Project: INHERIT/);
+    await browser.setScopeState("project", "on");
+    const sessionBefore = f.setup.execute({ op: "list" }, f.ctx).selected;
+    for (const state of ["off", "inherit"] as const) {
+      await browser.setScopeState("project", state);
+      assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected, sessionBefore);
+      const saved = JSON.parse(await readFile(f.file, "utf8"));
+      assert.equal(saved.subagents.skills.standalone, false);
+      assert.equal(saved.subagents.agents.standalone, false);
+      assert.equal(saved.localContext.instructions.standalone, false);
+      if (state === "inherit")
+        assert.equal(Object.hasOwn(saved.subagents.skills, "pack-skills"), false);
+    }
+    await browser.setScopeState("global", "on");
+    const manager = SettingsManager.create(f.root, f.agentDir, { projectTrusted: true });
+    for (const kind of ["skills", "agents", "instructions"] as const) {
+      const row = resolveResourceSelection(
+        readResourceSelection(manager, "global", kind),
+        readResourceSelection(manager, "project", kind),
+        `pack-${kind}`,
+        false,
+      );
+      assert.equal(row.projectState, "inherit");
+      assert.equal(row.effective, true);
+      assert.equal(
+        resolveResourceSelection(
+          readResourceSelection(manager, "global", kind),
+          readResourceSelection(manager, "project", kind),
+          "standalone",
+          true,
+        ).effective,
+        false,
+      );
+    }
+    assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected, sessionBefore);
+    await browser.setScopeState("project", "on");
+    await browser.setScopeState("global", "off");
+    assert.match(browser.render(160).join("\n"), /Project: ON/);
+    await browser.setScopeState("global", "inherit");
+    assert.match(browser.render(160).join("\n"), /Global: INHERIT/);
+  });
+});
+
+test("editing a global package preserves legacy OFF for a project-only native sibling", async (t) => {
+  const f = await fixture(t);
+  const instructions = f.contributions.find((value) => value.kind === "instructions");
+  instructions.candidates[0].globalDefaultable = false;
+  await writeFile(
+    f.globalFile,
+    JSON.stringify({ subagents: { skills: [], agents: [] }, localContext: { instructions: [] } }),
+  );
+  await f.run(async (browser) => {
+    await browser.setScopeState("global", "on");
+    const saved = JSON.parse(await readFile(f.globalFile, "utf8"));
+    assert.equal(saved.localContext.instructions.standalone, false);
+    assert.equal(saved.localContext.instructions["pack-instructions"], true);
+    assert.equal(saved.subagents.skills.standalone, false);
+    assert.equal(saved.subagents.agents.standalone, false);
   });
 });

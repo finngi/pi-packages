@@ -101,10 +101,10 @@ requested packages and same-call explicit choices.
 
 Ctrl+S explicitly saves the current effective selections from loaded resource providers as project
 defaults in trusted `.pi/settings.json`. It saves concrete resource IDs, including individual
-choices, rather than a package name that could silently select future new members. Native package
+choices as explicit On/Off entries, rather than a package name that could silently select future new members. Native package
 registrations, tools and permission settings are preserved. Existing session overrides still take
 precedence; reset one to use saved defaults. The picker does not reload code or change already
-launched children. Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only members. Saved project lists still take precedence.
+launched children. Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only members. Explicit project choices still take precedence; inherited choices follow personal defaults.
 
 | Change | Mechanism | When it takes effect |
 |---|---|---|

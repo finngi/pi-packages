@@ -9,15 +9,20 @@ const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
   lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
 };
 
+export type ResourceKind = "skills" | "agents" | "instructions";
+export type ResourceDefaultState = "inherit" | "on" | "off";
+export type ResourceSelectionValue = string[] | Record<string, boolean> | undefined;
+
 type ResourceSettings = {
   skills?: string[];
   subagents?: {
-    agents?: string[];
-    skills?: string[];
+    agents?: ResourceSelectionValue;
+    skills?: ResourceSelectionValue;
     skillPaths?: string[];
     skillPathsCreatedSetting?: boolean;
   };
   resources?: { skillCatalogues?: string[] };
+  localContext?: { instructions?: ResourceSelectionValue };
 };
 
 export interface SkillChoice {
@@ -33,6 +38,243 @@ export interface SkillChoice {
 export interface GlobalSelectionSnapshot {
   present: boolean;
   names?: string[];
+  values?: Record<string, boolean>;
+}
+function snapshotValue(snapshot: GlobalSelectionSnapshot): ResourceSelectionValue {
+  if (!snapshot.present) return undefined;
+  return snapshot.values ?? snapshot.names ?? [];
+}
+function hasExplicitSelection(value: ResourceSelectionValue): boolean {
+  return Array.isArray(value) ? true : !!value && Object.keys(value).length > 0;
+}
+
+function selectionValue(settings: ResourceSettings, kind: ResourceKind): ResourceSelectionValue {
+  if (kind === "skills" || kind === "agents") {
+    if (
+      settings.subagents !== undefined &&
+      (!settings.subagents ||
+        typeof settings.subagents !== "object" ||
+        Array.isArray(settings.subagents))
+    )
+      throw Error("Settings subagents must be an object");
+    return settings.subagents?.[kind];
+  }
+  if (
+    settings.localContext !== undefined &&
+    (!settings.localContext ||
+      typeof settings.localContext !== "object" ||
+      Array.isArray(settings.localContext))
+  )
+    throw Error("Settings localContext must be an object");
+  return settings.localContext?.instructions;
+}
+
+export function readResourceSelection(
+  settings: SettingsManager,
+  scope: "project" | "global",
+  kind: ResourceKind,
+): ResourceSelectionValue {
+  const source = (
+    scope === "project" ? settings.getProjectSettings() : settings.getGlobalSettings()
+  ) as ResourceSettings;
+  return validateResourceSelection(selectionValue(source, kind), kind);
+}
+
+export function validateResourceSelection(
+  value: unknown,
+  kind: ResourceKind,
+): ResourceSelectionValue {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    if (
+      value.some((id) => typeof id !== "string" || !id.trim() || id !== id.trim()) ||
+      new Set(value).size !== value.length
+    )
+      throw Error(`${kind} selection must contain unique non-empty IDs`);
+    return value as string[];
+  }
+  if (!value || typeof value !== "object")
+    throw Error(`${kind} selection must be a list or ID-to-boolean map`);
+  const entries = Object.entries(value);
+  if (entries.some(([id, selected]) => !id.trim() || typeof selected !== "boolean"))
+    throw Error(`${kind} selection map must contain non-empty IDs and boolean values`);
+  return value as Record<string, boolean>;
+}
+
+export function resourceSelectionState(
+  value: ResourceSelectionValue,
+  id: string,
+): ResourceDefaultState {
+  if (value === undefined) return "inherit";
+  if (Array.isArray(value)) return value.includes(id) ? "on" : "off";
+  if (Object.hasOwn(value, id)) return value[id] ? "on" : "off";
+  return "inherit";
+}
+
+export function resolveResourceSelection(
+  global: ResourceSelectionValue,
+  project: ResourceSelectionValue,
+  id: string,
+  nativeDefault: boolean,
+): {
+  globalState: ResourceDefaultState;
+  projectState: ResourceDefaultState;
+  effective: boolean;
+  source: "project" | "global" | "native";
+} {
+  const globalState = resourceSelectionState(global, id);
+  const projectState = resourceSelectionState(project, id);
+  if (projectState !== "inherit")
+    return { globalState, projectState, effective: projectState === "on", source: "project" };
+  if (globalState !== "inherit")
+    return { globalState, projectState, effective: globalState === "on", source: "global" };
+  return { globalState, projectState, effective: nativeDefault, source: "native" };
+}
+
+function legacyMap(value: ResourceSelectionValue, knownIds: string[]): Record<string, boolean> {
+  const result = Object.create(null) as Record<string, boolean>;
+  if (value === undefined) return result;
+  if (!Array.isArray(value)) {
+    for (const [id, selected] of Object.entries(value)) result[id] = selected;
+    return result;
+  }
+  const selected = new Set(value);
+  for (const id of knownIds) result[id] = selected.has(id);
+  for (const id of value) if (!knownIds.includes(id)) result[id] = true;
+  return result;
+}
+
+function writeSelectionValue(
+  settings: Record<string, unknown>,
+  kind: ResourceKind,
+  value: ResourceSelectionValue,
+) {
+  if (kind === "skills" || kind === "agents") {
+    const subagents = settings.subagents;
+    if (
+      subagents !== undefined &&
+      (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
+    )
+      throw Error("Settings subagents value must be an object");
+    const next = { ...(subagents as Record<string, unknown> | undefined) };
+    if (value === undefined) delete next[kind];
+    else next[kind] = value;
+    if (Object.keys(next).length) settings.subagents = next;
+    else delete settings.subagents;
+  } else {
+    const context = settings.localContext;
+    if (
+      context !== undefined &&
+      (!context || typeof context !== "object" || Array.isArray(context))
+    )
+      throw Error("Settings localContext value must be an object");
+    const next = { ...(context as Record<string, unknown> | undefined) };
+    if (value === undefined) delete next.instructions;
+    else next.instructions = value;
+    if (Object.keys(next).length) settings.localContext = next;
+    else delete settings.localContext;
+  }
+}
+
+export interface ResourceDefaultWrite {
+  scope: "project" | "global";
+  kind: ResourceKind;
+  id: string;
+  state: ResourceDefaultState;
+  knownIds: string[];
+  cwd?: string;
+  agentDir?: string;
+  /** Selected extension skill paths, keyed by skill ID, for project skill writes. */
+  skillPaths?: Record<string, string>;
+  /** Native baseline for known IDs; false is used when omitted. */
+  nativeDefaults?: Record<string, boolean>;
+  /** Effective lower-scope values used to maintain project skill paths. */
+  fallbackValues?: Record<string, boolean>;
+}
+
+export interface ResourceDefaultsWrite {
+  scope: "project" | "global";
+  selections: Partial<
+    Record<
+      ResourceKind,
+      {
+        values: Record<string, boolean | undefined>;
+        knownIds: string[];
+        skillPaths?: Record<string, string>;
+        nativeDefaults?: Record<string, boolean>;
+        fallbackValues?: Record<string, boolean>;
+        /** Bulk save: discard saved IDs that are no longer known in this category. */
+        snapshot?: boolean;
+      }
+    >
+  >;
+  cwd?: string;
+  agentDir?: string;
+}
+
+function settingsFileUpdate(
+  scope: "project" | "global",
+  options: { cwd?: string; agentDir?: string },
+  update: (settings: Record<string, unknown>) => void,
+) {
+  if (scope === "project") {
+    if (!options.cwd) throw Error("Project resource defaults require a project directory");
+    return updateProjectSettingsFile(options.cwd, update);
+  }
+  if (!options.agentDir) throw Error("Global resource defaults require an agent directory");
+  return updateSettingsFile(join(resolve(options.agentDir), "settings.json"), update);
+}
+
+export function writeResourceDefault(options: ResourceDefaultWrite): Promise<void> {
+  const fallbackValues = options.nativeDefaults ?? {};
+  return writeResourceDefaults({
+    scope: options.scope,
+    cwd: options.cwd,
+    agentDir: options.agentDir,
+    selections: {
+      [options.kind]: {
+        values: { [options.id]: options.state === "inherit" ? undefined : options.state === "on" },
+        knownIds: options.knownIds,
+        ...(options.skillPaths ? { skillPaths: options.skillPaths } : {}),
+        ...(options.nativeDefaults ? { nativeDefaults: options.nativeDefaults } : {}),
+        ...(options.fallbackValues
+          ? { fallbackValues: options.fallbackValues }
+          : { fallbackValues }),
+      },
+    },
+  });
+}
+
+export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<void> {
+  return settingsFileUpdate(options.scope, options, (settings) => {
+    for (const kind of ["skills", "agents", "instructions"] as const) {
+      const selection = options.selections[kind];
+      if (!selection) continue;
+      const before = selectionValue(settings as ResourceSettings, kind);
+      const next = legacyMap(before, selection.knownIds);
+      if (selection.snapshot) {
+        const known = new Set(selection.knownIds);
+        for (const id of Object.keys(next)) if (!known.has(id)) delete next[id];
+      }
+      for (const [id, state] of Object.entries(selection.values)) {
+        if (state === undefined) delete next[id];
+        else next[id] = state;
+      }
+      const value = Object.keys(next).length ? next : undefined;
+      if (options.scope === "project" && kind === "skills") {
+        const selected = selection.knownIds.filter((id) =>
+          Object.hasOwn(next, id)
+            ? next[id] === true
+            : (selection.fallbackValues?.[id] ?? selection.nativeDefaults?.[id] ?? false),
+        );
+        const paths = selected
+          .filter((id) => !(selection.nativeDefaults?.[id] ?? false))
+          .flatMap((id) => selection.skillPaths?.[id] ?? []);
+        applySkillSelection(settings, options.cwd!, paths, selected);
+        writeSelectionValue(settings, kind, value);
+      } else writeSelectionValue(settings, kind, value);
+    }
+  });
 }
 
 export function configuredSkillChoices(
@@ -152,58 +394,38 @@ export function selectedSkills(
   ignoreInvalidProjectSelection = false,
   globalSnapshot?: GlobalSelectionSnapshot,
 ): SkillChoice[] {
-  const project = settings.getProjectSettings() as ResourceSettings;
-  const subagents = project.subagents;
-  if (
-    subagents !== undefined &&
-    (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-  ) {
+  let projectRaw: ResourceSelectionValue;
+  let currentGlobalRaw: ResourceSelectionValue;
+  try {
+    projectRaw = readResourceSelection(settings, "project", "skills");
+    currentGlobalRaw = readResourceSelection(settings, "global", "skills");
+  } catch (error) {
     if (ignoreInvalidProjectSelection) return [];
-    throw Error("project subagents setting must be an object");
+    throw error;
   }
-  const global = settings.getGlobalSettings() as ResourceSettings;
-  const globalSubagents = global.subagents;
-  const inherited = !subagents || !Object.hasOwn(subagents, "skills");
-  const names = inherited
-    ? globalSnapshot
-      ? globalSnapshot.present
-        ? globalSnapshot.names
-        : undefined
-      : globalSubagents?.skills
-    : subagents.skills;
-  if (names === undefined)
-    return choices.filter((choice) => choice.defaultSelected && choice.toggleable);
-  if (
-    !Array.isArray(names) ||
-    names.some((name) => typeof name !== "string" || !name.trim() || name !== name.trim()) ||
-    new Set(names).size !== names.length
-  ) {
-    if (ignoreInvalidProjectSelection) return [];
-    throw Error("project subagents.skills must be a list of unique skill names");
+  const globalRaw = globalSnapshot
+    ? validateResourceSelection(snapshotValue(globalSnapshot), "skills")
+    : currentGlobalRaw;
+  const byName = new Map(choices.filter((x) => x.toggleable).map((x) => [x.name, x]));
+  for (const [label, raw] of [
+    ["project", projectRaw],
+    ["global", globalRaw],
+  ] as const) {
+    if (!Array.isArray(raw)) continue;
+    const missing = raw.filter((name) => !byName.has(name));
+    if (missing.length) {
+      if (ignoreInvalidProjectSelection && label === "project") return [];
+      throw Error(`${label} subagents.skills contains unknown skill names: ${missing.join(", ")}`);
+    }
   }
-  const byName = new Map(choices.filter((choice) => choice.toggleable).map((x) => [x.name, x]));
-  const missing = names.filter((name) => !byName.has(name));
-  if (missing.length) {
-    if (ignoreInvalidProjectSelection) return [];
-    throw Error(`project subagents.skills contains unknown skill names: ${missing.join(", ")}`);
-  }
-  const selected = new Set(names);
   return choices
-    .filter((choice) => choice.toggleable && selected.has(choice.name))
+    .filter(
+      (choice) =>
+        choice.toggleable &&
+        resolveResourceSelection(globalRaw, projectRaw, choice.name, choice.defaultSelected)
+          .effective,
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function writeGlobalResourceSelection(
-  agentDir: string,
-  key: "agents" | "skills",
-  names: string[],
-): Promise<void> {
-  return updateSettingsFile(join(resolve(agentDir), "settings.json"), (current) => {
-    const value = current.subagents;
-    if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value)))
-      throw Error("Global settings subagents value must be an object");
-    current.subagents = { ...(value as Record<string, unknown> | undefined), [key]: names };
-  });
 }
 
 async function updateSettingsFile(
@@ -277,51 +499,54 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
 ): { agents: T[]; configured: boolean; error?: string } {
   const project = settings.getProjectSettings() as ResourceSettings;
   const global = settings.getGlobalSettings() as ResourceSettings;
-  const nestedSelection = (settings: ResourceSettings) => {
-    if (!Object.hasOwn(settings, "subagents")) return { present: false as const };
-    const subagents = settings.subagents;
-    if (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-      return { present: true as const, error: "subagents must be an object" };
-    if (!Object.hasOwn(subagents, "agents")) return { present: false as const };
-    return { present: true as const, value: subagents.agents };
-  };
-  const projectSelection = nestedSelection(project);
-  const currentGlobalSelection = nestedSelection(global);
-  const globalSelection = globalSnapshot
-    ? globalSnapshot.present
-      ? { present: true as const, value: globalSnapshot.names }
-      : { present: false as const }
-    : currentGlobalSelection;
-  const chosen = projectSelection.present ? projectSelection : globalSelection;
-  if ("error" in chosen) return { agents: [], configured: true, error: chosen.error };
-  if (!chosen.present)
-    return { agents: agents.filter((agent) => !agent.catalogueOnly), configured: false };
-  const selection = chosen.value;
   if (
-    !Array.isArray(selection) ||
-    selection.some((name) => typeof name !== "string" || !name.trim() || name !== name.trim())
+    project.subagents !== undefined &&
+    (!project.subagents ||
+      typeof project.subagents !== "object" ||
+      Array.isArray(project.subagents))
   )
+    return { agents: [], configured: true, error: "subagents must be an object" };
+  if (
+    global.subagents !== undefined &&
+    (!global.subagents || typeof global.subagents !== "object" || Array.isArray(global.subagents))
+  )
+    return { agents: [], configured: true, error: "subagents must be an object" };
+  let projectRaw: ResourceSelectionValue, globalRaw: ResourceSelectionValue;
+  try {
+    projectRaw = readResourceSelection(settings, "project", "agents");
+    const currentGlobalRaw = readResourceSelection(settings, "global", "agents");
+    globalRaw = globalSnapshot
+      ? validateResourceSelection(snapshotValue(globalSnapshot), "agents")
+      : currentGlobalRaw;
+  } catch (error) {
     return {
       agents: [],
       configured: true,
-      error: "subagents.agents must be a list of non-empty names",
+      error: error instanceof Error ? error.message : String(error),
     };
-  const names = new Set(selection);
-  if (names.size !== selection.length)
-    return {
-      agents: [],
-      configured: true,
-      error: "subagents.agents must not contain duplicate names",
-    };
+  }
   const known = new Set(agents.map((agent) => agent.name));
-  const invalid = [...names].filter((name) => !known.has(name));
-  if (invalid.length)
-    return {
-      agents: [],
-      configured: true,
-      error: `subagents.agents contains unknown or untrusted names: ${invalid.join(", ")}`,
-    };
-  return { agents: agents.filter((agent) => names.has(agent.name)), configured: true };
+  for (const [label, raw] of [
+    ["project", projectRaw],
+    ["global", globalRaw],
+  ] as const) {
+    if (!Array.isArray(raw)) continue;
+    const invalid = raw.filter((name) => !known.has(name));
+    if (invalid.length)
+      return {
+        agents: [],
+        configured: true,
+        error: `${label} subagents.agents contains unknown or untrusted names: ${invalid.join(", ")}`,
+      };
+  }
+  const configured = hasExplicitSelection(projectRaw) || hasExplicitSelection(globalRaw);
+  return {
+    agents: agents.filter(
+      (agent) =>
+        resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
+    ),
+    configured,
+  };
 }
 
 async function updateProjectSettingsFile(
@@ -410,79 +635,6 @@ export async function assertSafeProjectSettingsLocation(cwd: string): Promise<vo
   }
 }
 
-export function writeProjectAgentSelection(
-  cwd: string,
-  names: string[] | undefined,
-): Promise<void> {
-  return updateProjectSettingsFile(cwd, (current) => {
-    const subagents = current.subagents;
-    if (
-      subagents !== undefined &&
-      (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-    )
-      throw Error("Project settings subagents value must be an object");
-    const nextSubagents = { ...(subagents as Record<string, unknown> | undefined) };
-    if (names === undefined) delete nextSubagents.agents;
-    else nextSubagents.agents = names;
-    if (Object.keys(nextSubagents).length) current.subagents = nextSubagents;
-    else delete current.subagents;
-  });
-}
-
-export function removeProjectSkillSelection(cwd: string): Promise<void> {
-  return updateProjectSettingsFile(cwd, (current) => {
-    const subagents = current.subagents;
-    if (
-      subagents !== undefined &&
-      (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-    )
-      throw Error("Project settings subagents value must be an object");
-    if (subagents && typeof subagents === "object") {
-      const nextSubagents = { ...(subagents as Record<string, unknown>) };
-      const managedPaths = nextSubagents.skillPaths;
-      const createdSkillsSetting = nextSubagents.skillPathsCreatedSetting;
-      if (
-        managedPaths !== undefined &&
-        (!Array.isArray(managedPaths) || managedPaths.some((path) => typeof path !== "string"))
-      )
-        throw Error("Project subagents.skillPaths must be a list of paths");
-      if (createdSkillsSetting !== undefined && typeof createdSkillsSetting !== "boolean")
-        throw Error("Project subagents.skillPathsCreatedSetting must be a boolean");
-      if (
-        current.skills !== undefined &&
-        (!Array.isArray(current.skills) || current.skills.some((path) => typeof path !== "string"))
-      )
-        throw Error("Project skills must be a list of paths");
-      const managed = new Set(
-        (Array.isArray(managedPaths) ? managedPaths : []).map((path) => resolve(cwd, path)),
-      );
-      if (managed.size && Array.isArray(current.skills)) {
-        const retainedPaths = current.skills.filter(
-          (path): path is string => typeof path === "string" && !managed.has(resolve(cwd, path)),
-        );
-        if (retainedPaths.length) current.skills = retainedPaths;
-        else if (createdSkillsSetting) delete current.skills;
-        else current.skills = [];
-      }
-      delete nextSubagents.skills;
-      delete nextSubagents.skillPaths;
-      delete nextSubagents.skillPathsCreatedSetting;
-      if (Object.keys(nextSubagents).length) current.subagents = nextSubagents;
-      else delete current.subagents;
-    }
-  });
-}
-
-export function writeProjectSkillSelection(
-  cwd: string,
-  paths: string[],
-  names: string[],
-): Promise<void> {
-  return updateProjectSettingsFile(cwd, (current) => {
-    applySkillSelection(current, cwd, paths, names);
-  });
-}
-
 function applySkillSelection(
   current: Record<string, unknown>,
   cwd: string,
@@ -545,77 +697,4 @@ function applySkillSelection(
     skillPaths: selectedPaths,
     ...(createdSetting ? { skillPathsCreatedSetting: true } : {}),
   };
-}
-
-/** Persist only resource types supplied by the loaded extensions. */
-export interface ResourceDefaultsSelection {
-  skills?: string[];
-  agents?: string[];
-  instructions?: string[];
-}
-export function writeProjectResourceSelection(
-  cwd: string,
-  selection: ResourceDefaultsSelection,
-  paths: string[],
-): Promise<void> {
-  return updateProjectSettingsFile(cwd, (current) => {
-    if (selection.skills !== undefined) applySkillSelection(current, cwd, paths, selection.skills);
-    if (selection.agents !== undefined) {
-      const subagents = current.subagents;
-      if (
-        subagents !== undefined &&
-        (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-      )
-        throw Error("Project subagents value must be an object");
-      current.subagents = {
-        ...(subagents as Record<string, unknown> | undefined),
-        agents: selection.agents,
-      };
-    }
-    if (selection.instructions !== undefined) {
-      const context = current.localContext;
-      if (
-        context !== undefined &&
-        (!context || typeof context !== "object" || Array.isArray(context))
-      )
-        throw Error("Project localContext value must be an object");
-      current.localContext = {
-        ...(context as Record<string, unknown> | undefined),
-        instructions: selection.instructions,
-      };
-    }
-  });
-}
-
-export function writeGlobalResourceDefaults(
-  agentDir: string,
-  selection: ResourceDefaultsSelection,
-): Promise<void> {
-  return updateSettingsFile(join(resolve(agentDir), "settings.json"), (current) => {
-    if (selection.skills !== undefined || selection.agents !== undefined) {
-      const subagents = current.subagents;
-      if (
-        subagents !== undefined &&
-        (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-      )
-        throw Error("Global subagents must be an object");
-      current.subagents = {
-        ...(subagents as Record<string, unknown> | undefined),
-        ...(selection.skills !== undefined ? { skills: selection.skills } : {}),
-        ...(selection.agents !== undefined ? { agents: selection.agents } : {}),
-      };
-    }
-    if (selection.instructions !== undefined) {
-      const context = current.localContext;
-      if (
-        context !== undefined &&
-        (!context || typeof context !== "object" || Array.isArray(context))
-      )
-        throw Error("Global localContext must be an object");
-      current.localContext = {
-        ...(context as Record<string, unknown> | undefined),
-        instructions: selection.instructions.filter((id) => id.startsWith("catalogue:")),
-      };
-    }
-  });
 }

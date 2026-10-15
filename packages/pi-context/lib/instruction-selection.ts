@@ -1,17 +1,17 @@
-import { mkdir, open, readFile, rename, lstat, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 
-const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
-  lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
-};
+import {
+  resolveResourceSelection,
+  validateResourceSelection,
+  type ResourceSelectionValue,
+} from "pi-runtime";
 
 export type InstructionSettings = {
   resources?: { instructionCatalogues?: string[] };
-  localContext?: { instructions?: string[] };
+  localContext?: { instructions?: ResourceSelectionValue };
 };
 
 /** Resolve authored catalogue paths using the same home-relative convention as native Pi settings. */
@@ -55,116 +55,57 @@ export function effectiveInstructions(
   global: InstructionSettings,
   project: InstructionSettings,
   knownNames?: string[],
+  nativeNames: string[] = [],
 ): string[] | undefined {
-  const selection = Object.hasOwn(project.localContext ?? {}, "instructions")
-    ? project.localContext?.instructions
-    : global.localContext?.instructions;
-  if (selection === undefined) return undefined;
-  if (
-    !Array.isArray(selection) ||
-    selection.some((item) => typeof item !== "string") ||
-    new Set(selection).size !== selection.length
-  )
-    throw Error("localContext.instructions must be a list of unique resource names");
+  for (const settings of [global, project]) {
+    if (
+      settings.localContext !== undefined &&
+      (!settings.localContext ||
+        typeof settings.localContext !== "object" ||
+        Array.isArray(settings.localContext))
+    )
+      throw Error("Settings localContext must be an object");
+  }
+  const globalSelection = validateResourceSelection(
+    global.localContext?.instructions,
+    "instructions",
+  );
+  const projectSelection = validateResourceSelection(
+    project.localContext?.instructions,
+    "instructions",
+  );
+  const names = (selection: ResourceSelectionValue) =>
+    Array.isArray(selection)
+      ? selection
+      : selection && typeof selection === "object"
+        ? Object.keys(selection).filter((id) => selection[id] === true)
+        : [];
+  if (globalSelection === undefined && projectSelection === undefined && !knownNames)
+    return undefined;
+  const known = knownNames ?? [
+    ...new Set([...names(globalSelection), ...names(projectSelection), ...nativeNames]),
+  ];
   if (knownNames) {
-    const known = new Set(knownNames);
-    const unknown = selection.filter((name) => !known.has(name));
+    const ids = new Set(knownNames);
+    const configured = [
+      ...new Set([
+        ...(Array.isArray(globalSelection) ? globalSelection : []),
+        ...(Array.isArray(projectSelection) ? projectSelection : []),
+      ]),
+    ];
+    const unknown = configured.filter(
+      (id) =>
+        !ids.has(id) &&
+        resolveResourceSelection(globalSelection, projectSelection, id, false).effective,
+    );
     if (unknown.length)
       throw Error(
         `localContext.instructions contains unknown resource names: ${unknown.join(", ")}`,
       );
   }
-  return selection;
-}
-
-async function updateSettings(path: string, update: (settings: Record<string, unknown>) => void) {
-  const directory = dirname(path);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const dirStat = await lstat(directory);
-  if (dirStat.isSymbolicLink() || !dirStat.isDirectory())
-    throw Error(`Refusing to write through non-directory settings path ${directory}`);
-  try {
-    const handle = await open(path, "wx", 0o600);
-    await handle.writeFile("{}\n");
-    await handle.close();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const release = await lock(path, {
-    realpath: false,
-    retries: { retries: 10, minTimeout: 10, maxTimeout: 100 },
-  });
-  try {
-    let settings: Record<string, unknown> = {};
-    try {
-      const stat = await lstat(path);
-      if (stat.isSymbolicLink() || !stat.isFile())
-        throw Error(`Refusing to write non-regular settings file ${path}`);
-      const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-        throw Error(`Settings must be a JSON object: ${path}`);
-      settings = parsed as Record<string, unknown>;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    update(settings);
-    const temp = `${path}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-    const file = await open(temp, "wx", 0o600);
-    try {
-      await file.writeFile(`${JSON.stringify(settings, null, 2)}\n`);
-      await file.sync();
-    } catch (error) {
-      await unlink(temp).catch(() => {});
-      throw error;
-    } finally {
-      await file.close();
-    }
-    await rename(temp, path);
-  } finally {
-    await release();
-  }
-}
-
-export function writeProjectInstructions(cwd: string, names: string[]) {
-  return updateSettings(join(resolve(cwd), ".pi", "settings.json"), (settings) => {
-    const existing = settings.localContext;
-    if (
-      existing !== undefined &&
-      (!existing || typeof existing !== "object" || Array.isArray(existing))
-    )
-      throw Error("localContext must be an object");
-    settings.localContext = {
-      ...(existing as Record<string, unknown> | undefined),
-      instructions: names,
-    };
-  });
-}
-
-export function writeGlobalDefaults(
-  agentDir: string,
-  key: "instructions" | "agents" | "skills",
-  names: string[],
-) {
-  return updateSettings(join(agentDir, "settings.json"), (settings) => {
-    if (key === "agents" || key === "skills") {
-      const existing = settings.subagents;
-      if (
-        existing !== undefined &&
-        (!existing || typeof existing !== "object" || Array.isArray(existing))
-      )
-        throw Error("subagents must be an object");
-      settings.subagents = { ...(existing as Record<string, unknown> | undefined), [key]: names };
-    } else {
-      const existing = settings.localContext;
-      if (
-        existing !== undefined &&
-        (!existing || typeof existing !== "object" || Array.isArray(existing))
-      )
-        throw Error("localContext must be an object");
-      settings.localContext = {
-        ...(existing as Record<string, unknown> | undefined),
-        instructions: names,
-      };
-    }
-  });
+  const native = new Set(nativeNames);
+  return known.filter(
+    (id) =>
+      resolveResourceSelection(globalSelection, projectSelection, id, native.has(id)).effective,
+  );
 }

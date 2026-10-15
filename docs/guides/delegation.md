@@ -47,7 +47,7 @@ Use `/agents trust /absolute/project/directory` to grant interactive, session-on
 - Ctrl+S saves project defaults in trusted `.pi/settings.json`.
 - Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only resources.
 
-The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. A project list replaces its personal default list, including `[]`. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
+The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. Explicit project choices override personal choices per resource; Inherit follows the personal default. Legacy exact lists, including `[]`, retain their existing meaning until edited. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
 
 For example, project A saves instruction 1 with Ctrl+S. Project B can turn that instruction on or off in personal defaults; new A sessions still use A's saved list. A session already started in B retains its own choices until explicitly changed.
 

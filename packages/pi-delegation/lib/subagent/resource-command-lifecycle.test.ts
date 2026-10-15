@@ -237,7 +237,7 @@ test("agent selection is session-only until explicitly saved to the project", as
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.agents, []);
+      assert.equal(projectSettings.subagents, undefined);
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -271,7 +271,7 @@ test("clearing a stale agent selection does not report the pre-repair error", as
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.agents, []);
+      assert.equal(projectSettings.subagents, undefined);
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -305,7 +305,7 @@ test("agent selection does not discard an ancestor trusted for the current sessi
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.agents, ["reviewer"]);
+      assert.deepEqual(projectSettings.subagents.agents, { reviewer: true });
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -429,7 +429,7 @@ test("a direct public-skill change updates the session without a reload or setti
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.skills, ["one"]);
+      assert.deepEqual(projectSettings.subagents.skills, { one: true });
       assert.deepEqual(projectSettings.subagents.skillPaths, [skillPath]);
     });
   } finally {
@@ -499,7 +499,7 @@ test("interactive skill changes reuse one context and save only explicitly", asy
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.skills, ["alpha", "beta"]);
+      assert.deepEqual(projectSettings.subagents.skills, { alpha: true, beta: true });
       assert.deepEqual(projectSettings.subagents.skillPaths, [alphaPath, betaPath]);
     });
   } finally {
@@ -530,7 +530,7 @@ test("custom skill browser keeps toggles in the session and Ctrl+S saves without
         assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
         await browser.saveDefaults();
         const saved = JSON.parse(readFileSync(join(f.project, ".pi/settings.json"), "utf8"));
-        assert.deepEqual(saved.subagents.skills, ["alpha", "beta"]);
+        assert.deepEqual(saved.subagents.skills, { alpha: true, beta: true });
         assert.deepEqual(saved.skills, [alphaPath, betaPath]);
         assert.equal(context.reloads, 0);
       });
@@ -565,7 +565,7 @@ test("custom agent browser saves only on Ctrl+S without changing context ownersh
         assert.equal(existsSync(join(f.project, ".pi/settings.json")), false);
         await browser.saveDefaults();
         const saved = JSON.parse(readFileSync(join(f.project, ".pi/settings.json"), "utf8"));
-        assert.deepEqual(saved.subagents.agents, []);
+        assert.deepEqual(saved.subagents.agents, { reviewer: false });
         assert.equal(context.reloads, 0);
       });
       await f.commands.get("agents")!.handler("", context.context);
@@ -597,7 +597,7 @@ test("native temporary skills stay selected in this session but are excluded fro
           guardedContext(f.project, ["Save personal defaults (all projects)", "Done"]).context,
         );
       const personal = JSON.parse(readFileSync(join(f.agentDir, "settings.json"), "utf8"));
-      assert.deepEqual(personal.subagents.skills, []);
+      assert.equal(personal.subagents, undefined);
       const inspected = guardedContext(f.project);
       await f.commands.get("skills")!.handler("inspect temporary-skill", inspected.context);
       assert(inspected.notifications.some((message) => message.includes("temporary-skill")));

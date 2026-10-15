@@ -751,3 +751,29 @@ test("registered pack instructions are opt-in, preserve caller guidance, reread 
   assert.doesNotMatch(disabled.prompt, /PACK_RULE_TWO/);
   assert.match(disabled.prompt, /CALLER_GUIDANCE/);
 });
+
+test("the prompt hook resolves sparse instruction maps against implicit local defaults", async () => {
+  const repo = join(root, "sparse-instruction-hook");
+  initGit(repo);
+  put(join(repo, ".agents/instructions/a.md"), "LOCAL_A");
+  put(join(repo, ".agents/instructions/b.md"), "LOCAL_B");
+  const dormantRoot = join(repo, "unregistered-instructions");
+  put(join(dormantRoot, "rule.md"), "DORMANT_RULE");
+  const dormantId = catalogueInstructionId(dormantRoot, "rule.md");
+  put(
+    join(repo, ".pi/settings.json"),
+    JSON.stringify({
+      localContext: {
+        instructions: { "local:.agents/instructions/a.md": false, [dormantId]: true },
+      },
+    }),
+  );
+  put(join(root, "agent/settings.json"), JSON.stringify({ localContext: { instructions: {} } }));
+  const handlers = register();
+  const ctx = { cwd: repo, hasUI: false, isProjectTrusted: () => true };
+  await handlers.session_start({ type: "session_start", reason: "startup" }, ctx);
+  const options = { cwd: repo, contextFiles: [], sections: {} as Record<string, string> };
+  await handlers.before_agent_start({ systemPromptOptions: options }, ctx);
+  assert.match(options.sections.instructions, /LOCAL_B/);
+  assert.doesNotMatch(options.sections.instructions, /LOCAL_A|DORMANT_RULE/);
+});

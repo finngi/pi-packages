@@ -68,11 +68,16 @@ import {
   showResourceBrowser,
   resourceBrowserNavigation,
 } from "../lib/subagent/resource-browser.ts";
+import type { ResourceEntry } from "../lib/subagent/resource-browser.ts";
 import {
+  assertSafeProjectSettingsLocation,
   type GlobalSelectionSnapshot,
+  readResourceSelection,
+  resolveResourceSelection,
   selectedAgents,
-  writeGlobalResourceSelection,
-  writeProjectAgentSelection,
+  type ResourceDefaultState,
+  writeResourceDefault,
+  writeResourceDefaults,
 } from "pi-runtime";
 import { resolveSettings } from "../lib/subagent/settings.ts";
 import { createUnrestrictedLauncher } from "../lib/subagent/unrestricted-launcher.ts";
@@ -470,12 +475,11 @@ export default function (pi: ExtensionAPI) {
   const settingsManager = (ctx: ExtensionContext) =>
     SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
   const refreshDefaultSnapshots = (ctx: ExtensionContext) => {
-    const global = settingsManager(ctx).getGlobalSettings() as {
-      subagents?: { agents?: string[]; skills?: string[] };
-    };
+    const manager = settingsManager(ctx);
+    const raw = readResourceSelection(manager, "global", "agents");
     agentDefaultsSnapshot = {
-      present: Object.hasOwn(global.subagents ?? {}, "agents"),
-      names: global.subagents?.agents,
+      present: raw !== undefined,
+      ...(Array.isArray(raw) ? { names: raw } : raw ? { values: raw } : {}),
     };
     defaultsSnapshotCaptured = true;
   };
@@ -724,6 +728,7 @@ export default function (pi: ExtensionAPI) {
           id: agent.name,
           name: agent.name,
           description: agent.description,
+          nativeDefault: !agent.catalogueOnly,
           model: agent.model ?? "inherit",
           globalDefaultable:
             agent.source !== "project" &&
@@ -754,37 +759,67 @@ export default function (pi: ExtensionAPI) {
     };
     return { content: [{ type: "text", text: JSON.stringify(receipt) }], details: receipt };
   });
-  const persistAgentSelection = async (
-    ctx: ExtensionCommandContext,
-    names: string[] | undefined,
+  const refreshAgentEntries = (
+    manager: ReturnType<typeof settingsManager>,
+    entries: ResourceEntry[],
+    agents: Array<{ name: string; catalogueOnly?: boolean }>,
   ) => {
-    if (!ctx.isProjectTrusted())
-      throw Error("Project resource selection requires a trusted project");
-    await ctx.waitForIdle();
-    await writeProjectAgentSelection(ctx.cwd, names);
-    if (names === undefined) refreshAgentSelection(ctx);
-    else agentSelectionSnapshot = { names: new Set(names) };
+    const global = readResourceSelection(manager, "global", "agents");
+    const project = readResourceSelection(manager, "project", "agents");
+    for (const entry of entries) {
+      const agent = agents.find((candidate) => candidate.name === entry.id);
+      if (!agent) continue;
+      const resolved = resolveResourceSelection(global, project, agent.name, !agent.catalogueOnly);
+      const globalResolved = resolveResourceSelection(
+        global,
+        undefined,
+        agent.name,
+        !agent.catalogueOnly,
+      );
+      entry.projectState = resolved.projectState;
+      entry.globalState = resolved.globalState;
+      entry.defaultSelected = resolved.effective;
+      entry.globalDefaultSelected = globalResolved.effective;
+    }
   };
+
   const changeSavedDefault = async (
     ctx: ExtensionCommandContext,
     kind: "agents",
     id: string,
-    enabled: boolean,
+    state: ResourceDefaultState,
     scope: "project" | "global",
+    entries: ResourceEntry[],
+    agents: Array<{ name: string; catalogueOnly?: boolean }>,
   ) => {
-    const current = setup.execute({ op: "list" }, ctx).selected.agents;
+    if (scope === "project" && !ctx.isProjectTrusted())
+      throw Error("Saving agent defaults requires a trusted project");
     const latest = settingsManager(ctx);
-    const global =
-      (latest.getGlobalSettings() as { subagents?: { agents?: string[] } }).subagents?.agents ?? [];
-    const project = (latest.getProjectSettings() as { subagents?: { agents?: string[] } }).subagents
-      ?.agents;
-    const names = new Set(scope === "global" ? global : (project ?? global));
-    if (enabled) names.add(id);
-    else names.delete(id);
-    if (scope === "global")
-      await writeGlobalResourceSelection(getAgentDir(), kind, [...names].sort());
-    else await persistAgentSelection(ctx, [...names].sort());
-    setup.execute({ op: "apply", agents: current }, ctx);
+    const nativeDefaults = Object.fromEntries(
+      agents.map((agent) => [agent.name, !agent.catalogueOnly]),
+    );
+    await writeResourceDefault({
+      scope,
+      kind,
+      id,
+      state,
+      knownIds: agents.map((agent) => agent.name),
+      cwd: ctx.cwd,
+      agentDir: getAgentDir(),
+      nativeDefaults,
+      fallbackValues: Object.fromEntries(
+        agents.map((agent) => [
+          agent.name,
+          resolveResourceSelection(
+            readResourceSelection(latest, "global", "agents"),
+            undefined,
+            agent.name,
+            !agent.catalogueOnly,
+          ).effective,
+        ]),
+      ),
+    });
+    refreshAgentEntries(settingsManager(ctx), entries, agents);
   };
   const selectionArgs = (args: string) => {
     const match = /^(enable|disable|none|all|inherit|inspect)(?:\s+(.+))?$/.exec(args.trim());
@@ -876,9 +911,7 @@ export default function (pi: ExtensionAPI) {
       if (!action && !/^trust(?:\s|$)/.test(command)) selected = command;
       if (!selected && !action && ctx.hasUI) {
         const selection = new Set(found.agents.map((agent) => agent.name));
-        const agentDefaults =
-          (manager.getProjectSettings() as { subagents?: { agents?: string[] } }).subagents
-            ?.agents ?? [];
+        let browserEntries: ResourceEntry[] = [];
         await showResourceBrowser(ctx, {
           title: "Agents",
           ...resourceBrowserNavigation(pi, "agents"),
@@ -889,80 +922,95 @@ export default function (pi: ExtensionAPI) {
             "agents",
           ),
           notice: diagnostics.join("\n\n"),
-          entries: full.agents.map((agent) => ({
-            id: agent.name,
-            name: agent.name,
-            description: agent.description,
-            keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
-              .filter(Boolean)
-              .join(" "),
-            selected: selection.has(agent.name),
-            defaultSelected: agentDefaults.includes(agent.name),
-            globalDefaultSelected: (
-              (manager.getGlobalSettings() as { subagents?: { agents?: string[] } }).subagents
-                ?.agents ?? []
-            ).includes(agent.name),
-            globalDefaultable:
-              agent.source !== "project" &&
-              packageResources.packs.find((pack) => pack.name === agent.packName)
-                ?.globalDefaultable !== false,
-            badge: agent.packName ?? agent.source,
-            preview: async () => {
-              let fields: Array<{ label: string; value: string }>;
-              try {
-                const resolved = await settings(agent, ctx);
-                const spec = {
-                  ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
-                  communication: {
-                    id: "pending-agent-workspace",
-                    name: agent.name,
-                    parentId,
-                    parentName: "main",
-                  },
+          entries: (browserEntries = full.agents.map((agent) => {
+            const nativeDefault = !agent.catalogueOnly;
+            const resolved = resolveResourceSelection(
+              readResourceSelection(manager, "global", "agents"),
+              readResourceSelection(manager, "project", "agents"),
+              agent.name,
+              nativeDefault,
+            );
+            const globalResolved = resolveResourceSelection(
+              readResourceSelection(manager, "global", "agents"),
+              undefined,
+              agent.name,
+              nativeDefault,
+            );
+            return {
+              id: agent.name,
+              name: agent.name,
+              description: agent.description,
+              keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
+                .filter(Boolean)
+                .join(" "),
+              selected: selection.has(agent.name),
+              defaultSelected: resolved.effective,
+              globalDefaultSelected: globalResolved.effective,
+              projectState: resolved.projectState,
+              globalState: resolved.globalState,
+              nativeDefault,
+              globalDefaultable:
+                agent.source !== "project" &&
+                packageResources.packs.find((pack) => pack.name === agent.packName)
+                  ?.globalDefaultable !== false,
+              badge: agent.packName ?? agent.source,
+              preview: async () => {
+                let fields: Array<{ label: string; value: string }>;
+                try {
+                  const resolved = await settings(agent, ctx);
+                  const spec = {
+                    ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
+                    communication: {
+                      id: "pending-agent-workspace",
+                      name: agent.name,
+                      parentId,
+                      parentName: "main",
+                    },
+                  };
+                  const capabilities = publicAgentPreview(await launcher().describeChild(spec));
+                  const scope = capabilities.scope;
+                  fields = [
+                    {
+                      label: "Model",
+                      value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
+                    },
+                    { label: "Tools", value: capabilities.tools.join(", ") || "none" },
+                    { label: "Child skills", value: resolved.skills.join(", ") || "none" },
+                    { label: "History", value: String(agent.context ?? "none") },
+                    ...Object.entries(scope)
+                      .filter(
+                        ([key, value]) =>
+                          scope.security !== "off" ||
+                          (!["mode", "security"].includes(key) &&
+                            !(["read", "write"].includes(key) && value === "host permissions")),
+                      )
+                      .map(([key, value]) => ({
+                        label:
+                          key === "workspaceModes"
+                            ? "Workspaces"
+                            : key[0].toUpperCase() + key.slice(1),
+                        value: Array.isArray(value) ? value.join(", ") : String(value),
+                      })),
+                  ];
+                  if (scope.security === "off")
+                    fields.push({ label: "Execution", value: "Host permissions" });
+                } catch (error) {
+                  fields = [
+                    { label: "Capabilities unavailable", value: errorText(error) },
+                    { label: "Requested model", value: agent.model ?? "inherit parent model" },
+                    {
+                      label: "Requested tools",
+                      value: agent.tools?.join(", ") ?? "inherit available tools",
+                    },
+                  ];
+                }
+                return {
+                  fields,
+                  source: agent.filePath,
+                  body: agent.body,
                 };
-                const capabilities = publicAgentPreview(await launcher().describeChild(spec));
-                const scope = capabilities.scope;
-                fields = [
-                  {
-                    label: "Model",
-                    value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
-                  },
-                  { label: "Tools", value: capabilities.tools.join(", ") || "none" },
-                  { label: "Child skills", value: resolved.skills.join(", ") || "none" },
-                  { label: "History", value: String(agent.context ?? "none") },
-                  ...Object.entries(scope)
-                    .filter(
-                      ([key, value]) =>
-                        scope.security !== "off" ||
-                        (!["mode", "security"].includes(key) &&
-                          !(["read", "write"].includes(key) && value === "host permissions")),
-                    )
-                    .map(([key, value]) => ({
-                      label:
-                        key === "workspaceModes"
-                          ? "Workspaces"
-                          : key[0].toUpperCase() + key.slice(1),
-                      value: Array.isArray(value) ? value.join(", ") : String(value),
-                    })),
-                ];
-                if (scope.security === "off")
-                  fields.push({ label: "Execution", value: "Host permissions" });
-              } catch (error) {
-                fields = [
-                  { label: "Capabilities unavailable", value: errorText(error) },
-                  { label: "Requested model", value: agent.model ?? "inherit parent model" },
-                  {
-                    label: "Requested tools",
-                    value: agent.tools?.join(", ") ?? "inherit available tools",
-                  },
-                ];
-              }
-              return {
-                fields,
-                source: agent.filePath,
-                body: agent.body,
-              };
-            },
+              },
+            };
           })),
           toggle: async (entry, enabled) => {
             const next = new Set(selection);
@@ -973,19 +1021,46 @@ export default function (pi: ExtensionAPI) {
             for (const name of next) selection.add(name);
             found = findAgents(ctx);
           },
-          setDefault: (entry, enabled, scope) =>
-            changeSavedDefault(ctx, "agents", entry.id, enabled, scope),
-          saveGlobalDefaults: async (entries) =>
-            writeGlobalResourceSelection(
-              getAgentDir(),
-              "agents",
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
-          saveDefaults: async (entries) =>
-            persistAgentSelection(
-              ctx,
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
+          setDefault: (entry, state, scope) =>
+            changeSavedDefault(ctx, "agents", entry.id, state, scope, browserEntries, full.agents),
+          saveGlobalDefaults: async (saved) => {
+            await writeResourceDefaults({
+              scope: "global",
+              agentDir: getAgentDir(),
+              selections: {
+                agents: {
+                  snapshot: true,
+                  knownIds: full.agents.map((agent) => agent.name),
+                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
+                  nativeDefaults: Object.fromEntries(
+                    full.agents.map((agent) => [agent.name, !agent.catalogueOnly]),
+                  ),
+                },
+              },
+            });
+            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
+          },
+          saveDefaults: async (saved) => {
+            if (!ctx.isProjectTrusted())
+              throw Error("Saving agent defaults requires a trusted project");
+            await assertSafeProjectSettingsLocation(ctx.cwd);
+            await writeResourceDefaults({
+              scope: "project",
+              cwd: ctx.cwd,
+              agentDir: getAgentDir(),
+              selections: {
+                agents: {
+                  snapshot: true,
+                  knownIds: full.agents.map((agent) => agent.name),
+                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
+                  nativeDefaults: Object.fromEntries(
+                    full.agents.map((agent) => [agent.name, !agent.catalogueOnly]),
+                  ),
+                },
+              },
+            });
+            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
+          },
         });
         return;
       }

@@ -26,7 +26,7 @@ The root npm workspace has one lockfile for eleven packages: eight Pi extensions
 | --- | --- |
 | `pi-background`, `pi-goal`, `pi-security` | `pi-contracts`, `pi-runtime` at `0.1.0` |
 | `pi-delegation`, `pi-resources` | `pi-contracts`, `pi-runtime`, `pi-resource-browser` at `0.1.0` |
-| `pi-context` | `pi-runtime`, `pi-resource-browser` at `0.1.0`; `proper-lockfile` at `4.1.2` |
+| `pi-context` | `pi-runtime`, `pi-resource-browser` at `0.1.0` |
 | `pi-runtime` | `pi-contracts`, `pi-resource-browser` at `0.1.0`; `proper-lockfile` at `4.1.2` |
 | `pi-codex-search` | `pi-contracts` at `0.1.0` |
 | `pi-permissions` | `pi-security` at `0.1.0` (library only; no extension activation) |

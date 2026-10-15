@@ -18,6 +18,7 @@ interface InstructionMetadata {
   path: string;
   packName?: string;
   globalDefaultable?: boolean;
+  nativeDefault: boolean;
 }
 
 /** Setup discovery returns metadata only; context files and behavioral bodies stay separate. */
@@ -48,6 +49,7 @@ export function instructionCatalogue(
     const item = {
       id,
       path,
+      nativeDefault: id.startsWith("local:"),
       globalDefaultable: !id.startsWith("local:") && pack?.globalDefaultable !== false,
       name: typeof frontmatter.title === "string" ? frontmatter.title : basename(path, ".md"),
       description:
@@ -110,7 +112,8 @@ export function instructionCatalogue(
         global,
         trusted ? project : {},
         candidates.map((file) => file.id),
-      ) ?? locals.map((file) => `local:${relative(cwd, file.path)}`);
+        locals.map((file) => `local:${relative(cwd, file.path)}`),
+      ) ?? [];
   } catch {
     problems.push("Saved instruction selection is invalid; inspect /instructions.");
   }

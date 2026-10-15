@@ -4,6 +4,7 @@ import {
   Input,
   Key,
   Markdown,
+  SelectList,
   Text,
   matchesKey,
   stripTerminalSequences,
@@ -19,6 +20,8 @@ export interface ResourcePreview {
   source?: string;
 }
 
+export type ResourceDefaultState = "inherit" | "on" | "off";
+
 export interface ResourceEntry {
   id: string;
   name: string;
@@ -26,8 +29,11 @@ export interface ResourceEntry {
   keywords?: string;
   selected: boolean;
   badge?: string;
+  /** Resolved defaults; undefined can represent mixed package members. */
   defaultSelected?: boolean;
   globalDefaultSelected?: boolean;
+  projectState?: ResourceDefaultState | "mixed";
+  globalState?: ResourceDefaultState | "mixed";
   /** Whether this resource may be saved as a default selection. */
   defaultable?: boolean;
   globalDefaultable?: boolean;
@@ -49,8 +55,12 @@ interface BrowserOptions {
   render(): void;
   close(changed: boolean): void;
   toggle(entry: ResourceEntry, selected: boolean): Promise<void>;
-  /** Optional per-resource default editor; the host preserves other saved defaults. */
-  setDefault?(entry: ResourceEntry, selected: boolean, scope: "project" | "global"): Promise<void>;
+  /** The host preserves other defaults and refreshes entries' saved and resolved states. */
+  setDefault?(
+    entry: ResourceEntry,
+    state: ResourceDefaultState,
+    scope: "project" | "global",
+  ): Promise<void>;
   saveDefaults?(entries: ResourceEntry[]): Promise<void>;
   saveGlobalDefaults?(entries: ResourceEntry[]): Promise<void>;
 }
@@ -87,6 +97,7 @@ export class ResourceBrowser implements Component {
   private changed = false;
   private saving = false;
   private savingDefaults = false;
+  private defaultMenu?: { scope: "project" | "global"; list: SelectList };
   private closeRequested = false;
   private status = "Changes save to this project immediately.";
   private error = false;
@@ -221,9 +232,6 @@ export class ResourceBrowser implements Component {
         (!global || entry.globalDefaultable !== false) &&
         entry.toggleable !== false,
     );
-    const selected = new Set(
-      defaultable.filter((entry) => entry.selected).map((entry) => entry.id),
-    );
     const skipped = snapshot.filter(
       (entry) =>
         entry.selected &&
@@ -234,11 +242,6 @@ export class ResourceBrowser implements Component {
     try {
       await save(defaultable);
       if (!this.alive) return;
-      if (!global) this.options.defaultsInherited = false;
-      for (const entry of this.options.entries) {
-        if (global) entry.globalDefaultSelected = selected.has(entry.id);
-        else entry.defaultSelected = selected.has(entry.id);
-      }
       this.status = global
         ? `Personal defaults saved for new sessions across projects.${skipped ? ` ${skipped} project-only or fixed choice${skipped === 1 ? " was" : "s were"} skipped.` : ""}`
         : skipped
@@ -259,46 +262,84 @@ export class ResourceBrowser implements Component {
   async toggleScope(scope: "session" | "project" | "global"): Promise<void> {
     if (scope === "session") return this.toggleCurrent();
     const entry = this.results[this.index];
-    if (!entry || !this.options.setDefault || this.saving || this.savingDefaults || !this.alive)
-      return;
-    if (
-      entry.toggleable === false ||
-      entry.defaultable === false ||
-      (scope === "global" && entry.globalDefaultable === false)
-    )
-      return;
-    const current =
-      scope === "global"
-        ? entry.globalDefaultSelected
-        : this.options.defaultsInherited
-          ? entry.globalDefaultSelected
-          : entry.defaultSelected;
-    if (current === undefined) return;
+    if (!entry || !this.canEditDefault(entry, scope)) return;
+    const theme = this.options.theme;
+    const states = ["inherit", "on", "off"] as const;
+    const list = new SelectList(
+      [
+        {
+          value: "inherit",
+          label: "Inherit",
+          description: scope === "project" ? "Use global default" : "Use native default",
+        },
+        { value: "on", label: "On", description: "Always include by default" },
+        { value: "off", label: "Off", description: "Always exclude by default" },
+      ],
+      3,
+      {
+        selectedPrefix: (text) => theme.fg("accent", text),
+        selectedText: (text) => theme.fg("accent", text),
+        description: (text) => theme.fg("muted", text),
+        scrollInfo: (text) => theme.fg("dim", text),
+        noMatch: (text) => theme.fg("warning", text),
+      },
+      { minPrimaryColumnWidth: 10, maxPrimaryColumnWidth: 10 },
+    );
+    list.setSelectedIndex(
+      Math.max(0, states.indexOf(this.defaultState(entry, scope) as ResourceDefaultState)),
+    );
+    list.onSelect = (item) => {
+      this.defaultMenu = undefined;
+      void this.setScopeState(scope, item.value as ResourceDefaultState);
+    };
+    list.onCancel = () => {
+      this.defaultMenu = undefined;
+      this.redraw();
+    };
+    this.defaultMenu = { scope, list };
+    this.pane = "preview";
+    this.redraw();
+  }
+  private defaultState(entry: ResourceEntry, scope: "project" | "global") {
+    const state = scope === "project" ? entry.projectState : entry.globalState;
+    if (state !== undefined) return state;
+    // Older composing hosts may supply resolved booleans without explicit saved states.
+    if (scope === "project" && this.options.defaultsInherited) return "inherit";
+    const value = scope === "project" ? entry.defaultSelected : entry.globalDefaultSelected;
+    return value === undefined ? undefined : value ? "on" : "off";
+  }
+  private canEditDefault(entry: ResourceEntry, scope: "project" | "global") {
+    return Boolean(
+      this.options.setDefault &&
+        !this.saving &&
+        !this.savingDefaults &&
+        this.alive &&
+        entry.toggleable !== false &&
+        entry.defaultable !== false &&
+        (scope !== "global" || entry.globalDefaultable !== false) &&
+        this.defaultState(entry, scope) !== undefined,
+    );
+  }
+  async setScopeState(scope: "project" | "global", state: ResourceDefaultState): Promise<void> {
+    const entry = this.results[this.index];
+    if (!entry || !this.options.setDefault || !this.canEditDefault(entry, scope)) return;
+    this.defaultMenu = undefined;
     this.savingDefaults = true;
     this.error = false;
     this.status = `Saving ${scope} default for ${entry.name}…`;
     this.redraw();
     let defaultSaved = false;
     try {
-      await this.options.setDefault(entry, !current, scope);
+      await this.options.setDefault(entry, state, scope);
       if (!this.alive) return;
-      if (scope === "global") entry.globalDefaultSelected = !current;
-      else {
-        if (this.options.defaultsInherited) {
-          for (const item of this.options.entries)
-            item.defaultSelected = item.globalDefaultSelected;
-        }
-        this.options.defaultsInherited = false;
-        entry.defaultSelected = !current;
-      }
       defaultSaved = true;
-      if (scope === "project" && !current && !entry.selected) {
+      if (scope === "project" && state === "on" && !entry.selected) {
         await this.options.toggle(entry, true);
         if (!this.alive) return;
         entry.selected = true;
         this.changed = true;
       }
-      this.status = `${entry.name}: ${scope} default ${current ? "OFF" : "ON"}.${scope === "project" && !current ? " Enabled in this session." : " Current session unchanged."}`;
+      this.status = `${entry.name}: ${scope} default ${state.toUpperCase()}.${scope === "project" && state === "on" ? " Enabled in this session." : " Current session unchanged."}`;
     } catch (error) {
       if (!this.alive) return;
       this.error = true;
@@ -314,6 +355,11 @@ export class ResourceBrowser implements Component {
     }
   }
   handleInput(data: string): void {
+    if (this.defaultMenu) {
+      this.defaultMenu.list.handleInput(data);
+      this.redraw();
+      return;
+    }
     if (!this.searchFocused) {
       const category = this.options.categories?.find((category) => matchesKey(data, category.key));
       if (category && this.options.selectCategory && !this.saving && !this.savingDefaults) {
@@ -423,6 +469,16 @@ export class ResourceBrowser implements Component {
     }
   }
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.defaultMenu) {
+      const x = event.x - 2 - this.layout.previewX - 2;
+      const y = event.y - 1 - this.layout.previewY - 1;
+      if (x >= 0 && x < event.width - this.layout.previewX - 8 && y >= 0 && y < 3) {
+        const result = this.defaultMenu.list.handleMouse({ ...event, x, y });
+        this.redraw();
+        return result;
+      }
+      return { handled: true };
+    }
     if (event.y === 0 && event.type === "click" && event.button === "left") {
       const category = this.categoryRanges.find(
         (range) => event.x >= range.start && event.x < range.end,
@@ -536,7 +592,7 @@ export class ResourceBrowser implements Component {
       ),
     );
     const listRows = wide ? budget : Math.max(2, Math.floor(budget * 0.4));
-    const previewRows = wide ? budget : Math.max(2, budget - listRows);
+    const previewRows = Math.max(this.defaultMenu ? 5 : 2, wide ? budget : budget - listRows);
     const left = wide ? Math.min(46, Math.floor((width - 1) * 0.38)) : width;
     const right = wide ? width - left - 1 : width;
     if (this.index < this.offset) this.offset = this.index;
@@ -623,14 +679,22 @@ export class ResourceBrowser implements Component {
                   : this.options.defaultsInherited
                     ? entry.globalDefaultSelected
                     : entry.defaultSelected;
-            const inherited = scope === "project" && this.options.defaultsInherited;
-            const label = `${scope[0].toUpperCase() + scope.slice(1)}: ${scope === "session" && entry.badge === "partial" ? "PARTIAL" : value === undefined ? "—" : value ? "ON " : "OFF"}${inherited ? " ↳ global" : ""}`;
+            const savedState = scope === "session" ? undefined : this.defaultState(entry!, scope);
+            const stateLabel =
+              scope === "session"
+                ? entry.badge === "partial"
+                  ? "PARTIAL"
+                  : value
+                    ? "ON "
+                    : "OFF"
+                : (savedState?.toUpperCase() ?? "—").padEnd(7);
+            const label = `${scope[0].toUpperCase() + scope.slice(1)}: ${stateLabel}`;
             const enabled =
               entry.toggleable !== false &&
               (scope === "session" ||
                 (this.options.setDefault &&
                   entry.defaultable !== false &&
-                  value !== undefined &&
+                  savedState !== undefined &&
                   (scope !== "global" || entry.globalDefaultable !== false)));
             const shown = enabled ? `[${label}]` : label;
             if (scopeColumn && scopeColumn + shown.length > Math.max(1, right - 4)) {
@@ -694,7 +758,9 @@ export class ResourceBrowser implements Component {
           typeof this.details === "string" ? this.details : (entry?.description ?? ""),
           fields.length ? "" : undefined,
           ...fields,
-
+          entry?.projectState !== undefined || entry?.globalState !== undefined
+            ? `Effective defaults: project ${entry.defaultSelected === undefined ? "MIXED" : entry.defaultSelected ? "ON" : "OFF"} · global ${entry.globalDefaultSelected === undefined ? "MIXED" : entry.globalDefaultSelected ? "ON" : "OFF"}`
+            : undefined,
           this.options.notice ? `Diagnostics: ${clean(this.options.notice)}` : undefined,
         ]
           .filter((line) => line !== undefined)
@@ -705,12 +771,18 @@ export class ResourceBrowser implements Component {
     }
     const contentRows = Math.max(1, previewRows - pinned.length);
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, detailLines.length - contentRows));
-    const detailBody = [
-      ...pinned,
-      ...detailLines
-        .slice(this.detailOffset, this.detailOffset + contentRows)
-        .map((line) => " " + line),
-    ];
+    const detailBody = this.defaultMenu
+      ? [
+          ` ${this.defaultMenu.scope === "project" ? "Project" : "Global"} default${entry && this.defaultState(entry, this.defaultMenu.scope) === "mixed" ? " · MIXED" : ""}`,
+          ...this.defaultMenu.list.render(contentWidth).map((line) => " " + line),
+          " ↑/↓ choose · Enter save · Esc cancel",
+        ]
+      : [
+          ...pinned,
+          ...detailLines
+            .slice(this.detailOffset, this.detailOffset + contentRows)
+            .map((line) => " " + line),
+        ];
     const listBox = box(
       `${this.options.title} · ${selected} selected · ${this.results.length}/${this.options.entries.length} shown`,
       rows,
@@ -748,27 +820,20 @@ export class ResourceBrowser implements Component {
     if (this.options.setDefault)
       lines.push(
         truncateToWidth(
-          theme.fg("dim", "Click Session / Project / Global, or use s / p / g outside search"),
+          theme.fg("dim", "s toggles session · p/g choose saved state · click controls"),
           width,
         ),
       );
-    if (this.options.saveDefaults || this.options.saveGlobalDefaults)
-      lines.push(
-        truncateToWidth(
-          theme.fg(
-            "dim",
-            [
-              this.options.saveDefaults
-                ? `Ctrl+S ${this.options.defaultsScope === "project" ? "project defaults" : "defaults"}`
-                : undefined,
-              this.options.saveGlobalDefaults ? "Ctrl+Shift+S personal defaults" : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          ),
-          width,
-        ),
-      );
+    const saveHints = [
+      this.options.saveDefaults
+        ? `Ctrl+S snapshot session → ${this.options.defaultsScope === "project" ? "project" : "defaults"}`
+        : "",
+      this.options.saveGlobalDefaults ? "Ctrl+Shift+S snapshot session → global" : "",
+    ].filter(Boolean);
+    const combinedHints = saveHints.join(" · ");
+    for (const hint of visibleWidth(combinedHints) <= width ? [combinedHints] : saveHints) {
+      if (hint) lines.push(truncateToWidth(theme.fg("dim", hint), width));
+    }
     const border = (text: string) => theme.fg("accent", text);
     this.categoryRanges = [];
     let categoryColumn = 2;
@@ -802,6 +867,7 @@ export class ResourceBrowser implements Component {
   }
   invalidate(): void {
     this.input.invalidate();
+    this.defaultMenu?.list.invalidate();
     this.markdown?.invalidate();
   }
   dispose(): void {

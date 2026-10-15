@@ -68,6 +68,11 @@ test("setup instruction discovery returns trusted metadata, pack membership and 
     const item = result.candidates.find((item) => item.id === packId)!;
     assert.equal(item.packName, "sample");
     assert.equal(item.name, "Pack behavior");
+    assert.equal(item.nativeDefault, false);
+    assert.equal(
+      result.candidates.find((item) => item.id.startsWith("local:"))?.nativeDefault,
+      true,
+    );
     assert.match(item.keywords, /Swarm metadata rpc/);
     assert.doesNotMatch(
       JSON.stringify(result.candidates),
@@ -78,6 +83,19 @@ test("setup instruction discovery returns trusted metadata, pack membership and 
       "malformed metadata retains choices with a content-free diagnostic",
     );
     assert.doesNotMatch(JSON.stringify(result.problems), /MALFORMED_METADATA_BODY/);
+    const sparse = instructionCatalogue(
+      { ...global, localContext: { instructions: { [globalId]: true } } },
+      { localContext: { instructions: { [packId]: true } } },
+      project,
+      agentDir,
+      true,
+      true,
+      packs,
+    );
+    assert.deepEqual(
+      new Set(sparse.selected),
+      new Set([globalId, packId, "local:.agents/instructions/local.md"]),
+    );
     const untrusted = instructionCatalogue(global, saved, project, agentDir, false, true, packs);
     assert.deepEqual(untrusted.selected, [globalId]);
     assert.ok(!untrusted.candidates.some((item) => item.id.startsWith("local:")));

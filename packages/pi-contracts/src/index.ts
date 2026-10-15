@@ -28,6 +28,8 @@ export interface SessionSetupCandidate {
   modelLocked?: boolean;
   manualOnly?: boolean;
   globalDefaultable?: boolean;
+  /** Whether this resource is enabled by the package's native selection when settings are absent. */
+  nativeDefault?: boolean;
 }
 export interface SessionSetupContribution {
   kind: SessionSetupKind;

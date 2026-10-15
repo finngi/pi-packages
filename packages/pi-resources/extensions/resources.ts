@@ -13,7 +13,11 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { SESSION_SETUP_CONTRIBUTIONS, type SessionSetupContributionRequest } from "pi-contracts";
-import { showResourceBrowser, resourceBrowserNavigation } from "pi-resource-browser";
+import {
+  showResourceBrowser,
+  resourceBrowserNavigation,
+  type ResourceEntry,
+} from "pi-resource-browser";
 import {
   assertSafeProjectSettingsLocation,
   configuredSkillChoices,
@@ -22,11 +26,14 @@ import {
   type GlobalSelectionSnapshot,
   installSessionSetup,
   type ResourcePackage,
+  readResourceSelection,
   resourcePackageKeywords,
+  resolveResourceSelection,
   selectedSkills,
   type SkillChoice,
-  writeGlobalResourceSelection,
-  writeProjectSkillSelection,
+  type ResourceDefaultState,
+  writeResourceDefault,
+  writeResourceDefaults,
 } from "pi-runtime";
 import { registerPackagePicker } from "../lib/package-picker.ts";
 
@@ -68,12 +75,11 @@ export default function (pi: ExtensionAPI) {
   const settingsManager = (ctx: ExtensionContext) =>
     SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
   const refreshDefaultSnapshots = (ctx: ExtensionContext) => {
-    const global = settingsManager(ctx).getGlobalSettings() as {
-      subagents?: { agents?: string[]; skills?: string[] };
-    };
+    const manager = settingsManager(ctx);
+    const raw = readResourceSelection(manager, "global", "skills");
     skillDefaultsSnapshot = {
-      present: Object.hasOwn(global.subagents ?? {}, "skills"),
-      names: global.subagents?.skills,
+      present: raw !== undefined,
+      ...(Array.isArray(raw) ? { names: raw } : raw ? { values: raw } : {}),
     };
   };
   const selectedPublicSkills = (ctx: ExtensionContext) => {
@@ -214,6 +220,7 @@ export default function (pi: ExtensionAPI) {
         name: skill.name,
         description: skill.description,
         path: skill.path,
+        nativeDefault: skill.defaultSelected,
         globalDefaultable: personalSkillDefault(skill),
         ...(skill.manualOnly ? { manualOnly: true } : {}),
         ...(skill.packName ? { packName: skill.packName, keywords: skill.packKeywords } : {}),
@@ -233,51 +240,74 @@ export default function (pi: ExtensionAPI) {
       selected: [],
     });
   });
-  const persistSkillSelection = async (
-    ctx: ExtensionCommandContext,
-    selected: ReturnType<typeof selectedSkills>,
+  const refreshSkillEntries = (
+    manager: SettingsManager,
+    entries: ResourceEntry[],
+    choices: SkillChoice[],
   ) => {
-    if (!ctx.isProjectTrusted())
-      throw Error("Project resource selection requires a trusted project");
-    await ctx.waitForIdle();
-    await assertSafeProjectSettingsLocation(ctx.cwd);
-    await writeProjectSkillSelection(
-      ctx.cwd,
-      selected.filter((skill) => !skill.defaultSelected).map((skill) => skill.path),
-      selected.map((skill) => skill.name),
-    );
+    const global = readResourceSelection(manager, "global", "skills");
+    const project = readResourceSelection(manager, "project", "skills");
+    for (const entry of entries) {
+      const choice = choices.find((candidate) => candidate.name === entry.id);
+      if (!choice) continue;
+      const resolved = resolveResourceSelection(
+        global,
+        project,
+        choice.name,
+        choice.defaultSelected,
+      );
+      entry.projectState = resolved.projectState;
+      entry.globalState = resolved.globalState;
+      entry.defaultSelected = resolved.effective;
+      entry.globalDefaultSelected = resolveResourceSelection(
+        global,
+        undefined,
+        choice.name,
+        choice.defaultSelected,
+      ).effective;
+    }
   };
+
   const changeSavedDefault = async (
     ctx: ExtensionCommandContext,
     kind: "skills",
     id: string,
-    enabled: boolean,
+    state: ResourceDefaultState,
     scope: "project" | "global",
     choices: SkillChoice[] = [],
+    entries: ResourceEntry[] = [],
   ) => {
-    const current = (setup.execute({ op: "list" }, ctx).selected as Record<string, string[]>)[kind];
     const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
       projectTrusted: ctx.isProjectTrusted(),
     });
-    const global =
-      (latest.getGlobalSettings() as { subagents?: { agents?: string[]; skills?: string[] } })
-        .subagents ?? {};
-    const project =
-      (latest.getProjectSettings() as { subagents?: { agents?: string[]; skills?: string[] } })
-        .subagents ?? {};
-    const names = new Set(
-      scope === "global" ? (global[kind] ?? []) : (project[kind] ?? global[kind] ?? []),
+    if (scope === "project" && !ctx.isProjectTrusted())
+      throw Error("Saving skill defaults requires a trusted project");
+    const global = readResourceSelection(latest, "global", "skills");
+    const nativeDefaults = Object.fromEntries(
+      choices.map((choice) => [choice.name, choice.defaultSelected]),
     );
-    if (enabled) names.add(id);
-    else names.delete(id);
-    if (scope === "global")
-      await writeGlobalResourceSelection(getAgentDir(), kind, [...names].sort());
-    else
-      await persistSkillSelection(
-        ctx,
-        choices.filter((choice) => names.has(choice.name)),
-      );
-    setup.execute({ op: "apply", [kind]: current }, ctx);
+    const fallbackValues = Object.fromEntries(
+      choices.map((choice) => [
+        choice.name,
+        resolveResourceSelection(global, undefined, choice.name, choice.defaultSelected).effective,
+      ]),
+    );
+    await writeResourceDefault({
+      scope,
+      kind,
+      id,
+      state,
+      knownIds: choices.map((choice) => choice.name),
+      cwd: ctx.cwd,
+      agentDir: getAgentDir(),
+      nativeDefaults,
+      fallbackValues,
+      skillPaths: Object.fromEntries(choices.map((choice) => [choice.name, choice.path])),
+    });
+    const updated = SettingsManager.create(ctx.cwd, getAgentDir(), {
+      projectTrusted: ctx.isProjectTrusted(),
+    });
+    refreshSkillEntries(updated, entries, choices);
   };
   const currentSkillChoicesForPackages = (names: string[]) =>
     skillChoicesSnapshot
@@ -356,26 +386,31 @@ export default function (pi: ExtensionAPI) {
       let inspectName = action?.action === "inspect" ? action.name : undefined;
       if (!action && command) inspectName = command;
       if (!inspectName && !action && ctx.hasUI && choices.length) {
-        await showResourceBrowser(ctx, {
-          title: "Skills",
-          ...resourceBrowserNavigation(pi, "skills"),
-          selectionScope: "session",
-          defaultsScope: "project",
-          defaultsInherited: !Object.hasOwn(
-            (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents ?? {},
-            "skills",
-          ),
-          entries: choices.map((skill) => ({
+        const globalRaw = readResourceSelection(manager, "global", "skills");
+        const projectRaw = readResourceSelection(manager, "project", "skills");
+        const entries: ResourceEntry[] = choices.map((skill) => {
+          const resolved = resolveResourceSelection(
+            globalRaw,
+            projectRaw,
+            skill.name,
+            skill.defaultSelected,
+          );
+          const globalResolved = resolveResourceSelection(
+            globalRaw,
+            undefined,
+            skill.name,
+            skill.defaultSelected,
+          );
+          return {
             id: skill.name,
             name: skill.name,
             description: skill.description,
             keywords: `${skill.manualOnly ? "manual command" : "model skill"} ${skill.packKeywords ?? ""}`,
             selected: selectedNames.has(skill.name),
-            defaultSelected: skillDefaults.includes(skill.name),
-            globalDefaultSelected: (
-              (manager.getGlobalSettings() as { subagents?: { skills?: string[] } }).subagents
-                ?.skills ?? []
-            ).includes(skill.name),
+            defaultSelected: resolved.effective,
+            globalDefaultSelected: globalResolved.effective,
+            projectState: resolved.projectState,
+            globalState: resolved.globalState,
             globalDefaultable: personalSkillDefault(skill),
             toggleable: skill.toggleable,
             badge: skill.packName ?? (skill.manualOnly ? "manual" : undefined),
@@ -391,7 +426,18 @@ export default function (pi: ExtensionAPI) {
                 body,
               };
             },
-          })),
+          };
+        });
+        await showResourceBrowser(ctx, {
+          title: "Skills",
+          ...resourceBrowserNavigation(pi, "skills"),
+          selectionScope: "session",
+          defaultsScope: "project",
+          defaultsInherited: !Object.hasOwn(
+            (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents ?? {},
+            "skills",
+          ),
+          entries,
           toggle: async (entry, enabled) => {
             const next = new Set(selectedNames);
             if (enabled) next.add(entry.id);
@@ -400,21 +446,74 @@ export default function (pi: ExtensionAPI) {
             selectedNames.clear();
             for (const name of next) selectedNames.add(name);
           },
-          setDefault: (entry, enabled, scope) =>
-            changeSavedDefault(ctx, "skills", entry.id, enabled, scope, choices),
-          saveGlobalDefaults: async (entries) =>
-            writeGlobalResourceSelection(
-              getAgentDir(),
-              "skills",
-              entries.filter((entry) => entry.selected).map((entry) => entry.id),
-            ),
-          saveDefaults: async (entries) =>
-            persistSkillSelection(
-              ctx,
-              choices.filter((skill) =>
-                entries.some((entry) => entry.id === skill.name && entry.selected),
-              ),
-            ),
+          setDefault: (entry, state, scope) =>
+            changeSavedDefault(ctx, "skills", entry.id, state, scope, choices, entries),
+          saveGlobalDefaults: async (saved) => {
+            const eligible = choices.filter((skill) =>
+              saved.some((entry) => entry.id === skill.name),
+            );
+            await writeResourceDefaults({
+              scope: "global",
+              agentDir: getAgentDir(),
+              selections: {
+                skills: {
+                  snapshot: true,
+                  knownIds: choices.map((skill) => skill.name),
+                  values: Object.fromEntries(
+                    eligible.map((skill) => [
+                      skill.name,
+                      saved.find((entry) => entry.id === skill.name)!.selected,
+                    ]),
+                  ),
+                  nativeDefaults: Object.fromEntries(
+                    choices.map((skill) => [skill.name, skill.defaultSelected]),
+                  ),
+                },
+              },
+            });
+            refreshSkillEntries(settingsManager(ctx), entries, choices);
+          },
+          saveDefaults: async (saved) => {
+            if (!ctx.isProjectTrusted())
+              throw Error("Saving skill defaults requires a trusted project");
+            await assertSafeProjectSettingsLocation(ctx.cwd);
+            const eligible = choices.filter((skill) =>
+              saved.some((entry) => entry.id === skill.name),
+            );
+            await writeResourceDefaults({
+              scope: "project",
+              cwd: ctx.cwd,
+              agentDir: getAgentDir(),
+              selections: {
+                skills: {
+                  snapshot: true,
+                  knownIds: choices.map((skill) => skill.name),
+                  values: Object.fromEntries(
+                    eligible.map((skill) => [
+                      skill.name,
+                      saved.find((entry) => entry.id === skill.name)!.selected,
+                    ]),
+                  ),
+                  skillPaths: Object.fromEntries(choices.map((skill) => [skill.name, skill.path])),
+                  nativeDefaults: Object.fromEntries(
+                    choices.map((skill) => [skill.name, skill.defaultSelected]),
+                  ),
+                  fallbackValues: Object.fromEntries(
+                    choices.map((skill) => [
+                      skill.name,
+                      resolveResourceSelection(
+                        readResourceSelection(settingsManager(ctx), "global", "skills"),
+                        undefined,
+                        skill.name,
+                        skill.defaultSelected,
+                      ).effective,
+                    ]),
+                  ),
+                },
+              },
+            });
+            refreshSkillEntries(settingsManager(ctx), entries, choices);
+          },
         });
         return;
       }
