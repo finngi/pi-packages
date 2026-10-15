@@ -1,6 +1,6 @@
 # Load local context
 
-Load `pi-local-context` for personal project context and selected agent instructions. `AGENTS.md`, `CLAUDE.md` and `AGENTS.local.md` remain in Pi's native `<project_context>` section. Selected snippets appear separately in `<instructions>` and can guide communication, delegation, coding or data handling. These labels identify the sources' roles; they do not establish a priority rule between them. Pi's project-trust state controls whether this extension reads project-local sources and whether `/instructions` can save project choices.
+Load `pi-context` for personal project context and selected agent instructions. `AGENTS.md`, `CLAUDE.md` and `AGENTS.local.md` remain in Pi's native `<project_context>` section. Selected snippets appear separately in `<instructions>` and can guide communication, delegation, coding or data handling. These labels identify the sources' roles; they do not establish a priority rule between them. Pi's project-trust state controls whether this extension reads project-local sources and whether `/instructions` can save project choices.
 
 Set `resources.instructionCatalogues` in user settings to instruction-library roots and `localContext.instructions` to selected resource IDs. A trusted project's `.pi/settings.json` can override the personal selection with its own list; `[]` selects none. `/instructions` changes this session's selection. Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults for new sessions across projects. Project-only resources are excluded from personal saves. Session choices are recorded in Pi's history and retained on resume, so changing defaults does not rewrite existing sessions. Instruction bodies are still read again before each parent turn.
 
@@ -12,7 +12,7 @@ Load the entrypoint explicitly:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
-  --no-extensions -e packages/pi-local-context/extensions/context.ts
+  --no-extensions -e packages/pi-context/extensions/context.ts
 ```
 
 Create `AGENTS.local.md` beside a project's `AGENTS.md` or `CLAUDE.md`. The walk runs from the filesystem root to the working directory. Within each directory, Pi's context file comes first, then the local file. Agent-directory context outside that walk stays first. Selected project snippets follow directory walk and filename order in the separate `<instructions>` section, followed by selected catalogue snippets.
@@ -50,4 +50,4 @@ It defaults to false. When enabled, session startup can append `AGENTS.local.md`
 
 Writes require saved trust for each owning repository and current project trust. Children marked `PI_SUBAGENT`, `-na`/`--no-approve`, and context-disable arguments do not write. Exclude targets must be owned regular files; symlinks, hardlinks, FIFOs, arbitrary Git pointers, and unregistered worktree redirects are refused silently. Git subprocesses disable hooks and fsmonitor and remove inherited routing. These checks protect normal metadata; they do not isolate a race with a concurrent process holding the same host privileges.
 
-Implementation and checks: [overlay](../../packages/pi-local-context/lib/local-context.ts), [metadata stripping](../../packages/pi-local-context/lib/frontmatter.ts), [exclude validation](../../packages/pi-local-context/lib/local-ignore.ts), and [Pi 1.2.0 SDK acceptance](../../packages/pi-local-context/context-check.mjs).
+Implementation and checks: [overlay](../../packages/pi-context/lib/local-context.ts), [metadata stripping](../../packages/pi-context/lib/frontmatter.ts), [exclude validation](../../packages/pi-context/lib/local-ignore.ts), and [Pi 1.2.0 SDK acceptance](../../packages/pi-context/context-check.mjs).

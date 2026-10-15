@@ -28,8 +28,8 @@ infer a requested destination from `path` and need no extra path parameter. See
 ### Session setup
 
 `session_setup` lets the parent choose registered resources for a task without writing project or
-user settings. Either `pi-local-context` or `pi-subagents` provides it. Available selections depend
-on the loaded contributors: `pi-local-context` supplies instructions; `pi-subagents` supplies
+user settings. Either `pi-context` or `pi-delegation` provides it. Available selections depend
+on the loaded contributors: `pi-context` supplies instructions; `pi-delegation` supplies
 agents, skills and package groups. Loading one does not activate the other.
 It searches trusted metadata using the same BM25 search as the resource picker. Skill bodies and
 agent-owned skills/scripts are not returned by this search.
@@ -132,7 +132,7 @@ flowchart LR
 
 Launch text uses `agent_id`, `name`, `status: "started"`, `workspace`, `workspace_mode`, `tools`, `scope`, and `request_id`. An accepted goal wait adds `wait_id`; launch details include `id`, `requestId`, `waitId`, `effective`, and `goalWait`. A message receipt uses `accepted`, `message_id`, `to`, and either `mode`, `kind`, and `trigger_turn` for the parent or `request_id` for a child, with `wait_id` if accepted by a goal. Main-message receipts do not wait for an answer.
 
-Child replies are numbered and correlated with `requestIds`. `after` is a reply-sequence cursor, not a byte cursor. A check returns up to four replies and 32 KiB of reply text, with the complete serialized tool response capped at 32 KiB; each reply is limited to 8 KiB per page. If a reply continues, use its `sequence` as `replySequence` and its `nextTextOffset` as `textOffset` to read the next UTF-8 byte range. `nextAfter` advances only through complete replies returned by that page. Checks consume pending ordinary notifications only after contiguous pages from byte offset zero cover the full retained text and any longer queued delivery copy; retained history remains readable again. After close, JSON escaping can make the archive shorter than a queued reply, so paging that archive does not consume the larger pending notification. Results include state, usage, retention gaps and pagination fields. After close or cancel, up to four recent histories (8 MiB total, 30-minute lifetime) remain available in the same Pi session; shutdown, session-tree changes, session replacement, or eviction removes them. Automatic parent delivery is capped at 64 replies or a combined 4 MiB budget for XML-escaped result envelopes and gap notices; overflow drops the oldest pending notifications, emits a delivery-gap notice, and leaves retained child history available while it remains within the limits. A single envelope larger than the delivery budget is omitted and reported as a gap. Reply-panel usage is the total known when that message is delivered; later session-stat reconciliation appears in the current `subagent_check` snapshot and `/costs`. Failure, acknowledgement, and empty settlement do not become synthetic successful replies. Exact RPC state fields are in [RPC dialogue](../../packages/pi-subagents/lib/subagent/rpc-dialogue.ts).
+Child replies are numbered and correlated with `requestIds`. `after` is a reply-sequence cursor, not a byte cursor. A check returns up to four replies and 32 KiB of reply text, with the complete serialized tool response capped at 32 KiB; each reply is limited to 8 KiB per page. If a reply continues, use its `sequence` as `replySequence` and its `nextTextOffset` as `textOffset` to read the next UTF-8 byte range. `nextAfter` advances only through complete replies returned by that page. Checks consume pending ordinary notifications only after contiguous pages from byte offset zero cover the full retained text and any longer queued delivery copy; retained history remains readable again. After close, JSON escaping can make the archive shorter than a queued reply, so paging that archive does not consume the larger pending notification. Results include state, usage, retention gaps and pagination fields. After close or cancel, up to four recent histories (8 MiB total, 30-minute lifetime) remain available in the same Pi session; shutdown, session-tree changes, session replacement, or eviction removes them. Automatic parent delivery is capped at 64 replies or a combined 4 MiB budget for XML-escaped result envelopes and gap notices; overflow drops the oldest pending notifications, emits a delivery-gap notice, and leaves retained child history available while it remains within the limits. A single envelope larger than the delivery budget is omitted and reported as a gap. Reply-panel usage is the total known when that message is delivered; later session-stat reconciliation appears in the current `subagent_check` snapshot and `/costs`. Failure, acknowledgement, and empty settlement do not become synthetic successful replies. Exact RPC state fields are in [RPC dialogue](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
 
 Artifact descriptors contain `id`, `directory`, up to eight relative `files` and `omitted` path previews (128 characters each), full `fileCount`/`omittedCount` values, and `owned`. `moreFiles` and `moreOmitted` show how many paths were omitted; `truncatedPaths` counts previews clipped by length. `discard` deletes only an owned collected copy. Direct project references have `owned: false`. See [artifact collection](../guides/delegation.md#retain-and-integrate-artifacts).
 
@@ -146,7 +146,7 @@ Artifact descriptors contain `id`, `directory`, up to eight relative `files` and
 | Retained replies | 128 replies and 32 MiB |
 | Undelimited child RPC input buffer | 4 MiB; oversize cancels the child |
 
-Sources: [tool registration](../../packages/pi-subagents/extensions/subagent.ts), [message validation](../../packages/pi-subagents/lib/subagent/messages.ts), [resource validation](../../packages/pi-runtime/src/child-resources.ts), and [dialogue retention](../../packages/pi-subagents/lib/subagent/rpc-dialogue.ts).
+Sources: [tool registration](../../packages/pi-delegation/extensions/subagent.ts), [message validation](../../packages/pi-delegation/lib/subagent/messages.ts), [resource validation](../../packages/pi-runtime/src/child-resources.ts), and [dialogue retention](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
 
 ## Codemode
 
@@ -171,7 +171,7 @@ codemode. See [security launch and limits](../guides/security.md#launch-from-the
 
 `cursor` is a nonnegative byte offset. `maxBytes` is a positive integer at most 1 MiB. Reads return a text preview, `nextCursor`, `retainedFrom`, and `gap`. Exact chunks in details carry stream, byte start/end, base64 data, and `encoding: "base64"`. A gap means earlier output was dropped from the bounded buffer.
 
-| `pi-bg` default transport limit | Value |
+| `pi-background` default transport limit | Value |
 | --- | --- |
 | Concurrent shell commands | 4 |
 | Concurrent subagents | 16 |
@@ -183,9 +183,9 @@ codemode. See [security launch and limits](../guides/security.md#launch-from-the
 | Kill grace / stream drain | 1 second each |
 | Protocol write timeout | 30 seconds |
 
-The `/jobs` command supports `list`, `read ID [CURSOR]`, and `cancel ID` for `pi-bg` jobs. `/background` hands off foreground shell waits owned by `pi-bg` and yields foreground goal waits; this does not stop their jobs or discard pending goal results. With `PI_SECURITY_TRANSPORT=extensions`, `pi-security` sends every secured shell call through this process manager. In that transport, foreground calls normally return output and exit details on completion; a steering message or `/background` ends the foreground wait and returns a job ID while the process continues. An explicit shell `background: true` also returns an ID immediately. The model tool lists secured shell jobs in this transport.
+The `/jobs` command supports `list`, `read ID [CURSOR]`, and `cancel ID` for `pi-background` jobs. `/background` hands off foreground shell waits owned by `pi-background` and yields foreground goal waits; this does not stop their jobs or discard pending goal results. With `PI_SECURITY_TRANSPORT=extensions`, `pi-security` sends every secured shell call through this process manager. In that transport, foreground calls normally return output and exit details on completion; a steering message or `/background` ends the foreground wait and returns a job ID while the process continues. An explicit shell `background: true` also returns an ID immediately. The model tool lists secured shell jobs in this transport.
 
-An explicit cancel, configured timeout, session shutdown, or natural completion ends a job. Timeout values are positive and capped at 2,147,483,647 ms (2,147,483.647 seconds), Node.js's maximum single timer delay. Session shutdown and cancellation terminate the process group; natural leader exit drains output for up to the configured drain limit before stopping remaining descendants. The security capability lease remains held until manager finalization. Shell commands and subagents have separate capacity pools, so long-lived agents do not consume shell slots. The class constructor accepts trusted limit overrides. Generic shell stdin is closed; protocol clients may request a pipe. Process groups do not contain deliberate daemon/session escapes. See the [process guide](../guides/background-processes.md). Sources: [tool](../../packages/pi-bg/extensions/background-process.ts), [process manager](../../packages/pi-bg/lib/background/processes.ts), and [output buffer](../../packages/pi-bg/lib/background/output-buffer.ts).
+An explicit cancel, configured timeout, session shutdown, or natural completion ends a job. Timeout values are positive and capped at 2,147,483,647 ms (2,147,483.647 seconds), Node.js's maximum single timer delay. Session shutdown and cancellation terminate the process group; natural leader exit drains output for up to the configured drain limit before stopping remaining descendants. The security capability lease remains held until manager finalization. Shell commands and subagents have separate capacity pools, so long-lived agents do not consume shell slots. The class constructor accepts trusted limit overrides. Generic shell stdin is closed; protocol clients may request a pipe. Process groups do not contain deliberate daemon/session escapes. See the [process guide](../guides/background-processes.md). Sources: [tool](../../packages/pi-background/extensions/background-process.ts), [process manager](../../packages/pi-background/lib/background/processes.ts), and [output buffer](../../packages/pi-background/lib/background/output-buffer.ts).
 
 ## Goal tools
 
@@ -211,7 +211,7 @@ A completed evaluator response that fails validation gets one corrective attempt
 excerpt of the invalid response, under the original timeout. Provider, authentication, abort,
 timeout, or response-length failures do not retry; a second invalid response disarms continuation.
 
-An explicit budget covers parent-provider usage on main-model calls, checked before every provider dispatch, including tool loops. The current run retains its goal authority through completion or blocking, so a later tool-loop call is stopped locally and returned as an aborted continuation reason before provider dispatch. One already-dispatched request can finish after a pause or overshoot the limit. Missing or incomplete usage stops automatic continuation for an explicit budget. Omitted budget means unlimited and hides accumulated totals from model context; `/goal status` shows accounting. The shipped child producer returns `wait_id`; `pi-bg` does not itself offer goal waits. See the [goal guide](../guides/goals.md) for workflow and [goal services](events.md#goal-services) for authorization, request, and wait contracts. Sources and checks: [goal extension](../../packages/pi-goal/extensions/goal.ts), [request admission](../../packages/pi-goal/lib/continuation.ts), [persistence](../../packages/pi-goal/lib/persistence.ts), [serialized-context fixture](../../packages/pi-goal/lib/serialized-context.test.ts), and [wait integration](../../packages/pi-goal/lib/waiter-integration.test.ts).
+An explicit budget covers parent-provider usage on main-model calls, checked before every provider dispatch, including tool loops. The current run retains its goal authority through completion or blocking, so a later tool-loop call is stopped locally and returned as an aborted continuation reason before provider dispatch. One already-dispatched request can finish after a pause or overshoot the limit. Missing or incomplete usage stops automatic continuation for an explicit budget. Omitted budget means unlimited and hides accumulated totals from model context; `/goal status` shows accounting. The shipped child producer returns `wait_id`; `pi-background` does not itself offer goal waits. See the [goal guide](../guides/goals.md) for workflow and [goal services](events.md#goal-services) for authorization, request, and wait contracts. Sources and checks: [goal extension](../../packages/pi-goal/extensions/goal.ts), [request admission](../../packages/pi-goal/lib/continuation.ts), [persistence](../../packages/pi-goal/lib/persistence.ts), [serialized-context fixture](../../packages/pi-goal/lib/serialized-context.test.ts), and [wait integration](../../packages/pi-goal/lib/waiter-integration.test.ts).
 
 ## Search tool
 
@@ -244,18 +244,18 @@ Redirects are refused. The parser requires the terminal completion marker and va
 
 | Command | Owner | Purpose |
 | --- | --- | --- |
-| `/agents` | `pi-subagents` | Browse definitions, effective settings, and diagnostics |
-| `/agents trust [directory]` | `pi-subagents` | Interactive session-only trust for a discovered ancestor |
-| `/skills` | `pi-subagents` | Browse Pi's selected skill registry |
-| `/packages` | `pi-subagents` | Toggle loaded package guidance for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults |
+| `/agents` | `pi-delegation` | Browse definitions, effective settings, and diagnostics |
+| `/agents trust [directory]` | `pi-delegation` | Interactive session-only trust for a discovered ancestor |
+| `/skills` | `pi-delegation` | Browse Pi's selected skill registry |
+| `/packages` | `pi-delegation` | Toggle loaded package guidance for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults |
 | `/goal <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |
 | `/goal` or `/goal status` | `pi-goal` | Inspect goal state and accounting |
 | `/goal start <objective>` / `/goal edit <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |
 | `/goal clear` | `pi-goal` | Remove the goal and revoke its old waits and automatic continuation |
 | `/goal pause` / `/goal resume` | `pi-goal` | Pause or resume automatic continuation |
-| `/jobs [list]` | `pi-bg` | List session background jobs |
-| `/jobs read ID [CURSOR]` / `/jobs cancel ID` | `pi-bg` | Read output or cancel a session background job |
-| `/background` | `pi-bg` | Yield `pi-bg` foreground shell waits and goal waits while preserving their pending work |
+| `/jobs [list]` | `pi-background` | List session background jobs |
+| `/jobs read ID [CURSOR]` / `/jobs cancel ID` | `pi-background` | Read output or cancel a session background job |
+| `/background` | `pi-background` | Yield `pi-background` foreground shell waits and goal waits while preserving their pending work |
 | `/costs` | Shared accounting installed by subagents/security | Show combined total, parent/agent/classifier/evaluator breakdowns and missing-usage limitations |
 | `/mcp` | Pi built-in MCP integration under `pi-security` | Manage opted-in HTTP(S) MCP servers and Pi-owned authentication; requires `--security-mcp` for config admission |
 

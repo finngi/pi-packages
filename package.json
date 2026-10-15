@@ -27,14 +27,14 @@
   "pi": {
     "extensions": [
       "packages/pi-security/src/extension.ts",
-      "packages/pi-bg/extensions/background-process.ts",
-      "packages/pi-subagents/extensions/subagent.ts",
+      "packages/pi-background/extensions/background-process.ts",
+      "packages/pi-delegation/extensions/subagent.ts",
       "packages/pi-goal/extensions/goal.ts",
-      "packages/pi-local-context/extensions/context.ts",
+      "packages/pi-context/extensions/context.ts",
       "packages/pi-codex-search/extensions/search.ts"
     ],
     "skills": [
-      "packages/pi-local-context/skills"
+      "packages/pi-context/skills"
     ]
   },
   "devDependencies": {

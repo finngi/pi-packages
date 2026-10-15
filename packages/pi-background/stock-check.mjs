@@ -1,11 +1,11 @@
-// Loads pi-bg through pinned stock Pi. --standalone loads no sibling extension.
+// Loads pi-background through pinned stock Pi. --standalone loads no sibling extension.
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = await mkdtemp(join(tmpdir(), "pi-bg-stock-check-"));
+const root = await mkdtemp(join(tmpdir(), "pi-background-stock-check-"));
 const agentDir = join(root, "agent");
 const home = join(root, "home");
 await mkdir(agentDir, { recursive: true });

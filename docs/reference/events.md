@@ -8,9 +8,9 @@ Extensions discover trusted in-process services through Pi's event bus. An emitt
 
 `options.notify: false` lets a protocol owner such as subagents manage delivery itself. Generic notifications have a three-wake budget reset by non-extension input, then append for the next turn without repeatedly waking. Handles reject operations after session replacement or shutdown. `background:policy` accepts trusted admission and cancellation callbacks plus a reason and optional pending cleanup promises. Processes are session-owned: timeout, explicit cancellation, natural completion, and session shutdown finish a job. Natural process exit drains output for a bounded interval, then finalization stops remaining ordinary descendants. The default manager permits four active jobs and retains up to 32 results.
 
-When `PI_SECURITY_TRANSPORT=extensions`, `pi-security:transport:v1` discovers `startShell` for every secured model `bash` call. Its `foreground` flag selects whether the call waits for completion or immediately returns a process ID. The transport obtains security's one-use prepared capability and launches its command unchanged through `pi-bg`; it releases the capability only after the managed process finalizes, or after a failed prelaunch. Aborting or steering a foreground wait returns control while preserving the job and its lease. A missing or duplicate security service refuses.
+When `PI_SECURITY_TRANSPORT=extensions`, `pi-security:transport:v1` discovers `startShell` for every secured model `bash` call. Its `foreground` flag selects whether the call waits for completion or immediately returns a process ID. The transport obtains security's one-use prepared capability and launches its command unchanged through `pi-background`; it releases the capability only after the managed process finalizes, or after a failed prelaunch. Aborting or steering a foreground wait returns control while preserving the job and its lease. A missing or duplicate security service refuses.
 
-Types: [shared contracts](../../packages/pi-contracts/src/index.ts) and [background adapter](../../packages/pi-bg/lib/background/service.ts). Implementation: [background extension](../../packages/pi-bg/extensions/background-process.ts).
+Types: [shared contracts](../../packages/pi-contracts/src/index.ts) and [background adapter](../../packages/pi-background/lib/background/service.ts). Implementation: [background extension](../../packages/pi-background/extensions/background-process.ts).
 
 ## Security services
 
@@ -35,7 +35,7 @@ The initialized security service has:
 A `PreparedShell` belongs to the loaded security policy that issued it. Preparation checks that
 owner after asynchronous resource setup; the caller must invoke `assertCurrent()` immediately
 before spawning. Release invalidates the capability and frees its profile and network lease. The
-`pi-bg` shell transport also captures its session epoch before awaiting preparation and checks it
+`pi-background` shell transport also captures its session epoch before awaiting preparation and checks it
 before launch; failed or stale preparation releases the capability instead of starting a process.
 The process manager releases a launched capability on finalization, including a job whose
 foreground wait has already ended. The shared type is defined in
@@ -43,7 +43,7 @@ foreground wait has already ended. The shared type is defined in
 
 `PreparedChild` also carries effective resources, optional currency check, and a trusted pre-cleanup hook. The parent uses that hook to stop a worker and collect artifacts before security removes launch directories. A failed collection prevents successful cleanup from claiming retained files.
 
-Service discovery refuses missing, invalid, or duplicate security responses. Active presence or an explicit selector cannot become an unrestricted launch/search after failure. Source: [security service](../../packages/pi-security/src/service.ts), [contracts](../../packages/pi-contracts/src/index.ts), and [selection](../../packages/pi-subagents/lib/security-service.ts).
+Service discovery refuses missing, invalid, or duplicate security responses. Active presence or an explicit selector cannot become an unrestricted launch/search after failure. Source: [security service](../../packages/pi-security/src/service.ts), [contracts](../../packages/pi-contracts/src/index.ts), and [selection](../../packages/pi-delegation/lib/security-service.ts).
 
 ## Goal services
 
@@ -75,7 +75,7 @@ model write scope and denied to file/shell reads. Worker dialogue and normal age
 not create user authority. See [automatic classification](security-policy.md#automatic-classification)
 for evidence, constrained results, failure behavior and per-call write scope.
 
-Manual asks reach the root human UI with a formatted definition name. The main coding model is not an approver; approval may grant write paths for that call, but cannot override hard denials or resource limits. Normal agent questions are dialogue and confer no permission. Source: [child asks](../../packages/pi-security/src/child-ask.ts), [classifier](../../packages/pi-security/src/classifier.ts), [child messaging](../../packages/pi-subagents/lib/subagent/child-messaging.ts), and [launch framing](../../packages/pi-subagents/lib/subagent/child-launch.ts).
+Manual asks reach the root human UI with a formatted definition name. The main coding model is not an approver; approval may grant write paths for that call, but cannot override hard denials or resource limits. Normal agent questions are dialogue and confer no permission. Source: [child asks](../../packages/pi-security/src/child-ask.ts), [classifier](../../packages/pi-security/src/classifier.ts), [child messaging](../../packages/pi-delegation/lib/subagent/child-messaging.ts), and [launch framing](../../packages/pi-delegation/lib/subagent/child-launch.ts).
 
 ## Message and response delivery
 
@@ -113,7 +113,7 @@ Validation: inspected parser input checks; execution has not been tested.
 
 Unowned completed responses arriving while the parent is busy stay pending until a successful `turn_end`, after tool results persist. The broker appends remaining responses in one context batch and requests continuation. `subagent_check` consumes a pending response only after contiguous pages from offset zero cover the complete retained reply and any longer queued delivery copy; reading retained history again does not create another notification. A closed JSON archive can be shorter than the queued copy, in which case the larger copy remains pending for ordinary delivery. Idle delivery starts a turn, and `agent_settled` closes the final-boundary race. Failed/aborted parent runs retain responses without automatically waking; a later prompt can consume them. Session/branch cleanup closes children and fences late delivery. Accepted goal waits use their owned route instead.
 
-Source/tests: [broker](../../packages/pi-subagents/extensions/subagent.ts), [dialogue](../../packages/pi-subagents/lib/subagent/rpc-dialogue.ts), [communication integration](../../packages/pi-subagents/lib/subagent/communications-extension.test.ts), and [live delivery](../../packages/pi-subagents/lib/subagent/live-delivery-stock.test.ts).
+Source/tests: [broker](../../packages/pi-delegation/extensions/subagent.ts), [dialogue](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts), [communication integration](../../packages/pi-delegation/lib/subagent/communications-extension.test.ts), and [live delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
 
 ## Stored lifecycle records
 

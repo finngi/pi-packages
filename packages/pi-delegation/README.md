@@ -1,6 +1,6 @@
-# pi-subagents
+# pi-delegation
 
-Named-agent delegation for Pi. It discovers trusted definitions, previews effective capabilities, launches child Pi processes, and routes messages and correlated results. `pi-bg` and security are optional. Without `pi-bg`, the extension owns its child-process transport; it reuses an explicitly loaded background service when present. Selected or active security never falls back to host-permission execution after failure.
+Named-agent delegation for Pi. It discovers trusted definitions, previews effective capabilities, launches child Pi processes, and routes messages and correlated results. `pi-background` and security are optional. Without `pi-background`, the extension owns its child-process transport; it reuses an explicitly loaded background service when present. Selected or active security never falls back to host-permission execution after failure.
 
 The default child workspace is scratch. Direct project work requires security disabled. Closing/cancelling retains ordinary scratch files before cleanup; direct project references are never deleted by `discard`. Receipts label `scope` as `scratch-collection` or `project-reference` and `externalEffects` as `untracked`; they do not list all worker effects.
 
@@ -23,7 +23,7 @@ remove project settings. Selection does not reload Pi or stop children. Skills l
 resource-discovery hook and unselected `/skill:name` commands are refused. See
 [Browse project resources](../../docs/guides/delegation.md#browse-project-resources).
 
-Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-subagents` and `npm run typecheck --workspace=pi-subagents`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.
+Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-delegation` and `npm run typecheck --workspace=pi-delegation`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.
 
 Parents can select an authenticated worker with `subagent({agent: "general-purpose", task: "…", model: "openai-codex/gpt-6-luna:low"})` when the definition omits `model` or sets it to `inherit`. An explicit definition model is a user pin; conflicting requests fail before launch. Worker-model selection does not change the security classifier. See [configuration](../../docs/reference/configuration.md#agent-definitions) and [permission review](../../docs/guides/delegation.md#permission-review-in-child-sessions).
 

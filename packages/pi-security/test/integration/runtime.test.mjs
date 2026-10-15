@@ -19,10 +19,10 @@ test("shared and sibling runtime packages remain protected even inside the proje
   for (const name of [
     "pi-runtime",
     "pi-contracts",
-    "pi-bg",
-    "pi-subagents",
+    "pi-background",
+    "pi-delegation",
     "pi-goal",
-    "pi-local-context",
+    "pi-context",
     "pi-codex-search",
   ]) {
     const file = ["pi-runtime", "pi-contracts"].includes(name)

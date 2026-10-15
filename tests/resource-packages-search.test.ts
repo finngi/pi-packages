@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import subagents from "../packages/pi-subagents/extensions/subagent.ts";
-import instructions from "../packages/pi-local-context/extensions/context.ts";
+import subagents from "../packages/pi-delegation/extensions/subagent.ts";
+import instructions from "../packages/pi-context/extensions/context.ts";
 const ns = "resources";
 initTheme("dark", false);
 const put = (path: string, body: string) => {

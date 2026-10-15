@@ -1,4 +1,4 @@
-# pi-local-context
+# pi-context
 
 Loads project context and selected instructions. Each directory's `AGENTS.local.md` follows
 its `AGENTS.md` or `CLAUDE.md` in Pi's context order. Selected snippets enter a separate
@@ -31,7 +31,7 @@ the host process from tools or other extensions.
 The package includes a lazy `pi-help` skill; the extension keeps Pi's default documentation section
 to one line while preserving custom prompts and explicit section overrides.
 
-Source entrypoint: [extensions/context.ts](extensions/context.ts). From the repository root, run `npm run test --workspace=pi-local-context`, `npm run typecheck --workspace=pi-local-context`, and `npm run test:e2e --workspace=pi-local-context`. The integration fixture exercises Pi 1.2.0 prompt/reload and Git metadata with isolated resources and no model calls.
+Source entrypoint: [extensions/context.ts](extensions/context.ts). From the repository root, run `npm run test --workspace=pi-context`, `npm run typecheck --workspace=pi-context`, and `npm run test:e2e --workspace=pi-context`. The integration fixture exercises Pi 1.2.0 prompt/reload and Git metadata with isolated resources and no model calls.
 
 This extension provides `/instructions` and the `session_setup` tool on stock Pi without agents, background jobs or security.
 

@@ -7,7 +7,7 @@ Trusted host configuration selects the extension set and policy. Agent metadata 
 | Setting | Values / default | Effect |
 | --- | --- | --- |
 | Load `pi-security` | Optional extension | Active presence requires security for delegation/search even if initialization fails |
-| `PI_SECURITY_TRANSPORT` | `internal` default in security; `extensions` for `pi-bg` | Selects security's shell transport; `extensions` routes secured bash through `pi-bg` and also requires the security service for delegation/search |
+| `PI_SECURITY_TRANSPORT` | `internal` default in security; `extensions` for `pi-background` | Selects security's shell transport; `extensions` routes secured bash through `pi-background` and also requires the security service for delegation/search |
 | `--subagent-security` | `required` or `off`; defaults to required with selection/presence, otherwise off | `required` refuses unavailable/duplicate service; `off` refuses an already secured parent |
 | `PI_SECURITY_POLICY` | Absolute host-selected path; otherwise agent directory `policy.json` | Reviewed trusted policy; missing/malformed/unknown keys refuse |
 | `PI_CODING_AGENT_DIR` | Default `~/.pi/agent` | User agent resources, settings, auth, and retained results |
@@ -21,7 +21,7 @@ Trusted host configuration selects the extension set and policy. Agent metadata 
 
 Children launched without security have host permissions. The workspace selector defaults to scratch; project mode is allowed only when security is disabled. See [workspace semantics](../architecture.md#workspaces-and-private-configuration).
 
-Source: [launch selection](../../packages/pi-subagents/extensions/subagent.ts), [security options](../../packages/pi-security/src/compatibility.ts), [initialization](../../packages/pi-security/src/extension.ts), and [search selection](../../packages/pi-codex-search/extensions/search.ts).
+Source: [launch selection](../../packages/pi-delegation/extensions/subagent.ts), [security options](../../packages/pi-security/src/compatibility.ts), [initialization](../../packages/pi-security/src/extension.ts), and [search selection](../../packages/pi-codex-search/extensions/search.ts).
 
 ### Protected launch and research settings
 
@@ -59,7 +59,7 @@ Bundle contents are staged as ordinary files with write bits removed, while sour
 
 Conversation defaults to `none` when neither definition nor call chooses a setting. A definition of `none` forbids sharing; numeric N allows at most N user turns; `all` permits caller narrowing. A call can reduce the scope but cannot exceed its ceiling. Only user/assistant text is shared, including the triggering user turn in the count; image-only user messages count as turns without contributing text. Thinking, tools/results, and extension messages are excluded.
 
-Sources and checks: [parser and discovery](../../packages/pi-subagents/lib/subagent/agents.ts), [setting resolution](../../packages/pi-subagents/lib/subagent/settings.ts), [conversation](../../packages/pi-subagents/lib/subagent/context.ts), and [resource validation](../../packages/pi-runtime/src/child-resources.ts).
+Sources and checks: [parser and discovery](../../packages/pi-delegation/lib/subagent/agents.ts), [setting resolution](../../packages/pi-delegation/lib/subagent/settings.ts), [conversation](../../packages/pi-delegation/lib/subagent/context.ts), and [resource validation](../../packages/pi-runtime/src/child-resources.ts).
 
 ### Resource selection
 
@@ -71,7 +71,7 @@ it does not change tool registration, model pins or security policy.
 
 | Setting or command | Behavior |
 |---|---|
-| Global `subagents.agents` | Optional list of user-agent names to advertise and permit. When omitted, pi-subagents keeps its standard full discovery behavior. |
+| Global `subagents.agents` | Optional list of user-agent names to advertise and permit. When omitted, pi-delegation keeps its standard full discovery behavior. |
 | Project `subagents.agents` | Optional list in trusted `.pi/settings.json`; replaces the global list. `[]` disables named-agent launches. Unknown or untrusted names make the selection fail closed. |
 | Project `subagents.skills` | Optional list of public skill names visible to the parent model and inherited by children. `[]` hides all public skills; when omitted, Pi's currently loaded skill set remains available. |
 | Project `subagents.skillPaths` | Extension-maintained paths added to the native project skill list for selected catalogue skills. The `/skills` commands use this ownership list, plus a creation marker, to remove only paths and settings they added. |
@@ -79,7 +79,7 @@ it does not change tool registration, model pins or security policy.
 | Global `subagents.skills` | Optional list of public skill names used as the default selection when a project has no `subagents.skills` entry. |
 | Ctrl+S in a resource picker | Saves project defaults; individual pickers save one category and `/packages` saves all three guidance categories. |
 | Ctrl+Shift+S in a resource picker | Saves personal defaults for new sessions across projects; project-only resources are excluded and project defaults still take precedence. |
-| Project `skills` | Pi's native list of skill paths. pi-subagents writes paths here when a selected catalogue skill must be loaded; Pi can still auto-discover other project and user skills. |
+| Project `skills` | Pi's native list of skill paths. pi-delegation writes paths here when a selected catalogue skill must be loaded; Pi can still auto-discover other project and user skills. |
 | `/agents` and `/skills` | Interactive session selectors; `enable NAME`, `disable NAME`, `none`, `all`, and `inherit` are also accepted. Selection updates lookup immediately without reloading. |
 | Global `resources.instructionCatalogues` | Trusted directories of Markdown instruction snippets offered in `/instructions`. |
 | Global/project `localContext.instructions` | Default and project-specific resource IDs for instruction snippets. Project `[]` disables the global selection. |

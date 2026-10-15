@@ -13,10 +13,10 @@ const names = [
   "pi-resource-browser",
   "pi-security",
   "pi-permissions",
-  "pi-bg",
-  "pi-subagents",
+  "pi-background",
+  "pi-delegation",
   "pi-goal",
-  "pi-local-context",
+  "pi-context",
   "pi-codex-search",
 ];
 for (const name of names) {

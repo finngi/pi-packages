@@ -17,7 +17,7 @@ for (const [workspace, inheritProjectContext] of [
   ["project", false],
 ] as const)
   test(
-    `stock child ${workspace} without security or pi-bg inherits ${inheritProjectContext ? "project and selected" : "only selected"} instructions, communicates and preserves output`,
+    `stock child ${workspace} without security or pi-background inherits ${inheritProjectContext ? "project and selected" : "only selected"} instructions, communicates and preserves output`,
     { timeout: 30000 },
     async () => {
       const root = await mkdtemp(join(tmpdir(), "pi-unrestricted-stock-")),

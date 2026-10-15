@@ -48,7 +48,7 @@ Instruction files are Markdown under the declared directories; selected bodies e
   resource picker, instruction reader and persisted session selection. No replacement installer,
   catalogue registry, model client or session store was added.
 - Extracted the existing bounded process manager into the pure `pi-runtime/processes` library.
-  `pi-bg` reuses it. Agents lazily create their own session-owned manager when no background
+  `pi-background` reuses it. Agents lazily create their own session-owned manager when no background
   service is loaded, with shutdown/exit cleanup. Loading agents does not activate background tools.
 - Package selection expands only resource kinds whose providers are loaded. Agent/skill-only
   packages need no instruction extension, and receipts name the participating kinds. Missing

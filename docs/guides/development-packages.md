@@ -7,8 +7,8 @@ the pinned stock Pi 1.2.0 checks. Source hosting, tests and live activation are 
 
 ```text
 pi-packages/                  public repository
-  AGENTS.md                  contributor guidance
-  DESIGN.md                  shared design principles
+  AGENTS.md                  principles and contributor guidance
+  .pi/skills/                package development and review skills
   package.json               development workspace
   packages/<name>/            manifest, README, implementation and tests
   docs/                      guides and decisions
@@ -32,15 +32,15 @@ workflow is needed during this experimental stage.
 | Needed behaviour | Load |
 | --- | --- |
 | Stock interactive Pi | Nothing extra |
-| Selected instructions, `/instructions` and instruction session setup | `pi-local-context` |
-| Child agents, `/agents`, our `/skills` and `/packages` pickers | `pi-subagents` |
+| Selected instructions, `/instructions` and instruction session setup | `pi-context` |
+| Child agents, `/agents`, our `/skills` and `/packages` pickers | `pi-delegation` |
 | Personal tool presentation and available themes | Private `personal-interactive` |
 | Model-facing timestamps, including print/RPC | Private `personal-extensions`; enable `modelTime` separately |
 
-For our resource-selection workflow, start with **`pi-local-context` + `pi-subagents`**.
+For our resource-selection workflow, start with **`pi-context` + `pi-delegation`**.
 Libraries (`pi-runtime`, `pi-contracts`, `pi-resource-browser`) resolve through dependencies;
-do not select them as extensions. `pi-bg`, `pi-goal` and `pi-codex-search` are optional features.
-Agents do not require `pi-bg`. `pi-permissions` and the full `pi-security` sandbox are optional
+do not select them as extensions. `pi-background`, `pi-goal` and `pi-codex-search` are optional features.
+Agents do not require `pi-background`. `pi-permissions` and the full `pi-security` sandbox are optional
 alternatives with their own configuration, not requirements of interactive Pi.
 
 The repository root still has a legacy aggregate manifest that includes the sandbox. Use
@@ -57,7 +57,7 @@ from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \
-  -e ./packages/pi-local-context -e ./packages/pi-subagents --subagent-security=off
+  -e ./packages/pi-context -e ./packages/pi-delegation --subagent-security=off
 ```
 
 `--no-extensions` excludes automatically discovered and built-in extensions; explicit `-e`

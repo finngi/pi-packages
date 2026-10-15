@@ -11,8 +11,8 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import background from "../../../pi-bg/extensions/background-process.ts";
-import context from "../../../pi-local-context/extensions/context.ts";
+import background from "../../../pi-background/extensions/background-process.ts";
+import context from "../../../pi-context/extensions/context.ts";
 import subagents from "../../extensions/subagent.ts";
 
 const system = (messages: any[]) => {

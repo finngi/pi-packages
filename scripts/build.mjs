@@ -8,12 +8,12 @@ const packages = [
   "pi-contracts",
   "pi-resource-browser",
   "pi-runtime",
-  "pi-bg",
+  "pi-background",
   "pi-security",
   "pi-permissions",
-  "pi-subagents",
+  "pi-delegation",
   "pi-goal",
-  "pi-local-context",
+  "pi-context",
   "pi-codex-search",
 ];
 async function assets(directory, output) {

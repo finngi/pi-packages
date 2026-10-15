@@ -70,5 +70,5 @@
   "bugs": {
     "url": "https://github.com/finngi/pi-packages/issues"
   },
-  "description": "Shared Pi extension runtime utilities"
+  "description": "Shared resource, subprocess and accounting helpers for Pi extensions"
 }

@@ -1,5 +1,5 @@
 {
-  "name": "pi-bg",
+  "name": "pi-background",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
     "test:e2e": "node stock-check.mjs",
     "test:standalone": "node stock-check.mjs --standalone",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "node ../../scripts/build.mjs --package pi-bg"
+    "build": "node ../../scripts/build.mjs --package pi-background"
   },
   "files": [
     "dist",
@@ -45,10 +45,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/finngi/pi-packages.git",
-    "directory": "packages/pi-bg"
+    "directory": "packages/pi-background"
   },
   "bugs": {
     "url": "https://github.com/finngi/pi-packages/issues"
   },
-  "description": "Session-owned background processes for Pi"
+  "description": "Managed Bash and session-owned background processes for Pi"
 }

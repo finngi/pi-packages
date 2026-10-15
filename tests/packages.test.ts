@@ -47,10 +47,10 @@ test(
         "pi-resource-browser",
         "pi-security",
         "pi-permissions",
-        "pi-bg",
-        "pi-subagents",
+        "pi-background",
+        "pi-delegation",
         "pi-goal",
-        "pi-local-context",
+        "pi-context",
         "pi-codex-search",
       ];
       const install = spawnSync(
@@ -164,7 +164,7 @@ test(
       assert.equal(setupCheck.status, 0, setupCheck.stdout + setupCheck.stderr);
       const skillScript = join(
         directory,
-        "node_modules/pi-local-context/skills/pi-help/scripts/paths.mjs",
+        "node_modules/pi-context/skills/pi-help/scripts/paths.mjs",
       );
       const skillCheck = spawnSync(process.execPath, [skillScript], {
         cwd: directory,
@@ -174,11 +174,11 @@ test(
       const helpPaths = JSON.parse(skillCheck.stdout);
       assert.match(helpPaths.docs, /node_modules\/@earendil-works\/pi-coding-agent\/docs$/);
       const helpManifest = JSON.parse(
-        await readFile(join(directory, "node_modules/pi-local-context/package.json"), "utf8"),
+        await readFile(join(directory, "node_modules/pi-context/package.json"), "utf8"),
       );
       assert.deepEqual(helpManifest.pi.skills, ["./skills"]);
       const skill = await readFile(
-        join(directory, "node_modules/pi-local-context/skills/pi-help/SKILL.md"),
+        join(directory, "node_modules/pi-context/skills/pi-help/SKILL.md"),
         "utf8",
       );
       assert.match(skill, /name: pi-help/);
@@ -227,7 +227,7 @@ test(
         assert.match(packedE2e.stdout, /"background":\{"insideWrite":true/);
         assert.match(
           packedE2e.stdout,
-          /"packagedEntrypoints":\{"security":"[^"\n]+node_modules\/pi-security\/dist\/src\/extension\.js","background":"[^"\n]+node_modules\/pi-bg\/dist\/extensions\/background-process\.js"\}/,
+          /"packagedEntrypoints":\{"security":"[^"\n]+node_modules\/pi-security\/dist\/src\/extension\.js","background":"[^"\n]+node_modules\/pi-background\/dist\/extensions\/background-process\.js"\}/,
         );
         assert.match(
           packedE2e.stdout,
