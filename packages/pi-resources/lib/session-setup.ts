@@ -8,7 +8,6 @@ import {
   SESSION_SETUP_CONTRIBUTIONS,
   SESSION_SETUP_SERVICE,
   SESSION_SETUP_STATE,
-  SESSION_SETUP_REFRESH,
   type SessionSetupCandidate,
   type SessionSetupContribution,
   type SessionSetupOverrides,
@@ -17,8 +16,6 @@ import {
   type SessionSetupResourceKind,
   type SessionSetupResourceState,
   type SessionSetupSelectionState,
-  type SessionSetupModeState,
-  type SessionSetupRefreshRequest,
 } from "pi-contracts";
 import { ResourceSearch } from "pi-resource-browser/search";
 import { Type } from "typebox";
@@ -37,7 +34,6 @@ export {
   SESSION_SETUP_CONTRIBUTIONS,
   SESSION_SETUP_SERVICE,
   SESSION_SETUP_STATE,
-  SESSION_SETUP_REFRESH,
   type SessionSetupCandidate,
   type SessionSetupContribution,
   type SessionSetupContributionRequest,
@@ -49,8 +45,6 @@ export {
   type SessionSetupResourceKind,
   type SessionSetupResourceState,
   type SessionSetupSelectionState,
-  type SessionSetupModeState,
-  type SessionSetupRefreshRequest,
 } from "pi-contracts";
 
 const kinds = ["packages", "skills", "agents", "instructions", "tools"] as const;
@@ -186,8 +180,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     sessionId = "",
     restoreError: string | undefined;
   let resourceUniverse: SessionSetupCandidate[] | undefined;
-  let states: ResourceStates = {},
-    modes: ResourceSessionModes = {};
+  let states: ResourceStates = {};
   let initialized = false,
     interactive = false;
   let resolved: Partial<Record<SessionSetupResourceKind, string[]>> = {};
@@ -234,19 +227,13 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       nativeDefaults[kind]?.[id] ?? nativeDefault,
       sessionValue,
     );
-    const mode = resolveResourceMode(
-      defaultModes.global[kind],
-      defaultModes.project[kind],
-      id,
-      modes[kind],
-    );
+    const mode = resolveResourceMode(defaultModes.global[kind], defaultModes.project[kind], id);
     return {
       sessionState: resourceSelectionState(sessionValue, id),
       projectState: chosen.projectState,
       globalState: chosen.globalState,
       selected: chosen.effective && (mode.mode !== "interactive" || interactive),
       effectiveSource: chosen.source,
-      sessionMode: resourceModeState(modes[kind], id),
       projectMode: resourceModeState(defaultModes.project[kind], id),
       globalMode: resourceModeState(defaultModes.global[kind], id),
       mode: mode.mode,
@@ -260,12 +247,11 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         .filter((candidate) => candidate.kind === kind && state(kind, candidate.id).selected)
         .map((candidate) => candidate.id);
   };
-  const persist = (nextOverrides = overrides, nextStates = states, nextModes = modes) => {
+  const persist = (nextOverrides = overrides, nextStates = states) => {
     pi.appendEntry(SESSION_SETUP_STATE, {
       version: 2,
       overrides: nextOverrides,
       states: nextStates,
-      modes: nextModes,
       baseTools,
     });
   };
@@ -394,15 +380,13 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       if (!initialized) snapshotDefaults(ctx);
       const contributions = collect(ctx);
       let next: SessionSetupOverrides = {};
-      let nextStates: ResourceStates = {},
-        nextModes: ResourceSessionModes = {};
+      let nextStates: ResourceStates = {};
       let restoredBase = baseTools;
       if (entry?.type === "custom") {
         const data = entry.data as {
           version?: number;
           overrides?: SessionSetupOverrides;
           states?: ResourceStates;
-          modes?: ResourceSessionModes;
           baseTools?: string[];
         };
         if (
@@ -428,20 +412,9 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
               Object.entries(saved).some(([id, value]) => !id.trim() || typeof value !== "boolean"))
           )
             throw Error("Invalid session resource override");
-          const savedModes = data.modes?.[kind];
-          if (
-            savedModes !== undefined &&
-            (!savedModes ||
-              typeof savedModes !== "object" ||
-              Array.isArray(savedModes) ||
-              Object.entries(savedModes).some(
-                ([id, value]) => !id.trim() || !["any", "interactive"].includes(value),
-              ))
-          )
-            throw Error("Invalid session resource mode");
           if (saved) nextStates[kind] = structuredClone(saved);
-          if (savedModes) nextModes[kind] = structuredClone(savedModes);
         }
+        // Earlier entries may also record session types; those are ignored.
         if (data.baseTools) restoredBase = ids(data.baseTools, "baseTools");
       }
       if (restoreTools) {
@@ -451,7 +424,6 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       baseTools = restoredBase;
       overrides = next;
       states = nextStates;
-      modes = nextModes;
       for (const contribution of contributions)
         if (resources.includes(contribution.kind as SessionSetupResourceKind)) {
           const kind = contribution.kind as SessionSetupResourceKind;
@@ -477,7 +449,6 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       // Invalid branch state must not widen back to saved defaults; reset remains available.
       overrides = { skills: [], agents: [], instructions: [], tools: [] };
       states = {};
-      modes = {};
       initialized = true;
       resolveSelections();
       pi.setActiveTools(["session_setup"]);
@@ -499,13 +470,18 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     selection,
     state,
     setState(kind, id, chosen, ctx) {
-      if (!["inherit", "on", "off"].includes(chosen))
+      service.setStates(kind, { [id]: chosen }, ctx);
+    },
+    setStates(kind, chosen, ctx) {
+      if (Object.values(chosen).some((value) => !["inherit", "on", "off"].includes(value)))
         throw Error("Invalid session selection state");
       const candidates = collect(ctx)
         .flatMap((value) => value.candidates)
         .filter((candidate) => candidate.kind === kind);
-      if (!candidates.some((candidate) => candidate.id === id))
-        throw Error(`Unknown or unavailable ${kind} ID: ${id}`);
+      const missing = Object.keys(chosen).filter(
+        (id) => !candidates.some((candidate) => candidate.id === id),
+      );
+      if (missing.length) throw Error(`Unknown or unavailable ${kind} ID: ${missing.join(", ")}`);
       const next = structuredClone(states),
         nextOverrides = structuredClone(overrides);
       next[kind] ??= {};
@@ -515,39 +491,15 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
             next[kind]![candidate.id] = nextOverrides[kind]!.includes(candidate.id);
         delete nextOverrides[kind];
       }
-      if (chosen === "inherit") delete next[kind]![id];
-      else next[kind]![id] = chosen === "on";
-      persist(nextOverrides, next, modes);
+      for (const [id, value] of Object.entries(chosen))
+        if (value === "inherit") delete next[kind]![id];
+        else next[kind]![id] = value === "on";
+      persist(nextOverrides, next);
       overrides = nextOverrides;
       states = next;
       resolveSelections();
     },
-    setMode(kind, id, chosen, ctx) {
-      if (!["inherit", "any", "interactive"].includes(chosen)) throw Error("Invalid session mode");
-      if (
-        !collect(ctx).some(
-          (value) =>
-            value.kind === kind && value.candidates.some((candidate) => candidate.id === id),
-        )
-      )
-        throw Error(`Unknown or unavailable ${kind} ID: ${id}`);
-      const next = structuredClone(modes);
-      next[kind] ??= {};
-      if (chosen === "inherit") delete next[kind]![id];
-      else next[kind]![id] = chosen;
-      persist(overrides, states, next);
-      modes = next;
-      resolveSelections();
-    },
-    async refresh(ctx) {
-      const work: Promise<unknown>[] = [];
-      // Hosts refresh metadata without reloading code or touching existing children.
-      pi.events.emit(SESSION_SETUP_REFRESH, {
-        version: 1,
-        ctx,
-        waitUntil: (promise: Promise<unknown>) => work.push(promise),
-      } satisfies SessionSetupRefreshRequest);
-      await Promise.all(work);
+    refresh(ctx) {
       restore(ctx, true, false);
     },
     execute(input: unknown, ctx: ExtensionContext) {
@@ -561,8 +513,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         for (const kind of selections)
           if (request.op === "apply" && next[kind] === undefined && overrides[kind] !== undefined)
             next[kind] = overrides[kind];
-        const nextStates = structuredClone(states),
-          nextModes = structuredClone(modes);
+        const nextStates = structuredClone(states);
         for (const kind of resources) {
           const reset =
             request.op === "reset" &&
@@ -575,7 +526,6 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
                   contributions.some((value) => value.kind === kind))))
           )
             delete nextStates[kind];
-          if (reset) delete nextModes[kind];
           if (request.op === "reset" && !reset && overrides[kind] !== undefined)
             next[kind] = overrides[kind];
         }
@@ -592,10 +542,9 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
             request.tools !== undefined
           )
             setTools(next.tools ?? baseTools);
-          persist(next, nextStates, nextModes);
+          persist(next, nextStates);
           overrides = next;
           states = nextStates;
-          modes = nextModes;
           resolveSelections();
           restoreError = undefined;
         } catch (error) {
@@ -644,14 +593,6 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       };
     },
   };
-  pi.registerCommand("refresh", {
-    description: "Refresh resource defaults and metadata, preserving session overrides",
-    async handler(_args, ctx) {
-      await ctx.waitForIdle();
-      await service.refresh(ctx);
-      if (ctx.hasUI) ctx.ui.notify("Resources refreshed. Session overrides preserved.", "info");
-    },
-  });
   pi.registerTool({
     name: "session_setup",
     label: "Session setup",

@@ -14,8 +14,6 @@ import {
 import type { ChildLaunchService, Communication } from "pi-contracts";
 import {
   SESSION_SETUP_CONTRIBUTIONS,
-  SESSION_SETUP_REFRESH,
-  type SessionSetupRefreshRequest,
   type SessionSetupContributionRequest,
   USAGE_EVENT,
 } from "pi-contracts";
@@ -658,11 +656,6 @@ export default function (pi: ExtensionAPI) {
     );
     refreshAgentSelection(ctx);
   };
-  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
-    const request = value as SessionSetupRefreshRequest;
-    if (request?.version === 1 && typeof request.waitUntil === "function")
-      request.waitUntil(refreshResources(request.ctx));
-  });
   pi.on("session_start", async (_input, ctx) => {
     await cleanup("session_start");
     agentSelectionSnapshot = undefined;

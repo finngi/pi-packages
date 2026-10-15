@@ -8,12 +8,7 @@ import {
   parseFrontmatter,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  SESSION_SETUP_CONTRIBUTIONS,
-  SESSION_SETUP_REFRESH,
-  type SessionSetupContributionRequest,
-  type SessionSetupRefreshRequest,
-} from "pi-contracts";
+import { SESSION_SETUP_CONTRIBUTIONS, type SessionSetupContributionRequest } from "pi-contracts";
 import {
   showResourceBrowser,
   resourceBrowserNavigation,
@@ -140,11 +135,6 @@ export default function (pi: ExtensionAPI) {
     });
   };
   pi.on("session_start", async (_input, ctx) => refreshResources(ctx));
-  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
-    const request = value as SessionSetupRefreshRequest;
-    if (request?.version === 1 && typeof request.waitUntil === "function")
-      request.waitUntil(refreshResources(request.ctx));
-  });
   pi.on("input", (event, ctx) => {
     const match = /^\/skill:([^\s]+)(?:\s|$)/.exec(event.text);
     if (!match) return;

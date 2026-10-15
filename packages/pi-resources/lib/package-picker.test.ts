@@ -157,7 +157,7 @@ async function fixture(t: any, trusted = true, configure?: (contributions: any[]
 test("package toggle is session-only, preserves individual choices/tools and restores from history", async (t) => {
   const f = await fixture(t);
   await f.run(async (browser) => {
-    assert.match(browser.render(120).join("\n"), /Enter\/Space changes this session/);
+    assert.match(browser.render(120).join("\n"), /Session: INHERIT/);
     await browser.toggleCurrent();
     const selected = f.setup.execute({ op: "list" }, f.ctx).selected;
     assert.deepEqual(selected.skills, ["standalone", "pack-skills"]);
@@ -316,7 +316,7 @@ test("package scope edits isolate members and inherit without rewriting session 
     await browser.setScopeState("global", "off");
     assert.match(browser.render(160).join("\n"), /Project: ON/);
     await browser.setScopeState("global", "inherit");
-    assert.match(browser.render(160).join("\n"), /Global: INHERIT/);
+    assert.match(browser.render(160).join("\n"), /Global:\s+INHERIT/);
     await browser.setScopeState("session", "on");
     const explicitOn = f.setup.execute({ op: "list" }, f.ctx).selected;
     assert.deepEqual(explicitOn.skills, ["pack-skills"]);

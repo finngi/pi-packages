@@ -25,7 +25,6 @@ import {
   SAVED_INSTRUCTION_CONTEXT,
   type SavedInstructionContextRequest,
 } from "pi-resources/instructions";
-import { SESSION_SETUP_REFRESH, type SessionSetupRefreshRequest } from "pi-contracts";
 import { resourcePickerControls } from "pi-resources/picker";
 import { stripFrontmatter } from "../lib/frontmatter.ts";
 import { instructionCatalogue } from "../lib/instruction-catalogue.ts";
@@ -101,11 +100,6 @@ export default function (pi: ExtensionAPI) {
     );
   };
   pi.on("session_start", async (_event, ctx) => refreshResources(ctx));
-  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
-    const request = value as SessionSetupRefreshRequest;
-    if (request?.version === 1 && typeof request.waitUntil === "function")
-      request.waitUntil(refreshResources(request.ctx));
-  });
 
   pi.events.on(SESSION_SETUP_CONTRIBUTIONS, (value) => {
     const request = value as SessionSetupContributionRequest;

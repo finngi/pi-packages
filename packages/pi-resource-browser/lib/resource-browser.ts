@@ -37,7 +37,6 @@ export interface ResourceEntry {
   globalDefaultSelected?: boolean;
   sessionState?: ResourceDefaultState | "mixed";
   effectiveSource?: ResourceSource;
-  sessionMode?: ResourceSessionMode | "mixed";
   projectMode?: ResourceSessionMode | "mixed";
   globalMode?: ResourceSessionMode | "mixed";
   mode?: "any" | "interactive";
@@ -72,7 +71,12 @@ interface BrowserOptions {
     scope: "project" | "global",
   ): Promise<void>;
   setSession?(entry: ResourceEntry, state: ResourceDefaultState): Promise<void>;
-  setMode?(entry: ResourceEntry, mode: ResourceSessionMode, scope: ResourceScope): Promise<void>;
+  /** Session types are saved defaults; the session scope has none of its own. */
+  setMode?(
+    entry: ResourceEntry,
+    mode: ResourceSessionMode,
+    scope: "project" | "global",
+  ): Promise<void>;
   saveDefaults?(entries: ResourceEntry[]): Promise<void>;
   saveGlobalDefaults?(entries: ResourceEntry[]): Promise<void>;
 }
@@ -296,7 +300,7 @@ export class ResourceBrowser implements Component {
     const inherited =
       scope === "session" ? "project/global" : scope === "project" ? "global" : "native";
     const current = this.defaultState(entry, scope);
-    const mode = this.scopeMode(entry, scope);
+    const mode = scope === "session" ? undefined : (entry[`${scope}Mode`] ?? "inherit");
     const items = [
       {
         value: "inherit",
@@ -313,7 +317,7 @@ export class ResourceBrowser implements Component {
         label: "Off",
         description: `Selection: exclude${current === "off" ? " · current" : ""}`,
       },
-      ...(this.options.setMode
+      ...(this.options.setMode && mode
         ? [
             {
               value: "mode:inherit",
@@ -348,7 +352,7 @@ export class ResourceBrowser implements Component {
     list.setSelectedIndex(Math.max(0, ["inherit", "on", "off"].indexOf(current ?? "inherit")));
     list.onSelect = (item) => {
       this.defaultMenu = undefined;
-      if (item.value.startsWith("mode:"))
+      if (item.value.startsWith("mode:") && scope !== "session")
         void this.setScopeMode(scope, item.value.slice(5) as ResourceSessionMode);
       else void this.setScopeState(scope, item.value as ResourceDefaultState);
     };
@@ -368,9 +372,6 @@ export class ResourceBrowser implements Component {
     if (scope === "project" && this.options.defaultsInherited) return "inherit";
     const value = scope === "project" ? entry.defaultSelected : entry.globalDefaultSelected;
     return value === undefined ? undefined : value ? "on" : "off";
-  }
-  private scopeMode(entry: ResourceEntry, scope: ResourceScope) {
-    return entry[`${scope}Mode`] ?? "inherit";
   }
   private canEditDefault(entry: ResourceEntry, scope: ResourceScope) {
     return Boolean(
@@ -402,7 +403,7 @@ export class ResourceBrowser implements Component {
       else await this.options.setDefault!(entry, state, scope);
     });
   }
-  async setScopeMode(scope: ResourceScope, mode: ResourceSessionMode): Promise<void> {
+  async setScopeMode(scope: "project" | "global", mode: ResourceSessionMode): Promise<void> {
     const entry = this.results[this.index];
     if (!entry || !this.options.setMode || !this.canEditDefault(entry, scope)) return;
     await this.saveScope(scope, () => this.options.setMode!(entry, mode, scope));

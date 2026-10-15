@@ -59,10 +59,8 @@ export function resolveResourceMode(
   global: ResourceModes,
   project: ResourceModes,
   id: string,
-  session?: ResourceModes,
-): { mode: ResourceMode; source: "session" | "project" | "global" | "native" } {
+): { mode: ResourceMode; source: "project" | "global" | "native" } {
   for (const [source, values] of [
-    ["session", session],
     ["project", project],
     ["global", global],
   ] as const) {
@@ -241,7 +239,6 @@ export interface ResourceDefaultsWrite {
       ResourceKind,
       {
         values: Record<string, boolean | undefined>;
-        modes?: Record<string, ResourceMode | undefined>;
         knownIds: string[];
         /** Bulk save: discard saved IDs that are no longer known in this category. */
         snapshot?: boolean;
@@ -299,13 +296,6 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       }
       const value = Object.keys(next).length ? next : undefined;
       writeSelectionValue(settings, kind, value);
-      if (selection.modes)
-        writeModeValues(
-          settings,
-          kind,
-          selection.modes,
-          selection.snapshot ? selection.knownIds : undefined,
-        );
     }
   });
 }
@@ -315,14 +305,12 @@ function writeModeValues(
   settings: Record<string, unknown>,
   kind: ResourceKind,
   values: Record<string, ResourceMode | undefined>,
-  knownIds?: string[],
 ) {
   const raw = settings.resourceSessionTypes;
   if (raw !== undefined && (!raw || typeof raw !== "object" || Array.isArray(raw)))
     throw Error("resourceSessionTypes must be an object");
   const modes = { ...(raw as Partial<Record<ResourceKind, ResourceModes>> | undefined) };
   const next = { ...validateResourceModes(modes[kind]) };
-  if (knownIds) for (const id of Object.keys(next)) if (!knownIds.includes(id)) delete next[id];
   for (const [id, mode] of Object.entries(values)) {
     if (mode === undefined) delete next[id];
     else next[id] = mode;

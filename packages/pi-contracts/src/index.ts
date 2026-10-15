@@ -6,7 +6,6 @@ export const USAGE_EVENT = "pi-runtime:usage:v1";
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
-export const SESSION_SETUP_REFRESH = "pi-session-setup:refresh:v1";
 export type SessionSetupResourceKind = "skills" | "agents" | "instructions";
 export type SessionSetupSelectionState = "inherit" | "on" | "off";
 export type SessionSetupMode = "any" | "interactive";
@@ -17,16 +16,11 @@ export interface SessionSetupResourceState {
   globalState: SessionSetupSelectionState;
   selected: boolean;
   effectiveSource: "session" | "project" | "global" | "native";
-  sessionMode: SessionSetupModeState;
+  /** Session types are saved only at project and global scope. */
   projectMode: SessionSetupModeState;
   globalMode: SessionSetupModeState;
   mode: SessionSetupMode;
-  modeSource: "session" | "project" | "global" | "native";
-}
-export interface SessionSetupRefreshRequest {
-  version: 1;
-  ctx: ExtensionContext;
-  waitUntil(work: Promise<unknown>): void;
+  modeSource: "project" | "global" | "native";
 }
 /** Saved behavioral defaults for a child, independent of temporary parent selections. */
 export const SAVED_INSTRUCTION_CONTEXT = "pi-context:saved-instructions:v1";
@@ -83,14 +77,14 @@ export interface SessionSetupService {
     state: SessionSetupSelectionState,
     ctx: ExtensionContext,
   ): void;
-  setMode(
+  /** Set several session choices of one kind in one recorded entry; unlisted IDs keep theirs. */
+  setStates(
     kind: SessionSetupResourceKind,
-    id: string,
-    mode: SessionSetupModeState,
+    states: Record<string, SessionSetupSelectionState>,
     ctx: ExtensionContext,
   ): void;
-  /** Refresh saved defaults and discovered metadata; never reload executable extensions. */
-  refresh(ctx: ExtensionContext): Promise<void>;
+  /** Reread saved defaults after they change, keeping session choices and active tools. */
+  refresh(ctx: ExtensionContext): void;
   execute(input: unknown, ctx: ExtensionContext): SessionSetupResult;
 }
 export interface SessionSetupResult {
@@ -101,6 +95,8 @@ export interface SessionSetupResult {
   total: number;
   effects: Record<string, string>;
   error?: string;
+  /** Settings that were ignored, or requested resources left out of this session. */
+  warnings?: string[];
 }
 export interface SessionSetupRequest {
   op: "list" | "apply" | "reset";
