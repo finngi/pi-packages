@@ -24,7 +24,6 @@ export function instructionCatalogue(
   global: InstructionSettings,
   project: InstructionSettings,
   cwd: string,
-  _agentDir: string,
   trusted: boolean,
   enabled: boolean,
   packs: ResourcePackage[] = [],
