@@ -6,6 +6,7 @@ Start with [getting started](getting-started.md) to build the packages and launc
 
 | Task | Guide |
 | --- | --- |
+| Develop an experimental package or choose a session setup | [Development packages](guides/development-packages.md) |
 | Select and review a confined session | [Configure security](guides/security.md) |
 | Define an agent, delegate work, and retain files | [Delegate work](guides/delegation.md) |
 | Run shell jobs and hand foreground work to the background | [Manage processes](guides/background-processes.md) |

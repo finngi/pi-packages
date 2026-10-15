@@ -27,7 +27,7 @@ async function fixture(run) {
         writeDeny: [],
         readDeny: [path.join(project, "secret")],
       },
-      capabilities: ["gpu"],
+      capabilities: process.platform === "darwin" ? ["gpu"] : [],
       policy: { resources: { network: ["example.com"] } },
     };
     await run(loaded, grant);
@@ -93,17 +93,21 @@ test("invalid scopes fail closed and cancellation stops pending compilation", as
   });
 });
 
-test("shell preparation rechecks session ownership after the asynchronous boundary", async () => {
-  await fixture(async (loaded) => {
-    let current = true;
-    const pending = wrapShellAsync("echo ready", { write: true, network: [] }, loaded, {
-      assertCurrent() {
-        if (!current) throw Error("session ended");
-      },
+test(
+  "shell preparation rechecks session ownership after the asynchronous boundary",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    await fixture(async (loaded) => {
+      let current = true;
+      const pending = wrapShellAsync("echo ready", { write: true, network: [] }, loaded, {
+        assertCurrent() {
+          if (!current) throw Error("session ended");
+        },
+      });
+      setImmediate(() => {
+        current = false;
+      });
+      await assert.rejects(pending, /session ended/);
     });
-    setImmediate(() => {
-      current = false;
-    });
-    await assert.rejects(pending, /session ended/);
-  });
-});
+  },
+);

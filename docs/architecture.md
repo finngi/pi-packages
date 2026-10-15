@@ -4,7 +4,7 @@ A **Pi process** is a running instance of the Pi CLI or SDK. **Node** runs the J
 
 An **extension** registers tools, commands, or event handlers with its host Pi process. A **package** groups distributable code and its dependencies. Seven packages provide extensions, including the opt-in permission gate; `pi-contracts`, `pi-runtime`, and `pi-resource-browser` provide shared libraries. Importing a library does not activate a separate service, daemon, or sibling extension. See the [thin-slice decisions](decisions/native-thin-slices.md) for independent loading and retained boundaries.
 
-`pi-resource-browser` supplies the shared searchable, keyboard-driven resource picker used by `pi-subagents` and `pi-local-context`. It depends on Pi's TUI and coding-agent APIs but owns no session state or resource policy; each extension supplies entries and persistence callbacks.
+`pi-resource-browser` supplies the shared searchable, keyboard-driven resource picker used by `pi-delegation` and `pi-context`. It depends on Pi's TUI and coding-agent APIs but owns no session state or resource policy; each extension supplies entries and persistence callbacks.
 
 `pi-runtime` code executes in whichever Pi process imports and calls it. In the parent, it resolves child resources and authentication, installs launch files, collects artifacts, and records reported usage. Children load its `child-auth` entrypoint to register the selected provider. Accounting code runs in both parent and child processes that use it; the parent aggregates child reports. The library name does not mean “the child runtime.”
 
@@ -14,8 +14,8 @@ Parent and child communicate through **RPC (remote procedure call)**: the parent
 flowchart TB
   subgraph Parent["Parent Pi process — Node"]
     Main["Main session and model tools"]
-    Sub["pi-subagents extension"]
-    Bg["pi-bg extension"]
+    Sub["pi-delegation extension"]
+    Bg["pi-background extension"]
     Sec["Optional pi-security extension"]
     PLib["pi-runtime code imported by parent extensions"]
     Main <-->|"Tasks, messages and results"| Sub
@@ -55,9 +55,9 @@ Workspace placement organizes files. It provides filesystem confinement only whe
 
 ## Responsibilities and boundaries
 
-`pi-subagents` owns agent discovery, capability previews, identities, request correlation, and result delivery. It asks a child-launch provider to prepare resources, then gives the prepared command to `pi-bg`. The unrestricted provider reports host permissions. The security provider narrows authority before launch. Selected or active security that is missing, malformed, duplicated, or unable to launch produces an error; it never selects the unrestricted provider as a fallback.
+`pi-delegation` owns agent discovery, capability previews, identities, request correlation, and result delivery. It asks a child-launch provider to prepare resources, then gives the prepared command to `pi-background`. The unrestricted provider reports host permissions. The security provider narrows authority before launch. Selected or active security that is missing, malformed, duplicated, or unable to launch produces an error; it never selects the unrestricted provider as a fallback.
 
-`pi-bg` owns subprocess lifetime, bounded output, stdin for trusted protocol clients, and cancellation. Its model tool can list, inspect, read, or cancel existing processes. Raw process launch is available only through the trusted extension interface. With `PI_SECURITY_TRANSPORT=extensions`, security routes all secured shell calls through this session-owned process manager; a foreground wait can be handed off while the process and its prepared capability lease continue. Process groups clean up ordinary descendants; deliberate daemon or session escapes remain a limitation. See [shell jobs](guides/background-processes.md).
+`pi-background` owns subprocess lifetime, bounded output, stdin for trusted protocol clients, and cancellation. Its model tool can list, inspect, read, or cancel existing processes. Raw process launch is available only through the trusted extension interface. With `PI_SECURITY_TRANSPORT=extensions`, security routes all secured shell calls through this session-owned process manager; a foreground wait can be handed off while the process and its prepared capability lease continue. Process groups clean up ordinary descendants; deliberate daemon or session escapes remain a limitation. See [shell jobs](guides/background-processes.md).
 
 `pi-security` owns policy, approvals, replacement file/shell tools, and confined helpers. On macOS, those helpers execute under Seatbelt. On Linux, shell execution is read-only; writable execution is disabled until the sandbox can preserve write-deny rules for paths created after launch. The parent Pi process, model client (including codemode `models.*`), search HTTP adapter, trusted extension code, and user `!` commands are outside tool confinement. Linux/container release closure is separate from the supported macOS host configuration. See [security configuration and limits](guides/security.md).
 
@@ -65,10 +65,10 @@ Workspace placement organizes files. It provides filesystem confinement only whe
 
 ## Implementation map
 
-- [Launch selection](../packages/pi-subagents/extensions/subagent.ts), [unrestricted provider](../packages/pi-subagents/lib/subagent/unrestricted-launcher.ts), and [security provider](../packages/pi-security/src/child-launch.ts).
+- [Launch selection](../packages/pi-delegation/extensions/subagent.ts), [unrestricted provider](../packages/pi-delegation/lib/subagent/unrestricted-launcher.ts), and [security provider](../packages/pi-security/src/child-launch.ts).
 - [Shared resource setup](../packages/pi-runtime/src/child-resources.ts), [authentication](../packages/pi-runtime/src/child-auth.ts), [accounting](../packages/pi-runtime/src/accounting.ts), and [artifact collection](../packages/pi-runtime/src/artifacts.ts).
-- [Background transport](../packages/pi-bg/extensions/background-process.ts) and [RPC dialogue](../packages/pi-subagents/lib/subagent/rpc-dialogue.ts).
-- [Goal waits](../packages/pi-goal/extensions/goal.ts) and [producer response offers](../packages/pi-subagents/lib/subagent/owned-waiter.ts).
+- [Background transport](../packages/pi-background/extensions/background-process.ts) and [RPC dialogue](../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
+- [Goal waits](../packages/pi-goal/extensions/goal.ts) and [producer response offers](../packages/pi-delegation/lib/subagent/owned-waiter.ts).
 
 The [package reference](reference/packages.md) lists entrypoints; the [event reference](reference/events.md) specifies the interfaces that cross these boundaries.
 

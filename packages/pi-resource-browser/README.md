@@ -1,7 +1,7 @@
 # pi-resource-browser
 
-A searchable resource picker built with Pi's TUI components. `pi-subagents` uses it for agents, skills and
-package guidance; `pi-local-context` uses it for instruction snippets. The host extension supplies entries,
+A searchable resource picker built with Pi's TUI components. `pi-delegation` uses it for agents, skills and
+package guidance; `pi-context` uses it for instruction snippets. The host extension supplies entries,
 previews and persistence callbacks. The library registers no tools or event handlers on import.
 
 `showResourceBrowser(context, options)` mounts the picker in Pi's editor slot. `ResourceBrowser`

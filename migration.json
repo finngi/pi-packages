@@ -7,13 +7,13 @@
       "commit": "4b285b1e88975b58ba387e0b7d1631495f1df553"
     },
     {
-      "package": "pi-subagents",
-      "repository": "https://github.com/finngi2/pi-subagents",
+      "package": "pi-delegation",
+      "repository": "https://github.com/finngi2/pi-delegation",
       "commit": "5edf2cf38a1c56dac3bf34877be5b3bf5dc5e677"
     },
     {
-      "package": "pi-bg",
-      "repository": "https://github.com/finngi2/pi-bg",
+      "package": "pi-background",
+      "repository": "https://github.com/finngi2/pi-background",
       "commit": "17db89783cc0c8dcf26eaacc7205f68254326bfe"
     },
     {
@@ -22,8 +22,8 @@
       "commit": "86555d8a45b7e75220c1fe7871fe880aa857c086"
     },
     {
-      "package": "pi-local-context",
-      "repository": "https://github.com/finngi2/pi-local-context",
+      "package": "pi-context",
+      "repository": "https://github.com/finngi2/pi-context",
       "commit": "4e876bce81e889142b509fed2bafae199a883a8a"
     },
     {

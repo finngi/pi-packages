@@ -20,10 +20,10 @@ export async function protectRuntime(loaded: LoadedPolicy, entry: string): Promi
   for (const name of ["pi-runtime", "pi-contracts"])
     roots.push(await packageRoot(fileURLToPath(import.meta.resolve(name))));
   for (const name of [
-    "pi-bg",
-    "pi-subagents",
+    "pi-background",
+    "pi-delegation",
     "pi-goal",
-    "pi-local-context",
+    "pi-context",
     "pi-codex-search",
     "pi-resource-browser",
   ]) {

@@ -1,9 +1,9 @@
 {
-  "name": "pi-local-context",
+  "name": "pi-context",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local context discovery and lazy Pi documentation",
+  "description": "Project context overlays and selected session instructions for Pi",
   "pi": {
     "extensions": [
       "./extensions/context.ts"
@@ -23,7 +23,7 @@
     "test": "node --test 'lib/**/*.test.ts'",
     "test:e2e": "node context-check.mjs",
     "typecheck": "tsc -p tsconfig.context.json",
-    "build": "node ../../scripts/build.mjs --package pi-local-context"
+    "build": "node ../../scripts/build.mjs --package pi-context"
   },
   "files": [
     "dist",
@@ -49,10 +49,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
-    "directory": "packages/pi-local-context"
+    "url": "git+https://github.com/finngi/pi-packages.git",
+    "directory": "packages/pi-context"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   }
 }

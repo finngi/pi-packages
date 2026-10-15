@@ -14,6 +14,6 @@ Run `npm run check:boundary` and inspect `npm pack` output before releasing. The
 rejects personal host paths and private research directories but is not a complete credential
 scanner. The initial snapshot was also checked with Gitleaks before its public push.
 
-The public repository includes its own DESIGN.md, AGENTS.md, lockfile and CI workflow. It does
+The public repository includes its own AGENTS.md, project skills, lockfile and CI workflow. It does
 not depend on the surrounding personal workspace. Private packages may follow the same design
 principles while keeping their implementation and settings outside this repository.

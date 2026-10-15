@@ -64,11 +64,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
     "directory": "packages/pi-runtime"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   },
-  "description": "Shared Pi extension runtime utilities"
+  "description": "Shared resource, subprocess and accounting helpers for Pi extensions"
 }

@@ -1,6 +1,6 @@
 # Delegate work
 
-Load `pi-bg` and `pi-subagents` in the parent process. The [getting-started walkthrough](../getting-started.md) shows a security-off launch; [configure security](security.md) shows a confined launch. Browse the effective tools and scope before assigning work, because a definition names resources but the live parent session decides which are available.
+Load `pi-background` and `pi-delegation` in the parent process. The [getting-started walkthrough](../getting-started.md) shows a security-off launch; [configure security](security.md) shows a confined launch. Browse the effective tools and scope before assigning work, because a definition names resources but the live parent session decides which are available.
 
 ## Define and discover an agent
 
@@ -38,7 +38,7 @@ Only flat root `*.md` files and immediate `<name>/<name>.md` entrypoints are dis
 
 Use `/agents trust /absolute/project/directory` to grant interactive, session-only trust to a discovered ancestor level. Project trust saved by Pi is also recognized. User-directory definitions are loaded after trusted project levels. The home source directory `~/.agents/agents` is excluded from project levels because shared configuration tooling can deploy it to the user directory.
 
-`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. Pi may load other skills internally, but pi-subagents filters the model's advertised skills, public skills inherited by children, and manual `/skill:name` invocation. Private bundle skills remain child resources.
+`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. Pi may load other skills internally, but pi-delegation filters the model's advertised skills, public skills inherited by children, and manual `/skill:name` invocation. Private bundle skills remain child resources.
 
 ## Browse project resources
 
@@ -208,7 +208,7 @@ The store is under the parent agent directory's `subagent-results/<session-id>/`
 
 After closing a project child, `directory` references the parent project and `owned` is false, `scope` is `project-reference`, and `files` is empty; inspect project changes directly. `discard: true` deletes an owned collected copy; it never deletes or rolls back direct project edits. Re-read needed retained files using the returned directory, because the original scratch path no longer exists after successful cleanup.
 
-Implementation and checks: [agent discovery](../../packages/pi-subagents/lib/subagent/agents.ts), [launcher](../../packages/pi-subagents/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.1.0 security-off integration](../../packages/pi-subagents/lib/subagent/unrestricted-stock.test.ts), and [live message delivery](../../packages/pi-subagents/lib/subagent/live-delivery-stock.test.ts).
+Implementation and checks: [agent discovery](../../packages/pi-delegation/lib/subagent/agents.ts), [launcher](../../packages/pi-delegation/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.2.0 security-off integration](../../packages/pi-delegation/lib/subagent/unrestricted-stock.test.ts), and [live message delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
 
 ## Permission review in child sessions
 

@@ -397,6 +397,19 @@ async function deliveryFixture(delayed: boolean) {
           (e: any) => e.type === "custom_message" && String(e.content).includes("IDLE_ROUTINE"),
         ),
     );
+    // Wait for Pi's actual idle turn; a fixed number of event-loop ticks can finish before it starts.
+    const questionSettled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        reject(Error("idle question did not settle"));
+      }, 2000);
+      const unsubscribe = session!.subscribe((event) => {
+        if (event.type !== "agent_settled") return;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve();
+      });
+    });
     emit({
       type: "extension_ui_request",
       id: "idle-question",
@@ -411,7 +424,7 @@ async function deliveryFixture(delayed: boolean) {
           emittedAt: "2026-10-13T10:00:00.000Z",
         }),
     });
-    await tick();
+    await questionSettled;
     assert.equal(contexts.length, 5, "questions retain idle wakeups");
   } finally {
     if (session) {

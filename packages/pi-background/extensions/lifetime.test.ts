@@ -114,7 +114,7 @@ test("security-off Bash uses managed host execution and preserves result account
   const app = harness();
   await app.start();
   const bash = app.tools.find((entry) => entry.name === "bash");
-  assert.ok(bash, "pi-bg must replace the stock bash tool when security is off");
+  assert.ok(bash, "pi-background must replace the stock bash tool when security is off");
   try {
     const result = await bash.execute(
       "plain-bash",

@@ -19,9 +19,9 @@ be installed from a local path, a Git repository or npm. No particular checkout 
 
 | Package | Owns | Optional integration |
 | --- | --- | --- |
-| `pi-local-context` | Selected instructions and local project context | Agent/session setup contributions |
-| `pi-subagents` | Agent definitions, child RPC lifecycle and communication | Jobs transport, selected security service |
-| `pi-bg` | Background shell jobs, output and cancellation | Selected security service, goal completion delivery |
+| `pi-context` | Selected instructions and local project context | Agent/session setup contributions |
+| `pi-delegation` | Agent definitions, child RPC lifecycle and communication | Jobs transport, selected security service |
+| `pi-background` | Background shell jobs, output and cancellation | Selected security service, goal completion delivery |
 | `pi-goal` | Objective, continuation and evaluation | Child/job waits |
 | `pi-permissions` | Deny/allow rules and unmatched-action approval | Native model classifier or an approval-capable UI/client |
 | `pi-security` | Existing kernel confinement and secured transports | Existing integrations, retained separately |

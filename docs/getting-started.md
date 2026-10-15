@@ -42,8 +42,8 @@ From the repository root:
 env -u PI_SECURITY_TRANSPORT -u PI_SECURITY_POLICY \
   node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   --no-extensions \
-  -e packages/pi-bg/extensions/background-process.ts \
-  -e packages/pi-subagents/extensions/subagent.ts \
+  -e packages/pi-background/extensions/background-process.ts \
+  -e packages/pi-delegation/extensions/subagent.ts \
   --subagent-security=off
 ```
 

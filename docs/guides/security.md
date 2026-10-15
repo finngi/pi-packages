@@ -33,9 +33,9 @@ PI_SECURITY_POLICY=/trusted/agent/config/pi-security.json \
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   --no-extensions --no-builtin-tools --exclude-tools powershell \
   -e packages/pi-security/src/extension.ts \
-  -e packages/pi-bg/extensions/background-process.ts \
-  -e packages/pi-subagents/extensions/subagent.ts \
-  -e packages/pi-local-context/extensions/context.ts \
+  -e packages/pi-background/extensions/background-process.ts \
+  -e packages/pi-delegation/extensions/subagent.ts \
+  -e packages/pi-context/extensions/context.ts \
   -e packages/pi-goal/extensions/goal.ts \
   -e packages/pi-codex-search/extensions/search.ts \
   -e builtin:tool-search \

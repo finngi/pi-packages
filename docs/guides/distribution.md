@@ -10,15 +10,18 @@ Pi 1.2.0 accepts a Git package source with an extension filter in its package se
 
 ```json
 {
-  "source": "git:https://github.com/finngi2/pi-packages@<reviewed-commit>",
+  "source": "git:https://github.com/finngi/pi-packages@<reviewed-commit>",
   "extensions": [
-    "packages/pi-bg/extensions/background-process.ts",
-    "packages/pi-subagents/extensions/subagent.ts"
+    "packages/pi-background/extensions/background-process.ts",
+    "packages/pi-delegation/extensions/subagent.ts"
   ]
 }
 ```
 
-Replace `<reviewed-commit>` with the revision you intend to run. The root manifest declares six extension entrypoints and the optional Pi-help skill. Package resource filters can select its skills independently of extensions. Selecting all of them also selects security, so prepare policy and tool activation deliberately rather than treating package discovery as a security configuration.
+Replace `<reviewed-commit>` with the revision you intend to run. The root manifest declares six
+extension entrypoints, including the sandbox, plus the optional
+`pi-help` skill. Filters can select skills independently of extensions. Follow the
+[security launch instructions](security.md) before enabling all six extensions.
 
 ## Build local tarballs
 
@@ -32,7 +35,7 @@ npm run test:packages
 
 `pack` builds ten tarballs in `.artifacts/packages`: seven extension packages and three shared libraries. It does not publish anything. The source manifests are private; the packing script prepares distribution manifests with JavaScript entrypoints and declaration exports. Each tarball includes its README, license files, and provenance file when present. The set also includes security profiles, the optional Pi-help skill and its resource script. The consumer test installs all ten tarballs into a fresh directory and loads the entrypoints and compiled file helper from `node_modules`.
 
-Install the required tarballs together into a consumer project, including the shared libraries declared in each extension's package dependencies. `pi-subagents` works independently of `pi-bg`; both reuse the shared process library. `pi-permissions` is separately packed and is not included in the repository-root aggregate manifest, which retains the existing sandbox entrypoint. Do not assume that a source-workspace import proves an installed consumer can resolve the same files.
+Install the required tarballs together into a consumer project, including the shared libraries declared in each extension's package dependencies. `pi-delegation` works independently of `pi-background`; both reuse the shared process library. `pi-permissions` is separately packed and is not included in the repository-root aggregate manifest, which retains the existing sandbox entrypoint. Do not assume that a source-workspace import proves an installed consumer can resolve the same files.
 
 Git checkouts can execute TypeScript helper sources with Node 24. Installed packages execute emitted JavaScript helpers from `node_modules`. See [package dependencies and SDK pins](../reference/packages.md).
 

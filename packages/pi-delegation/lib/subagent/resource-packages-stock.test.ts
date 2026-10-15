@@ -11,9 +11,9 @@ import {
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { discoverResourcePackages } from "pi-runtime";
-import background from "../../../pi-bg/extensions/background-process.ts";
-import context from "../../../pi-local-context/extensions/context.ts";
-import { catalogueInstructionId } from "../../../pi-local-context/lib/instruction-selection.ts";
+import background from "../../../pi-background/extensions/background-process.ts";
+import context from "../../../pi-context/extensions/context.ts";
+import { catalogueInstructionId } from "../../../pi-context/lib/instruction-selection.ts";
 import subagents from "../../extensions/subagent.ts";
 import { configuredSkillChoices } from "./resource-selection.ts";
 

@@ -373,7 +373,7 @@ export default function(pi) {
     ? path.join(packagedRoot, "pi-security/dist/src/extension.js")
     : path.join(source, "src/extension.ts");
   const backgroundEntrypoint = extensionPath(
-    "pi-bg",
+    "pi-background",
     "extensions/background-process.ts",
     "dist/extensions/background-process.js",
   );
@@ -386,9 +386,9 @@ export default function(pi) {
       intercept,
       securityEntrypoint,
       backgroundEntrypoint,
-      extensionPath("pi-subagents", "extensions/subagent.ts", "dist/extensions/subagent.js"),
+      extensionPath("pi-delegation", "extensions/subagent.ts", "dist/extensions/subagent.js"),
       extensionPath("pi-goal", "extensions/goal.ts", "dist/extensions/goal.js"),
-      extensionPath("pi-local-context", "extensions/context.ts", "dist/extensions/context.js"),
+      extensionPath("pi-context", "extensions/context.ts", "dist/extensions/context.js"),
     ],
     extensionFactories: [
       (pi) => {
@@ -567,7 +567,7 @@ export default function(pi) {
     prepared.argv.includes(
       await realpath(
         extensionPath(
-          "pi-bg",
+          "pi-background",
           "extensions/background-process.ts",
           "dist/extensions/background-process.js",
         ),

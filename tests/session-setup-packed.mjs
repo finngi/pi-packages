@@ -7,8 +7,8 @@ const consumer = process.argv[2];
 const fromConsumer = (name) => import(name);
 const sdk = await fromConsumer("@earendil-works/pi-coding-agent");
 const ai = await fromConsumer("@earendil-works/pi-ai/compat");
-const { default: subagents } = await fromConsumer("pi-subagents");
-const { default: context } = await fromConsumer("pi-local-context");
+const { default: subagents } = await fromConsumer("pi-delegation");
+const { default: context } = await fromConsumer("pi-context");
 const cwd = join(consumer, "setup-project"),
   agentDir = join(consumer, "setup-agent");
 await mkdir(cwd);

@@ -1,5 +1,5 @@
 {
-  "name": "pi-subagents",
+  "name": "pi-delegation",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
   "scripts": {
     "test": "node --test 'lib/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "node ../../scripts/build.mjs --package pi-subagents"
+    "build": "node ../../scripts/build.mjs --package pi-delegation"
   },
   "files": [
     "dist",
@@ -46,11 +46,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
-    "directory": "packages/pi-subagents"
+    "url": "git+https://github.com/finngi/pi-packages.git",
+    "directory": "packages/pi-delegation"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   },
   "description": "Pi agent discovery, delegation and communication"
 }

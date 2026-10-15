@@ -26,7 +26,7 @@ ownership and security semantics needed by the extensions.
 Pi's exported `RpcClient` is suitable for integrations where it owns the child process. In 1.2.0,
 it cannot attach to a process managed by another transport, and it exposes no public method for
 sending extension-UI responses. Delegation therefore uses the documented JSONL RPC protocol through
-`pi-bg`, including the extension request/response frames required for approvals and routed messages.
+`pi-background`, including the extension request/response frames required for approvals and routed messages.
 No private `RpcClient` members are patched.
 
 ## Pinned internal helpers

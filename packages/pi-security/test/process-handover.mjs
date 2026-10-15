@@ -114,7 +114,7 @@ try {
     noPromptTemplates: true,
     additionalExtensionPaths: [
       join(packageRoot, "pi-security/src/extension.ts"),
-      join(packageRoot, "pi-bg/extensions/background-process.ts"),
+      join(packageRoot, "pi-background/extensions/background-process.ts"),
     ],
     extensionFactories: [
       (pi) => {

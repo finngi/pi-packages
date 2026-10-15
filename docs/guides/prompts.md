@@ -12,7 +12,7 @@ For a focused Pi session, supply a system prompt and choose its tools:
 pi --system-prompt /absolute/path/lexical-search.md --tools read,bash
 ```
 
-A trusted project's `.pi/SYSTEM.md` can supply the prompt persistently. Pi 1.1.0 replaces its generic
+A trusted project's `.pi/SYSTEM.md` can supply the prompt persistently. Pi 1.2.0 replaces its generic
 preamble and omits its default textual tools, rules, and documentation sections when a custom prompt
 is supplied. Callable tools still carry their full schemas separately. Project instructions, selected
 skills, and extension sections can still be added; tool availability is a separate configuration.
@@ -36,7 +36,7 @@ outer ancestor directories to the working directory, each with its own source bl
 </project_context>
 ```
 
-`pi-local-context` adds `AGENTS.local.md` to this project context and strips closed YAML metadata.
+`pi-context` adds `AGENTS.local.md` to this project context and strips closed YAML metadata.
 It preserves bodies and source paths. See [local context](context.md).
 
 ## Select agent instructions
@@ -86,14 +86,14 @@ Selecting a skill adds its name, description, and file location to the catalogue
 An agent bundle can expose private skills to its child without adding them to the parent's catalogue.
 The agent's own instructions can guide skill selection; they need not require loading every skill.
 
-`pi-local-context` includes the optional `pi-help` skill. Its metadata describes when it applies; its
+`pi-context` includes the optional `pi-help` skill. Its metadata describes when it applies; its
 body points to a small script that resolves the running SDK's documentation and examples. Installing
 the package selects that metadata unless the host filters out its skills. An explicit entrypoint-only
 launch can select it using Pi's ordinary skill option:
 
 ```sh
-pi -e /absolute/checkout/packages/pi-local-context/extensions/context.ts \
-   --skill /absolute/checkout/packages/pi-local-context/skills/pi-help/SKILL.md
+pi -e /absolute/checkout/packages/pi-context/extensions/context.ts \
+   --skill /absolute/checkout/packages/pi-context/skills/pi-help/SKILL.md
 ```
 
 The extension reduces Pi's default documentation section to one line. If `pi-help` is selected, the

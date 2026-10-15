@@ -486,7 +486,9 @@ export default function security(pi: ExtensionAPI) {
                     },
                   });
                   if (!transport?.extensionPath)
-                    throw Error("child shell transport unavailable; load pi-bg before delegation");
+                    throw Error(
+                      "child shell transport unavailable; load pi-background before delegation",
+                    );
                   return transport.extensionPath;
                 },
               }
@@ -972,7 +974,8 @@ export default function security(pi: ExtensionAPI) {
                 transport = value;
               },
             });
-            if (!transport) throw Error("session process transport unavailable; load pi-bg");
+            if (!transport)
+              throw Error("session process transport unavailable; load pi-background");
             const result = await transport.startShell({
               foreground: input.background !== true,
               toolCallId: id,

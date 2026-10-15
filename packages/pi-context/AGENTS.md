@@ -1,4 +1,4 @@
-# Working in pi-local-context
+# Working in pi-context
 
 Keep this extension standalone. Own AGENTS.local.md overlays, selected
 .agents/instructions/*.md context, eager context metadata stripping and optional

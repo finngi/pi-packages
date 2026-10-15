@@ -69,11 +69,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/finngi2/pi-packages.git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
     "directory": "packages/pi-security"
   },
   "bugs": {
-    "url": "https://github.com/finngi2/pi-packages/issues"
+    "url": "https://github.com/finngi/pi-packages/issues"
   },
-  "description": "Policy-mediated effect tools and kernel confinement for Pi"
+  "description": "OS sandbox, policy checks and secured file and shell tools for Pi"
 }

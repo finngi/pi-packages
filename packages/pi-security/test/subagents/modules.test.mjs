@@ -444,7 +444,12 @@ test("child manifests preserve GPU scope and reject grants absent from the paren
       const widened = structuredClone(loaded);
       widened.capabilities = ["gpu"];
       if (gpu !== true)
-        assert.throws(() => assertNarrows(widened, parent), /host capabilities widened/);
+        assert.throws(
+          () => assertNarrows(widened, parent),
+          process.platform === "darwin"
+            ? /host capabilities widened/
+            : /unsupported host capability/,
+        );
       const narrowed = structuredClone(loaded);
       narrowed.capabilities = [];
       assert.doesNotThrow(() => assertNarrows(narrowed, parent));

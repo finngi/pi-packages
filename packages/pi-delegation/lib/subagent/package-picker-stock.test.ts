@@ -11,7 +11,7 @@ import {
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import type { ResourceBrowser } from "./resource-browser.ts";
 import subagents from "../../extensions/subagent.ts";
-import context from "../../../pi-local-context/extensions/context.ts";
+import context from "../../../pi-context/extensions/context.ts";
 
 sdk.initTheme("dark", false);
 test(

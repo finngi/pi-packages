@@ -92,7 +92,7 @@ export function planSessionSetup(
       throw Error(
         `Unknown or unavailable ${kind} IDs: ${missing.join(", ")}${
           kind === "packages"
-            ? ". Use a native package name already loaded in this session. New package groups need pi install then reload/start; -e can add native resources for a new invocation. Ordinary changes require idle /reload, security/runtime changes or running children require a staged restart. No selection was changed."
+            ? ". Choose a package returned by session_setup list. Add new sources with pi install, then /reload while idle. Use -e for native resources in a new invocation. Security/runtime changes or running children need a restart. No selection was changed."
             : ""
         }`,
       );
@@ -360,17 +360,17 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         total: candidates.length,
         effects: {
           tools:
-            "Native active-tool selection applies immediately; CLI activation eligibility is checked on apply, with atomic rollback if native filters refuse names. Security and deferred/codemode callability are unchanged.",
+            "Tool selection is immediate. If Pi's CLI filters reject a tool, the previous selection is restored. Permissions and deferred/codemode access are unchanged.",
           resources:
-            "Public skill/manual invocation and agent lookup change immediately. Skill descriptions and selected instructions in parent prompts refresh only on the next submitted parent run. Package selections replace skills/agents/instructions with public members plus explicit same-call IDs; tools are unchanged by packages.",
-          packages: `Only already-loaded native package resources are selected, through registered resource kinds: ${
+            "Skill commands and agent lookup change immediately; the parent prompt refreshes on the next run. Package selections replace skill, agent and instruction selections with public package members plus individual IDs in this request. Package selection leaves tools unchanged; a tools array in this request applies separately.",
+          packages: `Select public resources from configured packages already loaded here. Available resource types: ${
             contributions
               .filter((value) => value.kind !== "packages" && value.kind !== "tools")
               .map((value) => value.kind)
               .join(", ") || "none"
-          }. Missing providers are not activated and their content is not selected. Package groups require configured native sources; -e native skills remain individually selectable. New packages use pi install. Ordinary executable changes require idle /reload; security/runtime replacement or running children require a staged restart. No installation or reload occurs in this tool.`,
+          }. Unloaded extensions stay off. Native skills loaded with -e can be selected individually. For new packages, use pi install followed by idle /reload; security/runtime changes or running children need a restart. This tool does not install or reload.`,
           children:
-            "Existing prepared children are unchanged. New child roles/private skills use the current lookup; inherited selected instructions remain the current parent-run snapshot until the next parent run.",
+            "Existing children keep their launch settings. New children use the current agent definitions and their private skills. Inherited instructions come from the last parent prompt until the parent runs again.",
         },
       };
     },

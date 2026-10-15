@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const commands = [
-  ["packages/pi-local-context/context-check.mjs"],
+  ["packages/pi-context/context-check.mjs"],
   ["packages/pi-codex-search/security-check.mjs"],
   ["packages/pi-security/test/extensions-e2e.mjs"],
   ["packages/pi-security/test/process-handover.mjs"],

@@ -184,10 +184,10 @@ try {
     [
       intercept,
       path.join(source, "src/extension.ts"),
-      path.join(packages, "pi-bg/extensions/background-process.ts"),
-      path.join(packages, "pi-subagents/extensions/subagent.ts"),
+      path.join(packages, "pi-background/extensions/background-process.ts"),
+      path.join(packages, "pi-delegation/extensions/subagent.ts"),
       path.join(packages, "pi-goal/extensions/goal.ts"),
-      path.join(packages, "pi-local-context/extensions/context.ts"),
+      path.join(packages, "pi-context/extensions/context.ts"),
     ],
     {
       factories: [

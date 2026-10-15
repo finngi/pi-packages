@@ -11,8 +11,8 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import background from "../../../pi-bg/extensions/background-process.ts";
-import context from "../../../pi-local-context/extensions/context.ts";
+import background from "../../../pi-background/extensions/background-process.ts";
+import context from "../../../pi-context/extensions/context.ts";
 import subagents from "../../extensions/subagent.ts";
 
 const system = (messages: any[]) => {
@@ -380,7 +380,7 @@ test(
       assert.equal(receipt.effectivePreviews[0].id, "worker");
       assert.equal(receipt.effectivePreviews[0].locked, false);
       assert.ok(receipt.effectivePreviews[0].tools.includes("read"));
-      assert.match(receipt.effects.children, /current parent-run snapshot/);
+      assert.match(receipt.effects.children, /last parent prompt until the parent runs again/);
       assert.ok(
         receipt.candidates
           .filter(
