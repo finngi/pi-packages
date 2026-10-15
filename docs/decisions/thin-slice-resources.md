@@ -1,19 +1,19 @@
-# Independent agents and instruction resources
+# Agents and instructions as package resources
 
-Status: native package implementation.
+Status: done.
 
 ## Decision
 
-Pi owns package installation, source/version resolution, project trust, model/provider access,
-sessions, native skills, prompts, themes, tools and extension lifecycle. Agent bundles and eagerly
-selected behavioural instructions are additional resource types read by these extensions. Their
-files belong to the package that declares them; no particular authored checkout, user name,
-`~/.config/agents` directory or generated symlink tree is required.
+Pi owns package installation, versions, project trust, models and providers, sessions, skills,
+prompts, themes, tools and extension lifecycle. Agent bundles and selected instruction snippets are
+two extra resource types that these extensions read. Their files belong to the package that
+declares them. No particular checkout, user name, `~/.config/agents` folder or symlink tree is
+needed.
 
-A package may live anywhere locally, or be installed from Git/npm through native `pi install`.
-Pi records personal sources in `~/.pi/agent/settings.json`, project sources in
-`<cwd>/.pi/settings.json`, and controls its own caches. Each declaration is relative to its own
-package root, so the same contents work from a checkout or an installed package:
+A package can live anywhere locally or be installed from Git or npm with `pi install`. Pi records
+personal sources in `~/.pi/agent/settings.json` and project sources in `<cwd>/.pi/settings.json`,
+and manages its own caches. Each path is relative to its package root, so the same package works
+from a checkout or an install:
 
 ```json
 {
@@ -31,78 +31,76 @@ package root, so the same contents work from a checkout or an installed package:
 }
 ```
 
-`agents` and `instructions` are our extension metadata; they are not stock Pi resource types.
-Native Pi continues loading the other four fields. A package containing only agents/instructions
-needs no dummy extension or placeholder skill. Discovery asks Pi's package manager for configured,
-already installed roots, skips sources Pi declined to load, and never installs anything itself.
-Project package trust and native version checks remain in force.
+`agents` and `instructions` are ours; Pi loads the other four. A package with only agents or
+instructions needs no placeholder extension or skill. Discovery asks Pi's package manager for
+installed roots, skips sources Pi declined to load, and never installs anything. Project trust and
+Pi's version checks still apply.
 
-An agent bundle is `agents/<name>/<name>.md`. Its private `skills/`, scripts and references stay
-inside that bundle. Only explicitly public `pi.skills` paths are advertised to the parent.
-Instruction files are Markdown under the declared directories; selected bodies enter a separate
-`<instructions>` system-prompt section. Project `AGENTS.md` context remains separate.
+An agent bundle is `agents/<name>/<name>.md`, with its private `skills/`, scripts and references
+inside. Only `pi.skills` paths are shown to the parent. Instruction files are Markdown in the
+declared folders, and selected ones go in a separate `<instructions>` section. Project `AGENTS.md`
+context stays separate.
 
-## Selection ownership
+## Who owns what
 
-`pi-resources` owns skill selection and the package picker. Keeping those inside delegation
-would require child-process machinery merely to select guidance. `pi-delegation` owns agent
-definitions, `/agents` and child execution; `pi-context` owns instructions and `/instructions`.
-They explicitly share the existing runtime setup service, persistence helpers and browser library.
-Package groups can be derived from any loaded provider, so context-only sessions can select
-package instructions without loading the picker or delegation. Missing providers do not become
-empty selections and package saves preserve their existing defaults. Session entry IDs and
-settings use one sparse-map representation. The local cutover converts old saved choices once.
+`pi-resources` owns skill selection and the package picker; putting them in delegation would need
+child-process code just to pick guidance. `pi-delegation` owns agents, `/agents` and child
+sessions. `pi-context` owns instructions and `/instructions`. They share the runtime setup service,
+saving helpers and browser library.
 
-## Per-resource saved defaults
+Any loaded extension can supply package groups, so a session with only context can select package
+instructions without the picker or delegation. Missing extensions do not turn into empty
+selections, and package saves keep their existing defaults. Session entries and settings use one
+sparse-map format. The local switch-over converted old saved choices once.
 
-Whole-category selection arrays cannot express one inherited item beside an explicit Off item.
-Saved resource keys use sparse ID-to-boolean maps. The same resolver drives
-skills, agents, instructions and package aggregates; missing IDs inherit from the next scope.
-An empty map inherits all entries; explicit boolean entries save On/Off.
-A row edit patches only its target IDs; an explicit bulk snapshot updates the known eligible rows
-and removes stale unknown entries. Edits preserve known sibling values, including ineligible rows that are not part of the edit. Session records remain the existing concrete
-selections, so later defaults cannot rewrite resumed sessions. This uses the current settings files,
-atomic writer, session service and native picker components, with no second override layer or store.
+## Saved defaults per resource
 
-## What was reused and removed
+A list per category cannot say "inherit this one, turn that one off". Saved choices are maps from
+resource ID to `true` or `false`, and one resolver handles skills, agents, instructions and
+packages. Missing IDs inherit from the next level; an empty map inherits everything.
 
-- Kept native package discovery, the existing agent parser/private-skill loader, RPC dialogue,
-  resource picker, instruction reader and persisted session selection. No replacement installer,
-  catalogue registry, model client or session store was added.
-- Extracted the existing bounded process manager into the pure `pi-runtime/processes` library.
-  `pi-background` reuses it. Agents lazily create their own session-owned manager when no background
-  service is loaded, with shutdown/exit cleanup. Loading agents does not activate background tools.
-- Package selection expands only resource kinds whose providers are loaded. Agent/skill-only
-  packages need no instruction extension, and receipts name the participating kinds. Missing
-  providers are not enabled and their content is not claimed as selected.
-- Moved the existing `session_setup` registration to the shared, explicitly installed setup
-  service. Instructions can expose model-driven selection without loading agents. When agents
-  are present they enrich successful setup receipts through Pi's native tool-result hook.
+Editing a row changes only that ID. A bulk save updates the eligible rows and removes stale unknown
+entries, keeping other known values, including rows not part of the save. Session records still hold
+concrete selections, so later defaults cannot change a resumed session. This uses the existing
+settings files, atomic writer, session service and picker, with no extra override layer or store.
 
+## Reused and removed
 
-The remaining common libraries are ordinary imports, not extension activation or global services.
-No package needs a launcher-controlled runtime to discover resource files.
+- Kept Pi's package discovery, the agent parser and private-skill loader, RPC dialogue, resource
+  picker, instruction reader and saved session selection. No new installer, catalogue, model
+  client or session store.
+- Moved the bounded process manager into the `pi-runtime/processes` library. `pi-background` uses
+  it. Without a background service, agents create their own session-owned manager with cleanup on
+  shutdown and exit. Loading agents does not add background tools.
+- Package selection only covers resource kinds whose extensions are loaded. Packages with only
+  agents or skills need no instruction extension, and replies name the kinds involved.
+- `session_setup` moved to the shared setup service, so instructions can be selected by the model
+  without loading agents. When agents are loaded they add details to successful replies through
+  Pi's tool-result hook.
 
-## Limits kept explicit
+The shared libraries are ordinary imports, not extensions or global services. No package needs a
+custom launcher to find resource files.
 
-The native resource list does not enumerate a temporary `-e` package with no native resource
-records. Pi's exported argument parser and native installed-path lookup provide those roots
-without installing, scanning caches or saving settings. Only native loaded skills enter the
-package group. A direct `-e` extension file does not cause a scan of its containing directory.
+## Known limits
 
-Native standalone skill paths remain supported by Pi. Personal instruction libraries are packages;
-project-local instruction snippets stay scoped to their project. No parallel catalogue loader remains. Installing/loading executable extensions remains a native Pi
-operation. Resource selection does not unload hooks, install packages or change permissions.
+Pi's resource list does not include a `-e` package with no Pi resources. Pi's argument parser and
+installed-path lookup provide those roots without installing, scanning caches or saving settings.
+Only skills Pi loaded join a package group. Loading a single extension file with `-e` does not scan
+its folder.
 
-## Verification
+Pi still supports standalone skill paths. Personal instruction libraries are packages, and project
+snippets stay in their project. No second catalogue loader remains. Installing and loading code is
+Pi's job; resource selection never unloads hooks, installs packages or changes permissions.
 
-- Stock Pi with only agents: a real RPC child executes commands, uses a private skill and relative
-  script, sends progress, writes files and returns an artifact receipt. Scratch and project modes
-  are exercised without background jobs or security extensions.
-- Stock Pi with only instructions: setup selection changes the prompt, preserves project context,
-  and restores choices across resume, fork and tree navigation without rewriting settings.
-- Native package fixtures exercise local, installed Git/npm custom-only roots, native skill
+## Tests
+
+- Stock Pi with only agents: a real RPC child runs commands, uses a private skill and relative
+  script, sends progress, writes files and returns a file receipt, in scratch and project modes,
+  without background jobs or permissions.
+- Stock Pi with only instructions: selection changes the prompt, keeps project context, and survives
+  resume, fork and tree navigation without changing settings.
+- Package fixtures cover local and installed Git and npm packages with only custom resources, skill
   filtering, project precedence, stale npm versions and private-resource boundaries.
 
-See [Pi packages](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md)
-and [extensions](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md).
+See Pi's [packages](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md)
+and [extensions](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md) docs.

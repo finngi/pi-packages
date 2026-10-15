@@ -1,28 +1,31 @@
 # Run shell jobs
 
-Load `pi-background` for managed Bash, bounded output and cancellation. Commands run with normal
-host permissions. Add the separate permission gate if call review is desired. Delegation can share
-the process service but does not require this extension.
+Load `pi-background` to run Bash commands in the background, read their output and cancel them.
+Commands run with your normal user permissions. Add the permission package if you want calls
+checked first. Delegation can share the process service but does not need this extension.
 
-## Keep a command in the foreground
+## Run a command
 
-A `bash` call waits for the command and returns its output, exit code, elapsed time, and whether
-the output was truncated. If you send a steering message while it is waiting, Pi returns the
-process ID and leaves the command running. You can also use `/background` to hand off foreground
-shell waits without sending a new message. Either action ends the wait, not the job.
+A normal `bash` call waits for the command and returns its output, exit code, elapsed time and
+whether the output was cut short. If you send a steering message while it waits, Pi returns the
+process ID and leaves the command running. `/background` does the same without a message. Both
+stop the wait, not the command.
 
-For a command that should start and return immediately, set `background: true` on the `bash`
-call. It returns a process ID while the job continues. The model-facing `background_process` tool
-can inspect, read, or cancel jobs; it does not launch them.
+To start a command and return straight away, set `background: true` on the `bash` call. It returns
+a process ID and the job keeps running. The model's `background_process` tool can list, inspect,
+read and cancel jobs, but cannot start them.
 
-## Inspect or stop a job
+## Check or stop a job
 
-Use `/jobs` to list `pi-background` jobs, `/jobs read ID [CURSOR]` to read output, and `/jobs cancel ID` to
-stop a job. The model can use `background_process` with `action: "list"`, `"status"`, `"read"`, or
-`"cancel"`. Reads use byte cursors; a reported gap means older output has fallen outside the
+- `/jobs` lists jobs.
+- `/jobs read ID [CURSOR]` shows output.
+- `/jobs cancel ID` stops a job.
+
+The model uses `background_process` with `action` set to `"list"`, `"status"`, `"read"` or
+`"cancel"`. Reads use byte cursors. A gap in the result means older output was dropped from the
 bounded buffer.
 
-Natural exit, an explicit timeout, cancellation, or session shutdown ends the job. A foreground
-wait can end while its job continues. See the
-[background tool reference](../reference/tools.md#background-process-tool) for limits and the
-[background service contract](../reference/events.md#background-service) for trusted extensions.
+A job ends when it exits, times out, is cancelled or the session shuts down. Ending a foreground
+wait does not end the job. See the [tool reference](../reference/tools.md#background-process-tool)
+for limits and the [background service](../reference/events.md#background-service) for use from
+other extensions.

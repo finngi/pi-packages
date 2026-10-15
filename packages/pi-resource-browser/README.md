@@ -1,47 +1,65 @@
 # pi-resource-browser
 
-A searchable resource picker built with Pi's TUI components. `pi-delegation` uses it for agents,
-`pi-resources` for skills and package guidance, and `pi-context` for instruction snippets. The host extension supplies entries,
-previews and persistence callbacks. The library registers no tools or event handlers on import.
+A searchable resource picker built from Pi's TUI components. `pi-delegation` uses it for agents,
+`pi-resources` for skills and packages, and `pi-context` for instruction snippets. The host
+extension supplies the entries, previews and save callbacks. Importing the library registers no
+tools or event handlers.
 
-`showResourceBrowser(context, options)` mounts the picker in Pi's editor slot. `ResourceBrowser`
-provides the component for custom compositions. Each entry has an internal `id`, a displayed `name`
-and `description`, selected/default state and an asynchronous preview. Enter or Space in the list toggles a
-selection; `selectionScope` defaults to `project` and can be `session`. `defaultsScope` can be
-`project` to label an explicit project save; the default retains personal-default wording. Ctrl+S calls the host's optional `saveDefaults` callback with only entries that
-can be defaulted (`defaultable` and `toggleable` are not false). Ctrl+Shift+S invokes the optional `saveGlobalDefaults` callback, additionally excluding `globalDefaultable: false` entries. Fixed or ineligible selections
-stay selected at their current scope and are excluded from saved defaults. RPC clients use Pi's native
-choice dialog.
+## API
 
-See the [package reference](../../docs/reference/packages.md), [context guide](../../docs/guides/context.md)
-and [resource settings](../../docs/reference/configuration.md#project-resource-selection). Build with
-`npm run build --workspace=pi-resource-browser`; the distributed entrypoint contains JavaScript and
-TypeScript declarations. The host must supply compatible Pi coding-agent and TUI peers.
+`showResourceBrowser(context, options)` opens the picker in Pi's editor slot. `ResourceBrowser` is
+the component itself, for custom layouts.
 
-The list shows session checkboxes without package-path badges. Its border holds the category and
-selection count. The preview keeps session/default state visible above three tabs: **Overview**
-for read-only metadata, **Instructions** for the instructions, and **Source** for provenance. Click a tab,
-or use h/l (Left/Right) to enter the preview and move through its tabs. j/k (Up/Down) navigate the list or scroll the preview. `/` or a search-field click focuses search; Enter/Escape returns to navigation without toggling. Query text, including hjkl and numbers, stays literal while search is focused.
-Toggling an item off changes only the current session until another explicit default save.
+Each entry has an internal `id`, a shown `name` and `description`, selected and default state, and
+an async preview. Enter or Space in the list toggles it.
 
-Hosts can return `ResourcePreview` with `fields`, `body` and `source` instead of mixing
-metadata into instruction prose. Explicit `projectState`/`globalState` values describe saved Inherit / On / Off choices;
-`defaultSelected`/`globalDefaultSelected` supply their resolved values and colours.
-`defaultsInherited` is only a fallback for hosts without explicit per-resource states. String previews remain supported.
+| Option | Meaning |
+| --- | --- |
+| `selectionScope` | `project` (default) or `session` |
+| `defaultsScope` | `project` labels saves as project saves; otherwise saves are worded as personal defaults |
+| `saveDefaults` | Called by Ctrl+S with entries that can be saved (`defaultable` and `toggleable` not false) |
+| `saveGlobalDefaults` | Called by Ctrl+Shift+S, also leaving out `globalDefaultable: false` entries |
+| `setDefault(entry, state, scope)` | Optional per-resource Project or Global control |
+| `globalDefaultSelected` | Resolved personal default for each entry |
+| `categories`, `activeCategory`, `selectCategory` | Numbered, clickable category tabs in the frame |
 
-The preview exposes `searchFocused` so a composing screen can reserve number shortcuts outside search.
-Hosts may supply `globalDefaultSelected` and `setDefault(entry, state, scope)` for per-resource
-Project/Global controls. This callback must change only that saved item using the host's existing
-persistence mechanism, preserving unrelated defaults. Turning a project default on also calls
-the session toggle to enable the same item now; turning it off leaves the current session choice
-unchanged. Global changes apply to future defaults without changing the session. Unavailable saved controls show their reason in Overview and on keyboard or mouse use; the browser never invents global state from session selections.
-The standalone preview supplies in-memory callbacks; production hosts retain their existing bulk saves.
+Fixed or ineligible entries stay selected at their current scope and are never saved as defaults.
+RPC clients get Pi's choice dialog instead.
 
-Composing hosts can provide `categories`, `activeCategory` and `selectCategory` to put numbered,
-clickable tabs in the outer frame. The active label uses the native theme accent; inactive labels
-use its muted border colour. Category shortcuts are inactive while the search field has focus.
-Search focus highlights its row and displays a SEARCH ACTIVE indicator. ON/OFF labels occupy
-the same number of terminal cells so adjacent scope controls retain their positions.
+`setDefault` must change only that one saved item, using the host's existing saving code and
+keeping other defaults. Turning a project default on also toggles the item on in the session;
+turning it off leaves the session alone. Global changes affect future defaults, not the session. If
+a saved control is unavailable, its reason shows in Overview and when you try to use it. The
+browser never makes up global state from session choices. The standalone preview uses in-memory
+callbacks; real hosts keep their bulk saves.
 
-The native Input `placeholderStyle` uses the theme's dim foreground. Scope keys s/p/g work
-from either pane whenever search is unfocused; inside search they remain ordinary query text.
+Previews can be a string, or a `ResourcePreview` with `fields`, `body` and `source` so metadata
+stays out of the instruction text. `projectState` and `globalState` give the saved Inherit, On or
+Off choice; `defaultSelected` and `globalDefaultSelected` give the resolved values and colours.
+`defaultsInherited` is only a fallback for hosts without per-resource states. The preview exposes
+`searchFocused` so a host can keep number shortcuts out of the search box.
+
+## Layout and keys
+
+The list shows session checkboxes, without package-path badges. Its border shows the category and
+how many are selected. The preview keeps session and default state at the top, above three tabs:
+**Overview** (metadata), **Instructions** and **Source**.
+
+- Click a tab, or use h/l (Left/Right) to move into the preview and between tabs.
+- j/k (Up/Down) move through the list or scroll the preview.
+- `/` or clicking the search field focuses search. Enter or Escape goes back to the list without
+  toggling. While searching, every key, including hjkl and numbers, is typed as text.
+- s/p/g change scope from either pane when search is not focused.
+- Category number keys are off while searching.
+
+Turning an item off changes only this session until you save defaults. The active tab label uses
+the theme's accent colour and inactive ones its muted border colour. Search focus highlights its
+row and shows SEARCH ACTIVE. ON and OFF labels are the same width, so the controls next to them do
+not move. The input placeholder uses the theme's dim foreground.
+
+## Build
+
+`npm run build --workspace=pi-resource-browser` builds JavaScript and type declarations. The host
+must provide compatible Pi coding-agent and TUI peers. See [packages](../../docs/reference/packages.md),
+the [context guide](../../docs/guides/context.md) and
+[saved defaults](../../docs/reference/configuration.md#saved-defaults).

@@ -1,10 +1,21 @@
 # Delegate work
 
-Load `pi-delegation`; add `pi-background` for managed shell jobs. The [walkthrough](../getting-started.md) shows native loading. Browse effective resources before assigning work; a definition names choices within the live parent tool set.
+Load `pi-delegation` to hand tasks to child Pi sessions. Add `pi-background` if children should
+run background shell jobs. The [walkthrough](../getting-started.md) shows how to load both.
 
-## Define and discover an agent
+The usual flow:
 
-Use either a flat Markdown definition in the user agent directory's `agents/` or a directory bundle. Project definitions may live in a trusted ancestor's `.pi/agents/` or `.agents/agents/`:
+1. Define an agent.
+2. Check it in `/agents`.
+3. Ask the parent to delegate a task.
+4. Read the child's answer and review its files.
+5. Close the child.
+
+## Define an agent
+
+An agent is a Markdown file. Put it in your user agent directory's `agents/` folder, or in a
+trusted project's `.pi/agents/` or `.agents/agents/` folder, in the working directory or any
+parent directory:
 
 ```markdown
 ---
@@ -16,7 +27,11 @@ conversation: none
 Review the assigned change. Report actionable findings with file paths and evidence.
 ```
 
-A bundle keeps the exact `<name>/<name>.md` entrypoint beside private resources:
+The body becomes the child's instructions. The front-matter picks its resources and is removed
+from the instructions. See [agent metadata](../reference/configuration.md#agent-and-skill-selection).
+
+For an agent with its own skills or scripts, use a bundle: a folder with `<name>/<name>.md` as the
+entrypoint.
 
 ```text
 agents/
@@ -32,129 +47,174 @@ agents/
     └── assets/
 ```
 
-Only flat root `*.md` files and immediate `<name>/<name>.md` entrypoints are discovered as agents. Nested Markdown files remain bundle resources. Directory symlinks resolve to their canonical source, and duplicate names produce a deterministic diagnostic. A flat definition is a single Markdown file without an agent-owned resource directory. A bundle's skills stay private to its child: the parent catalogue exposes the agent description and effective tools/scope, not those skills. Malformed, unreadable, or escaping-link skill resources produce a content-free discovery warning; parser details and skill text are not included in the parent prompt. The child stages ordinary bundle files with write bits removed and source execute bits retained so relative references and scripts continue to work. Links resolving within the bundle are copied as ordinary files; links escaping it are refused. `.git` entries and internal links resolving into `.git` metadata are omitted. Staging is limited to 2,048 filesystem entries and 16 MiB of file content per bundle; a bundle above either limit is refused. File modes help prevent accidental edits but do not isolate same-user processes.
+Only top-level `*.md` files and `<name>/<name>.md` entrypoints count as agents. Other Markdown in
+a bundle is just a bundle file. A bundle's skills are private to its child: the parent sees the
+agent's description, tools and scope, but not its skills.
 
-`/agents` shows definitions, effective settings, invalid files, ignored trust levels, collisions, overrides, and which definitions this project can use. Discovery walks from the working directory to the filesystem root, nearest first, checking `.pi/agents` before `.agents/agents` at each level. Project definitions require an explicit directory trust decision; a nearer definition wins and a project replacement of a user definition is reported. Definitions reload when browsing or launching.
+Discovery details:
 
-Use `/agents trust /absolute/project/directory` to grant interactive, session-only trust to a discovered ancestor level. Project trust saved by Pi is also recognized. User-directory definitions are loaded after trusted project levels. The home source directory `~/.agents/agents` is excluded from project levels because shared configuration tooling can deploy it to the user directory.
+- Directory symlinks resolve to their real location.
+- Duplicate names produce a clear diagnostic.
+- A malformed or unreadable skill, or one whose link leaves the bundle, produces a warning without
+  its content. Parser errors and skill text never reach the parent's prompt.
 
-`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. The optional `pi-resources` extension owns `/skills`, filters the parent's advertised skills and manual `/skill:name` invocation, and controls the parent session's public skill selection. Children independently resolve saved personal/project choices from Pi's native loaded skills. Private bundle skills remain child resources.
+When a child launches, its bundle is copied to a staging directory. Files lose write permission
+and keep execute permission, so relative paths and scripts still work. Links inside the bundle are
+copied as ordinary files; links that leave it are refused. `.git` entries, and links into `.git`,
+are left out. A bundle over 2,048 entries or 16 MiB is refused. Read-only files help prevent
+accidental edits but do not stop other processes running as you.
 
-## Browse project resources
+## Find and trust agents
 
-`/agents`, `/skills`, `/instructions` and `/packages` change session choices by default, using the same history state as the model-facing [`session_setup` tool](../reference/tools.md#session-setup). Enter/Space toggles a resource without saving settings or reloading Pi. Close the window to keep that session choice.
+`/agents` shows each agent, its settings, invalid files, ignored trust levels, name clashes,
+overrides and which agents this project can use.
 
-- Ctrl+S saves project defaults in trusted `.pi/settings.json`.
-- Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only resources.
+Discovery starts at the working directory and walks up to the filesystem root, nearest first. At
+each level it checks `.pi/agents` before `.agents/agents`. User-directory agents come after
+project levels. The nearer agent wins, and `/agents` reports when a project agent replaces a user
+one. Agents are re-read whenever you browse or launch.
 
-The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. Explicit project choices override personal choices per resource; Inherit follows the personal default. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
+Project agents need you to trust their directory. `/agents trust /absolute/project/directory`
+trusts a discovered level for this session only, after you confirm. Project trust saved by Pi also
+counts. `~/.agents/agents` is never treated as a project level, because tools that share
+configuration may deploy it into your user directory.
 
-For example, project A saves instruction 1 with Ctrl+S. Project B can turn that instruction on or off in personal defaults; new A sessions still use A's saved list. A session already started in B retains its own choices until explicitly changed.
+Choose which trusted agents this session can use:
 
-`/agents` and `/skills` open a framed, searchable browser in the prompt area above the footer.
-Closing it restores the input prompt and any text it contained. The left pane shows the catalogue and
-session selection; the right pane follows the highlighted resource with its description,
-source and instructions. Agent details include the resolved model, thinking level, tools,
-skills, conversation setting and launch scope. A capability error appears in that pane.
-Manual-only skills are labelled: selecting them does not advertise their descriptions to the
-model when their metadata disables model invocation.
+- `/agents enable NAME` and `/agents disable NAME`
+- `/agents none` and `/agents all`
+- `/agents inherit` to go back to saved defaults
 
-Type to search, or press `/` to focus the search input. Search uses BM25 over names,
-descriptions and declared agent metadata, with prefix expansion for incomplete words. It does
-not index instruction bodies or search the network. An empty query restores the catalogue.
+An agent that is switched off cannot be launched by guessing its name. `/skills` has the same
+actions for public skills. It comes from the optional `pi-resources` extension and controls which
+skills the parent advertises and which `/skill:name` commands work.
 
-| Input | Action |
+## Browse and select resources
+
+`/agents`, `/skills`, `/instructions` and `/packages` all open the same searchable browser above
+the footer. They change choices for this session, using the same session record as the model's
+[`session_setup` tool](../reference/tools.md#session-setup). Toggling never saves settings or
+reloads Pi. Close the browser to keep your choices. Closing restores your prompt, including any
+text you had typed.
+
+- **Ctrl+S** saves project defaults in the trusted project's `.pi/settings.json`.
+- **Ctrl+Shift+S** saves personal defaults for new sessions in any project, leaving out
+  project-only resources.
+
+`/agents`, `/skills` and `/instructions` each save only their own category. `/packages` saves the
+categories of every loaded extension, including individual choices, and keeps the defaults of
+extensions that are not loaded. An explicit project choice beats the personal one for that
+resource; Inherit follows the personal default. Resumed sessions keep their recorded choices.
+`inherit` resets only that category of this session to the saved defaults.
+
+For example: project A saves instruction 1 with Ctrl+S. In project B you can turn instruction 1 on
+or off in your personal defaults, but new sessions in A still use A's list. A session already
+running in B keeps its own choices until you change them.
+
+The left pane lists resources and session choices. The right pane shows the highlighted
+resource's description, source and instructions. For agents it also shows the model, thinking
+level, tools, skills, conversation setting and scope, plus any error. Skills marked manual-only are
+labelled: selecting one does not advertise it to the model.
+
+Type to search, or press `/` to focus the search box. Search ranks names, descriptions and agent
+metadata with BM25 and matches partial words. It does not search instruction text or the network.
+Clear the search to see everything.
+
+| Key | Action |
 |---|---|
-| Up / Down | Move through results; when details have focus, scroll that pane |
+| Up / Down | Move through results, or scroll the details pane when it has focus |
 | Enter | Toggle the highlighted resource for this session |
-| Space | Toggle while the list has focus; enter a space while searching |
-| Tab | Switch between the list and details |
-| Page Up / Page Down | Move through results or scroll details |
-| Escape / Ctrl+C | Close; successful saved changes remain |
+| Space | Toggle when the list has focus; types a space while searching |
+| Tab | Switch between list and details |
+| Page Up / Page Down | Page through results or details |
+| Escape / Ctrl+C | Close; saved changes stay saved |
 
-In Pi's alternate-screen TUI, clicking a row toggles it and the mouse wheel scrolls the pane
-under the pointer. Main-screen and RPC clients retain keyboard/native-dialog operation.
-Narrow terminals place details below the list. The browser follows the active Pi theme.
+In Pi's full-screen TUI you can click a row to toggle it and scroll the pane under the mouse.
+Main-screen and RPC clients use the keyboard or Pi's dialogs. Narrow terminals put details below
+the list. The browser uses the current Pi theme.
 
-Toggles apply only to this session. Failed changes keep the previous selection and display the
-reason in the browser. Saving defaults preserves unrelated settings and does not reload Pi.
-Closing during a save waits for its result. The parent must be idle; existing children keep their
-prepared resources. Saving project defaults requires project trust. Explicit `enable`, `disable`,
-`none`, `all`, `inherit` and `inspect NAME` commands remain available for scripted or RPC use.
+If a change fails, the previous selection stays and the browser shows why. Saving keeps unrelated
+settings and does not reload Pi. Closing while a save runs waits for it to finish. The parent must
+be idle, and running children keep their resources. Saving project defaults needs project trust.
+The `enable`, `disable`, `none`, `all`, `inherit` and `inspect NAME` commands still work for
+scripts and RPC.
 
-The layout follows established [fzf preview](https://github.com/junegunn/fzf/blob/master/ADVANCED.md)
-and [Bubble Tea list](https://github.com/charmbracelet/bubbletea/tree/main/examples) patterns,
-implemented with Pi's native custom UI, input, Markdown and mouse APIs.
+The layout follows [fzf's preview](https://github.com/junegunn/fzf/blob/master/ADVANCED.md) and
+[Bubble Tea's list](https://github.com/charmbracelet/bubbletea/tree/main/examples), built with
+Pi's own UI, input, Markdown and mouse APIs.
 
-New children resolve saved personal/project skill choices independently of the parent's temporary
-session selection, then add their bundle skills. The agent bundle is the child's specific layer.
-The parent may select no skills while its child still receives saved and bundle skills.
+## Choose a child's skills
 
-| Agent metadata | Child skills |
+A new child starts from the skills saved in personal and project settings, not the parent's
+session choices, then adds its bundle skills. So the parent can have no skills selected while its
+child still gets saved and bundle skills.
+
+| Agent `skills` | Child gets |
 | --- | --- |
-| Omitted, `skills: "*"` or `skills: ["*"]` | Saved personal/project selections plus every bundle skill |
-| `skills: [one, two]` | Only these names, resolved from the bundle or Pi's available native skills |
-| `skills: []` | None |
+| Omitted, `"*"` or `["*"]` | Saved personal and project skills plus every bundle skill |
+| `[one, two]` | Only these, from the bundle or Pi's loaded skills |
+| `[]` | None |
 
-Quote `"*"` in YAML and use it alone. Explicit names may select native skills that are not enabled
-in saved defaults. Missing names are omitted with a warning in `/agents` and the launch receipt.
-A bundle skill wins a same-name collision; other names use Pi's already-resolved native winner,
-without a second nearest-directory search. Pi reports native name collisions. Bundle skills need
-no parent registration. Standalone package skills are independently selectable by the invoking
-session; an agent can explicitly reference them. The launcher does not rescan excluded native
-skill roots. See [agent metadata](../reference/configuration.md#agent-definitions).
+Quote `"*"` in YAML and use it on its own. Named skills can include loaded skills that are off in
+your saved defaults. Missing names are skipped, with a warning in `/agents` and in the launch
+reply. If a bundle skill and a loaded skill share a name, the bundle wins; otherwise Pi's own
+choice stands, and Pi reports its own clashes. Package skills can be selected by any session, and
+an agent can name them. Skills Pi excluded stay excluded.
 
-Children inherit the parent's selected task tools, including native package tools
-such as `codex_search` and `background_process`. An explicit agent `tools` list narrows that set;
-`tools: []` selects none. Delegation messaging stays bound separately. Parent orchestration tools
-(`subagent`, its lifecycle tools and `session_setup`) are not inherited.
+## Child tools and login
 
-The launcher takes entrypoints from Pi's native tool source metadata and loads them through Pi's
-resource loader. Native tool filtering excludes unselected sibling tools from the same extension.
-No second package catalogue or extension opt-in field is needed. Inline SDK tools without a
-loadable source and native MCP connections cannot be transferred. Existing children keep their
-launch-time selection.
+Children get the parent's selected task tools, including package tools such as `codex_search` and
+`background_process`. An agent's `tools` list narrows that set, and `tools: []` gives none.
+Messaging tools are added separately. The parent's own control tools (`subagent`, its lifecycle
+tools and `session_setup`) are never passed on.
 
-Children use Pi's native authentication backing at the original agent directory, so search can
-use Codex OAuth even when the worker model belongs to another provider. Resource settings and
-transcripts stay isolated and in memory: starting a child never installs configured packages.
-Each child owns its jobs; `bash({command: "…", background: true})` returns a job ID for that child's
-`background_process` calls. Closing the child stops its remaining jobs.
+The launcher finds each tool's entrypoint from Pi's tool source data and loads it with Pi's
+resource loader. Other tools from the same extension stay off. Inline SDK tools with no loadable
+source, and MCP connections, cannot be passed on. Running children keep the tools they started
+with.
 
-### Use private skills and scripts
+Children log in through Pi's normal auth storage in your agent directory, so search can use your
+Codex login even when the child's model is from another provider. Their settings and transcripts
+are kept in memory, and starting a child never installs packages.
 
-The entrypoint body establishes the child's role. Selected skills supply descriptions and staged
-`SKILL.md` locations through Pi's native skill catalogue; their bodies stay out of the initial
-prompt. Give each skill a useful description so the child can choose it when relevant, rather than
-requiring every skill to load at startup. Manual-only skills are not advertised automatically;
-the child needs `read` or `bash` to use Pi's skill catalogue.
+Each child owns its jobs. `bash({command: "…", background: true})` returns a job ID for that
+child's `background_process` calls. Closing the child stops its jobs.
 
-For example, `reviewer.md` can select `skills: [review-check]` while the parent selects no skills.
-The child can read `review-check/SKILL.md`, then execute its `scripts/check.mjs` relative to that
-skill's advertised location. Scripts are ordinary files used through existing tools, not extra
-tools or automatically executed instructions.
+## Use private skills and scripts
 
-Direct supporting paths in the agent body, such as `scripts/check.mjs`, resolve against the staged
-directory disclosed in the child's `<agent_bundle path="…" />` block. Skill-relative paths resolve
-against their own `SKILL.md` directory. Both remain separate from the child's writable workspace;
-write outputs there. This also makes bundle scripts usable with `skills: []`.
+The agent's body sets its role. Its skills appear in the child's skill list with a description and
+the location of the staged `SKILL.md`; their text is not in the starting prompt. Write good
+descriptions so the child picks the right skill when it needs one. Manual-only skills are not
+listed. The child needs `read` or `bash` to use skills at all.
+
+For example, `reviewer.md` can set `skills: [review-check]` while the parent selects no skills.
+The child reads `review-check/SKILL.md` and then runs `scripts/check.mjs` relative to that skill.
+Scripts are ordinary files used with ordinary tools; nothing runs them automatically.
+
+Relative paths in the agent body, such as `scripts/check.mjs`, resolve against the staged bundle
+named in the child's `<agent_bundle path="…" />` line. Paths in a skill resolve against that
+skill's folder. Both are separate from the child's workspace, where it should write its output.
+Bundle scripts therefore work even with `skills: []`.
 
 ```mermaid
 flowchart LR
   P[Parent: task and selected tools] --> C[Child: saved guidance then agent body]
   D[Saved personal/project choices] --> C
-  B[Agent bundle] --> M[Child: selected skill descriptions and locations]
-  C --> R[Child chooses a relevant skill]
+  B[Agent bundle] --> M[Child: skill descriptions and locations]
+  C --> R[Child picks a relevant skill]
   M --> R
-  R --> S[Read skill body, references and scripts]
-  S --> W[Use existing tools; write workspace artifacts]
+  R --> S[Reads the skill, references and scripts]
+  S --> W[Uses its tools; writes to its workspace]
 ```
 
 ## Assign a task
 
-Give the parent the definition name, objective, relevant paths, acceptance criteria, and expected output. A child with `conversation: none` gets no parent transcript. Sharing conversation includes only user/assistant text; tool results, thinking, and extension messages are excluded.
+Tell the parent which agent to use, the objective, the relevant paths, how to judge success and
+what to return. A child with `conversation: none` sees none of the parent's conversation. When
+conversation is shared, only user and assistant text is included; tool results, thinking and
+extension messages are not.
 
-A model-facing launch call looks like this:
+The model's launch call looks like this:
 
 ```json
 {
@@ -164,29 +224,61 @@ A model-facing launch call looks like this:
 }
 ```
 
-Call `subagent` with that input after reviewing the catalogue. Before each parent run, the catalogue advertises only launchable definitions, with effective tools and scope. Launch rechecks those capabilities; if they changed, it refuses the attempt and returns the updated preview for review before retrying.
+Before each parent run, the agent list in the prompt shows only agents that can launch, with their
+tools and scope. Launch checks again. If anything changed, it refuses and returns the new preview
+so the parent can review it and retry.
 
-Use the optional `model` parameter to select an authenticated Pi model for that launch, for example `"model": "openai-codex/gpt-6-luna:low"`. The catalogue labels each agent's model selection as `selectable` or `fixed` and lists the available model IDs. A model pinned in the agent definition is fixed; a conflicting request returns an error before any process starts. Omit `model` to use that definition's default or inherit the parent model. User-defined `thinking` and model-suffix levels retain their documented precedence.
+To pick a model for one launch, pass `model`, for example
+`"model": "openai-codex/gpt-6-luna:low"`. The prompt marks each agent's model as `selectable` or
+`fixed` and lists available models. A model set in the agent file is fixed, and asking for a
+different one fails before anything starts. Leave `model` out to use the agent's default or the
+parent's model. Thinking levels from the agent file or a model suffix follow their usual order.
 
-The acknowledgement contains `agent_id`, `workspace`, `workspace_mode`, `tools`, `scope`, and `request_id`, plus `wait_id` when an active goal accepts a response wait. It means the RPC prompt was dispatched, not that the assignment is complete. Tool `details` also reports effective model, thinking, permission mode, and conversation settings.
+The launch reply contains `agent_id`, `workspace`, `workspace_mode`, `tools`, `skills`, `scope`
+and `request_id`. It adds `warnings` when skills were missing and `wait_id` when an active goal is
+waiting for the answer. It means the task was sent, not finished. The result's `details` also give
+the effective model, thinking level and conversation setting. See the
+[tool reference](../reference/tools.md#delegation-tools).
 
-If startup fails and cleanup also fails, the closed child remains available in `agent_list`; inspect it with `subagent_check`, retry cleanup with `subagent_close`, and use `/agents` to read the diagnostic.
+If startup fails and cleanup fails too, the child stays in `agent_list`. Inspect it with
+`subagent_check`, retry cleanup with `subagent_close`, and read the error in `/agents`.
 
-The selected definition body becomes child instructions. Task text is separate user-message data. Pi's static project files are carried into the child with their source paths and original project path; frontmatter is removed. Saved personal/project instruction choices are freshly rendered through the optional `pi-context` provider under `<instructions>`. The parent's temporary instruction selection and rendered instruction section are not copied. The agent body follows inherited static context and saved instructions as the child's specific behavior; its task remains a separate user message. These sections do not create new system/developer priority levels. The child disables its own Pi context-file discovery, so files in its agent directory, workspace, or ancestor directories do not add instructions implicitly. Goal state, running-agent snapshots, and counters are not inherited as static child instructions. Conversation text is shared only through the explicit `conversation` setting. Protected startup information binds the child identity, parent identity, and workspace. Effect tool selection is narrowed to the parent's active resources; communication tools are added independently. Resource bundles and private skills do not widen filesystem or network permissions. An empty effect-tool list can still leave `agent_message` and `agent_list` available.
+### What the child receives
+
+In order, the child's instructions contain:
+
+1. Pi's static project context files from the parent, with their source paths and original
+   project path, with front-matter removed.
+2. Instruction choices saved in personal and project settings, rendered fresh by `pi-context` in
+   an `<instructions>` section, if that extension is loaded.
+3. The agent's body.
+
+The task arrives separately, as a user message. These sections add no new priority levels. The
+parent's session-only instruction choices and its rendered instruction section are not copied, and
+neither are goal state, the running-agent list or counters. Conversation is shared only through
+the `conversation` setting.
+
+The child does not look for context files itself, so files in its agent directory, workspace or
+parent directories add nothing. Its startup data fixes its own ID, its parent's ID and its
+workspace. Its tools are limited to the parent's active tools, with messaging added separately.
+Bundles and private skills never widen file or network access. Even with no task tools, a child
+still has `agent_message` and `agent_list`.
 
 ## Choose where files go
 
-| Choice | Use it for | Availability and consequence |
+| Workspace | Use it for | What happens |
 | --- | --- | --- |
-| `scratch` — default | Preparing an artifact for parent review | The child's own directory is retained until collection |
-| `project` | Editing the shared project directly | Edits are immediately visible in the parent project |
+| `scratch` (default) | Preparing files for the parent to review | The child gets its own directory, kept until its files are collected |
+| `project` | Editing the project directly | Changes appear in the parent's project straight away |
 
-Both modes use ordinary host permissions. Scratch placement organizes artifacts; it is not a
-sandbox. Git worktree and project-copy modes are not implemented.
+Both run with your normal user permissions. Scratch is for keeping output tidy, not a sandbox. Git
+worktree and project-copy modes do not exist.
 
-## Exchange messages and read responses
+## Messages and answers
 
-Launch and close results append running state to the conversation; child presence does not rewrite the system prompt. Use `agent_list({})` for reachable identities and states. Use the returned ID, not the definition name, to address a running session:
+Launch and close results add the child's state to the conversation; they do not change the system
+prompt. `agent_list({})` shows reachable agents and their state. Address a running child by its ID,
+not its agent name:
 
 ```json
 {
@@ -196,19 +288,59 @@ Launch and close results append running state to the conversation; child presenc
 }
 ```
 
-`agent_message` acknowledges broker/RPC acceptance, not reading, acceptance of a revised task, or an answer. Set `kind: "progress"` for routine telemetry to the parent only, for example `agent_message({to: parentId, kind: "progress", message: "Validation is running"})`; it uses native quiet delivery and never starts an idle parent turn. Progress addressed to a child or sibling is refused; use `kind: "question"` or `"message"` for actionable coordination. Omitted `kind` defaults to `message`. `steer` queues text for the recipient's next safe boundary after current tool work; it does not interrupt a tool. `followUp` waits for the current run to finish. Questions and messages can start a new turn when the recipient is idle. Children can message the parent and live siblings but cannot spawn, cancel, or reach unrelated Pi sessions.
+Message kinds:
 
-Completed responses are retained and automatically delivered at the parent's successful turn boundary, or start a turn when it is idle. `subagent_check({id, after})` reads a bounded page after a sequence cursor. It returns at most four replies and 32 KiB of text, with the complete serialized tool response capped at 32 KiB; each reply contributes at most 8 KiB. For a longer reply, continue with its `replySequence` and `nextTextOffset` values. The offset is a UTF-8 byte offset. A check consumes a pending ordinary notification only after contiguous pages from byte offset zero cover the full retained history and any longer queued delivery copy; reading a later page first does not consume it. The history remains readable again. After close, JSON escaping may leave the archived copy shorter than the queued reply; reading that archive does not consume the longer notification, which remains for ordinary parent delivery. A failed or aborted parent run retains pending replies without automatically waking. With an accepted goal wait, use [goal waiting](goals.md#wait-for-a-child-response) for its correlated response. Accounting is independent of these delivery routes.
+- `progress`: routine updates to the parent only. They are delivered quietly and never wake an
+  idle parent. Progress sent to a child or sibling is refused.
+- `question` or `message` (the default): things that need action. They can start a turn when the
+  recipient is idle.
 
-Automatic parent delivery is bounded to 64 replies or a combined 4 MiB budget for encoded result envelopes and gap notices, including XML escaping, with at most 64 per-agent gap summaries. A single envelope larger than the budget is omitted and reported in a gap notice. If the reply queue reaches either limit, older notifications are dropped from automatic delivery and an explicit gap notice names the agent and sequence range. If more than 64 agents have gaps, the parent receives a bounded aggregate warning. Use `subagent_check` to inspect retained history for active or recently closed children; check `retainedFrom` and `lostReplies` before treating the assignment as complete. Closing or cancelling a child stops the process, collects its artifacts, and returns a compact state summary rather than the transcript. Its reply history remains available through `subagent_check` for up to 30 minutes, subject to a four-child and 8 MiB process-local cap; Pi session shutdown, session-tree changes, replacement, or history eviction removes it. `discard` affects collected artifacts only and does not erase reply history. A close or cancel response marks collected artifacts as discarded when the same call deletes them. Repeating close or cancel during that retention window is safe.
+Delivery modes:
 
-Agent files and bundle-private skills are rescanned when `/agents` browses or a child launches, so changing either does not require Pi's `/reload`. The model-facing catalogue is built at the start of each parent turn, so an agent added during a turn may not appear until the next turn. If an agent is new or its effective tools or scope changed, inspect the displayed preview and retry the launch. A selected-agent list may require `/agents enable NAME`; this changes the session lookup immediately without stopping children. Public skills are loaded by Pi: run `/reload` after adding a public skill or changing its configured path. Selecting an already discovered public skill does not reload Pi. Reloading replaces the extension runtime and closes active child agents. `/agents trust` lasts only for the current Pi session and is cleared on reload or session replacement; saved Pi project trust persists across reloads, so only directories trusted solely with `/agents trust` need to be trusted again.
+- `steer` (the default) delivers at the recipient's next safe point, after its current tool call.
+  It does not interrupt a tool.
+- `followUp` waits until the recipient's current run ends.
 
-A message or completed response is dialogue data, not new human authorization. The optional gate handles permission review before calls. See the [event reference](../reference/events.md) for routing and delivery guarantees.
+The receipt means the message was accepted for delivery. It does not mean it was read, that a
+changed task was accepted, or that there is an answer. Children can message the parent and live
+siblings. They cannot start, cancel or reach other Pi sessions.
 
-## Retain and integrate artifacts
+### Reading answers
 
-Inspect the child's result, review its files and evidence, and integrate accepted work into the project. Closing or cancelling a scratch child collects ordinary files before removing its temporary launch folder. Process exit, parent shutdown, and branch changes use the same collection path.
+Finished answers are kept and delivered to the parent at the end of its next successful turn, or
+start a turn if the parent is idle. If a parent run fails or is aborted, answers wait for the next
+prompt instead of waking it. If a goal is waiting on the answer, see
+[goal waiting](goals.md#wait-for-a-child-response). Accounting does not depend on which route
+delivers an answer.
+
+`subagent_check({id, after})` reads one page of answers after a sequence number. A page has at
+most four answers, 8 KiB per answer and 32 KiB in total, including the whole tool response. For a
+longer answer, pass its `replySequence` and `nextTextOffset` (a UTF-8 byte offset) to read on.
+
+Reading with `subagent_check` clears the pending notification only once you have read every page
+from the start, covering the full answer and any longer queued copy. Reading a later page first
+does not clear it, and history stays readable afterwards. After close, JSON escaping can make the
+archived copy shorter than the queued answer. Reading the archive then leaves the longer
+notification for normal delivery.
+
+Automatic delivery to the parent holds up to 64 answers in just under 4 MiB (4 MiB less 128 KiB),
+counting escaped XML and gap notices, with up to 64 per-agent gap summaries. When it fills up, the
+oldest notifications are dropped and a gap notice names the agent and sequence range. An answer
+too large for the budget on its own is replaced by a gap notice. With gaps for more than 64 agents,
+the parent gets one combined warning. Before treating a task as done, check `retainedFrom` and
+`lostReplies` in `subagent_check`.
+
+Closing or cancelling a child stops it, collects its files and returns a short summary, not the
+transcript. Its answer history stays readable with `subagent_check` for up to 30 minutes, for at
+most four closed children and 8 MiB in this process. Session shutdown, tree changes, session
+replacement or eviction remove it sooner. `discard` deletes collected files only, never history.
+Closing or cancelling again during that window is safe.
+
+## Collected files
+
+Read the child's answer, review its files and evidence, and copy what you accept into the project.
+Closing or cancelling a scratch child collects its ordinary files before its temporary folder is
+removed. Process exit, parent shutdown and branch changes collect files the same way.
 
 `subagent_close({id})` and `subagent_cancel({id})` return:
 
@@ -231,24 +363,64 @@ Inspect the child's result, review its files and evidence, and integrate accepte
 }
 ```
 
-`scope` distinguishes a scratch collection from a project reference. `externalEffects: "untracked"` means writes outside scratch and shell/API effects are not inventoried; an empty `files` list never certifies their absence. Inspect project diffs, status including untracked files, and declared output paths before integration.
+- `scope` is `scratch-collection` for collected files or `project-reference` for project mode.
+- `externalEffects: "untracked"` means writes outside scratch, and shell or API side effects, are
+  not listed. An empty `files` list does not mean there were none. Check the project diff, untracked
+  files and any output paths you asked for.
+- `files` and `omitted` show at most eight paths each, each cut to 128 characters. The counts
+  cover everything. `moreFiles` and `moreOmitted` say how many paths are not shown, and
+  `truncatedPaths` how many shown paths were cut. Open the directory to see everything.
+- The result also has a `closedHistory` summary. Use `subagent_check` with the same ID to read
+  answers page by page.
 
-The file lists show at most eight paths each, with each path preview limited to 128 characters.
-Counts report the full result, `moreFiles` or `moreOmitted` indicate additional paths, and
-`truncatedPaths` counts listed paths whose preview was clipped. Use the returned artifact directory
-to inspect the complete collection. Close and cancel results include a `closedHistory` summary; use
-`subagent_check` with the same agent ID to read replies in bounded pages.
+Files are kept in the parent agent directory under `subagent-results/<session-id>/`. Paths are
+relative to that folder. Configuration, credentials, the child's agent directory and `.git` are not
+collected. Symlinks and files with several hard links are listed in `omitted` instead of copied.
+Collection stops at 5,000 files, 256 MiB or 20,000 directory entries.
 
-The store is under the parent agent directory's `subagent-results/<session-id>/`. Paths in `files` and `omitted` are relative to the retained directory. Configuration/credentials, the child's agent directory, and `.git` are excluded from collection; symlinks and multiply linked files are reported in `omitted` rather than copied. Collection is capped at 5,000 files, 256 MiB, and 20,000 directory entries. If collection fails, the partial copy is removed and the launcher leaves the original scratch path untouched for inspection, including after session shutdown. It never follows a replacement symlink. Child credentials and launch metadata are cleaned independently. Remove the retained workspace when it is no longer needed. The collector verifies the scratch workspace identity recorded before launch, so replacing its parent path cannot redirect the read. Collection runs after the owned child process group stops. Node's path-based filesystem APIs cannot pin directory handles for relative opens, so a separate host process that deliberately escapes that group and races collection could redirect reads or writes; artifact collection is not an isolation boundary against such a process.
+If collection fails, the partial copy is removed and the original scratch folder is left for you to
+inspect, even after shutdown. Collection never follows a replaced symlink. Child credentials and
+launch data are cleaned up separately. Delete the kept files when you no longer need them.
 
-After closing a project child, `directory` references the parent project and `owned` is false, `scope` is `project-reference`, and `files` is empty; inspect project changes directly. `discard: true` deletes an owned collected copy; it never deletes or rolls back direct project edits. Re-read needed retained files using the returned directory, because the original scratch path no longer exists after successful cleanup.
+Collection runs after the child's process group stops, and checks that the scratch folder is the
+one recorded at launch, so swapping its parent path cannot redirect the copy. Node's path-based
+file APIs cannot pin directories, though: a separate process running as you that leaves the group
+and races the copy could still redirect it. Collection is not a security boundary.
 
-Implementation and checks: [agent discovery](../../packages/pi-delegation/lib/subagent/agents.ts), [launcher](../../packages/pi-delegation/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-delegation/lib/subagent/artifacts.ts), [Pi 1.2.0 native integration](../../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts), and [live message delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
+For a project-mode child, `directory` points at the project, `owned` is false, `scope` is
+`project-reference` and `files` is empty; look at the project changes directly. `discard: true`
+deletes an owned collected copy and never touches project edits. Use the returned directory to
+re-read files, because the scratch folder is gone after cleanup.
 
-## Permission review in child sessions
+Source and tests: [agent discovery](../../packages/pi-delegation/lib/subagent/agents.ts),
+[launcher](../../packages/pi-delegation/lib/subagent/child-launch.ts),
+[collected files](../../packages/pi-delegation/lib/subagent/artifacts.ts),
+[Pi 1.2.0 integration](../../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts)
+and [live delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
 
-Children use the same native launcher and ordinary host permissions. When the parent loads
-`pi-permissions`, each new child gets the parent's current mode and rules, including anything
-allowed for the session, plus the parent's user messages. The classifier sees the child's task as
-the parent agent's words, not the user's. Approval prompts from a child appear in the parent's UI;
-a headless parent blocks them. See [permissions](../../packages/pi-permissions/README.md).
+## When changes take effect
+
+- **Agent files and bundle skills** are re-read when `/agents` opens or a child launches. No
+  `/reload` needed.
+- **The agent list in the prompt** is built at the start of each parent turn, so an agent added
+  mid-turn may appear only next turn. If an agent is new or its tools or scope changed, review the
+  preview and retry the launch.
+- **Agent selection.** If agents are filtered, you may need `/agents enable NAME`. This applies at
+  once and does not stop children.
+- **Public skills** are loaded by Pi. Run `/reload` after adding one or changing its path.
+  Selecting an already loaded skill needs no reload.
+- **`/reload`** replaces the extension runtime and closes running children.
+- **`/agents trust`** lasts for this Pi session and is cleared by reload or session replacement.
+  Trust saved by Pi survives reload.
+
+A message or answer from an agent is conversation, not your approval. Permission checks happen
+before calls, in the permission package. See [events](../reference/events.md) for routing and
+delivery details.
+
+## Permissions in children
+
+Children use the same launcher and your normal user permissions. If the parent loads
+`pi-permissions`, each new child gets the parent's current mode and rules, including anything you
+allowed for the session, plus your messages, keeping the newest if the launch data would pass 96 KiB. The classifier sees the child's task as the parent
+agent's words, not yours. Approval prompts from a child appear in the parent's UI. If the parent
+has no UI, those calls are blocked. See [permissions](../../packages/pi-permissions/README.md).

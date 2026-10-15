@@ -1,75 +1,95 @@
-# Configuration reference
+# Configuration
 
-Native settings select executable packages. Session choices select their loaded guidance and tools. Agent definitions can narrow inherited tools and skills; workspace placement is not confinement.
+Pi's settings decide which packages load. Session choices decide which of their resources and
+tools are used. Agent files can narrow the tools and skills a child gets. Where a child works does
+not limit what it can access.
 
-## Native loading and permissions
+## Package loading
 
 Pi reads package sources from personal `~/.pi/agent/settings.json` and trusted project
-`.pi/settings.json`. Temporary `-e SOURCE` packages apply to one invocation. Native package
-filters and CLI exclusions remain authoritative.
+`.pi/settings.json`. `-e SOURCE` adds a package for one run. Pi's package filters and CLI
+exclusions always apply.
 
-`pi-permissions` is optional. The `permissions` key in personal settings chooses the mode
-(`off`, `ask` or `auto`), allow and deny rules, and the classifier model; `/permissions` changes
-the mode for one session. See [the package README](../../packages/pi-permissions/README.md).
+## Permissions
+
+`pi-permissions` is optional. The `permissions` key in personal settings sets the mode (`off`,
+`ask` or `auto`), allow and deny rules, and the classifier model. `/permissions` changes the mode
+for one session. See [the package README](../../packages/pi-permissions/README.md).
 
 ## Agent and skill selection
 
-Agent packages declare `pi.agents`; instruction packages declare `pi.instructions`. Public skills
-come from Pi's loaded native skill pool. Native `--no-skills` and package exclusions cannot be
-reversed by session setup. Agent-private skills are prepared only for that agent.
+Agent packages declare `pi.agents` and instruction packages declare `pi.instructions`. Public
+skills come from the skills Pi loaded. Session setup cannot undo `--no-skills` or package
+exclusions. Agent-private skills are prepared only for that agent.
 
-Agent metadata supports `name`, `description`, `model`, `thinking`, `tools`, `skills` and
-`conversation`. Omitted tools inherit available parent tools; an explicit list narrows them.
-Omitted `skills`, `skills: "*"` or `skills: ["*"]` includes saved personal/project selections
-plus all bundle-private skills. The parent's temporary selection is ignored. An explicit list
-selects names from the bundle or Pi's available native skill pool; `skills: []` includes none.
-Missing names produce warnings and are omitted. Use `"*"` alone. Bundle skills win name
-collisions; otherwise keep Pi's native resolved winner.
-A user-pinned model cannot be overridden by a launch argument; otherwise the parent can choose
-an available model/thinking level per launch. See [delegation](../guides/delegation.md).
+Agent front-matter fields:
 
-Saved `subagents.agents`, `subagents.skills` and `localContext.instructions` are sparse maps from
-resource IDs to booleans. No entry means inherit; `true` and `false` are explicit choices.
-New sessions resolve project → personal → native defaults. Session selections are separate native
-history entries; resume restores the recorded selection rather than today's saved defaults.
+| Field | Meaning |
+| --- | --- |
+| `name` | Agent name; must match the file name |
+| `description` | When to use the agent |
+| `model` | A fixed model the parent cannot override. Without it, the parent can choose a model and thinking level per launch |
+| `thinking` | Default thinking level |
+| `tools` | Omitted: the parent's available tools. A list narrows them |
+| `skills` | Omitted, `"*"` or `["*"]`: saved personal and project skills plus all bundle skills. A list picks names from the bundle or Pi's loaded skills. `[]`: none |
+| `conversation` | Default and maximum share of the parent conversation: `none`, `all` or a number of turns. Omitted: a launch can ask for any amount and shares none by default |
 
-All four resource pickers use the same controls: session toggles apply now, saved project/global
-controls choose Inherit/On/Off, Ctrl+S snapshots eligible selections to project defaults, and
-Ctrl+Shift+S snapshots them to personal defaults. A saved project On enables that resource in the
-current session; other saved-scope changes leave session choices alone. Saving one resource does
-not modify siblings. Personal defaults affect future sessions, and project overrides still win.
+For `skills`, the parent's session choices are ignored. Missing names are skipped with a warning.
+Use `"*"` on its own. A bundle skill wins a name clash; otherwise Pi's choice stands. See
+[delegation](../guides/delegation.md#choose-a-childs-skills).
 
-`session_setup` inspects, applies or resets registered guidance and active tools. It never installs
-or reloads executable packages. See [tools](tools.md#session-setup).
+## Saved defaults
+
+`subagents.agents`, `subagents.skills` and `localContext.instructions` are maps from resource ID to
+`true` or `false`. A missing ID inherits; `true` and `false` are explicit. New sessions look at
+project settings, then personal settings, then Pi's default. Session choices are separate entries
+in the session history, so resume restores what the session recorded, not today's defaults.
+
+All four pickers work the same way:
+
+- Toggles change the session now.
+- Each resource's saved Project and Global controls can be Inherit, On or Off.
+- Ctrl+S copies eligible selections to project defaults; Ctrl+Shift+S copies them to personal
+  defaults.
+- Saving a project On also turns the resource on in this session. Other saved changes leave the
+  session alone.
+- Saving one resource does not change others. Personal defaults affect future sessions, and project
+  settings still win.
+
+`session_setup` inspects, applies or resets guidance and active tools. It never installs or reloads
+packages. See [tools](tools.md#session-setup).
 
 ## Local context settings
 
-`pi-context` keeps project context (`AGENTS.md`, `AGENTS.local.md`) separate from selected behavior
-snippets. Snippets come from resolved native package `pi.instructions` directories or explicit
-project-local `.agents/instructions` files. Personal/global snippet libraries belong in packages,
-not another directory catalogue. Frontmatter stays out of the model-facing body.
+`pi-context` keeps project context (`AGENTS.md`, `AGENTS.local.md`) apart from selected snippets.
+Snippets come from package `pi.instructions` directories or the project's `.agents/instructions`
+files. Personal snippet libraries should be packages, not another folder. Front-matter is removed
+from what the model sees.
 
-`--no-context-files` suppresses the overlay. Optional `localContext.autoGitIgnore` allows adding
-local context files to the trusted repository's exclude file; it is off by default. Children
-receive a snapshot of the parent's static context files and freshly rendered saved personal/project
-instruction choices, followed by the agent body. Temporary parent instruction selections do not
-carry over. Children do not rediscover unrelated context from their scratch directory. Saved
-instruction bodies refresh at child launch; static context files refresh on the next parent run.
-Already launched children retain their prepared snapshot.
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `--no-context-files` | Off | Turns off local files and selected snippets |
+| `localContext.autoGitIgnore` | `false` | Adds local context files to the trusted repository's personal exclude file |
+
+Children get a copy of the parent's static context files and fresh saved instruction choices,
+followed by the agent body. The parent's session-only choices are not passed on, and children do
+not pick up context from their scratch directory. Saved snippet text is read at child launch;
+static context files refresh on the next parent run. Running children keep their copy. See
+[local context](../guides/context.md).
 
 ## Goal evaluator settings
 
-| Setting | Default | Behavior |
+| Setting | Default | Effect |
 | --- | --- | --- |
-| `goal.evaluator.model` / `--goal-evaluator-model` | Required when goal evaluation is used | Selects an authenticated provider/model for separate goal assessment. |
-| `goal.evaluator.timeoutSec` / `--goal-evaluator-timeout` | `30` seconds | Positive evaluator request timeout, up to 2,147,483.647 seconds. Failure stops automatic continuation. |
+| `goal.evaluator.model` / `--goal-evaluator-model` | None; required to use goals | Logged-in provider/model that assesses the goal |
+| `goal.evaluator.timeoutSec` / `--goal-evaluator-timeout` | `30` seconds | Request timeout, up to 2,147,483.647 seconds. A timeout stops automatic work |
 
-The evaluator receives the objective, fixed criteria, initial context, and an accumulating history of
-worker messages and tool results. Edit or resume starts a new scoped history. See [goal evaluation](goals.md#evaluator-model-and-history).
+The command-line flag wins over the setting. The evaluator gets the objective, criteria, original
+request and a growing history of the worker's messages and tool results. Editing or resuming starts
+a new history. See [goal evaluation](goals.md#evaluator-model-and-history).
 
 ## SDK embedding
 
-Use the native resource loader, settings and ModelRuntime. Select extension packages explicitly;
-library imports do not activate them. Context overlay suppression uses Pi's CLI argument because
-that flag is not exposed to extension hooks in this SDK. A host that supplies `noContextFiles`
-should also supply `--no-context-files` when it wants the overlay disabled.
+Use Pi's resource loader, settings and ModelRuntime. Load extension packages explicitly; importing
+a library does not load them. To turn off `pi-context`'s local files, pass `--no-context-files` in
+the host arguments too, because extensions cannot see the SDK's `noContextFiles` option.

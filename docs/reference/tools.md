@@ -1,25 +1,26 @@
 # Tools and commands
 
-These are model-facing tools registered by the extensions. JSON examples are tool inputs, not shell commands. Tools require their owning extension in the current Pi process; an optional permission gate can additionally admit or refuse them.
+These are the tools the extensions give the model. JSON examples are tool inputs, not shell
+commands. A tool only exists when its extension is loaded in the current Pi process. If the
+permission package is loaded, it can also allow or block each call.
 
 ## Session setup
 
-`session_setup` lets the parent choose registered resources for a task without writing project or
-user settings. `pi-resources`, `pi-context` and `pi-delegation` each explicitly
-install the same shared service. Available selections depend on the loaded contributors:
-`pi-resources` supplies skills, `pi-context` instructions, and `pi-delegation` agents.
-Package groups derive from the available members, including in context-only or delegation-only
-sessions. Loading one extension does not activate another.
-It searches trusted metadata using the same BM25 search as the resource picker. Skill bodies and
-agent-owned skills/scripts are not returned by this search.
-Manual-only skills are labelled; selecting one does not add its description to the native model
-skill list or make its body load eagerly.
+`session_setup` lets the parent choose resources for a task without writing settings. Which
+resources it offers depends on what is loaded: `pi-resources` adds skills, `pi-context` adds
+instructions and `pi-delegation` adds agents. Each of them installs the same shared service, and
+loading one does not load the others. Package groups are built from whatever is available, so they
+work in a session with only context or only delegation.
+
+Search uses the same BM25 ranking as the pickers, over names and metadata. It never returns skill
+bodies or an agent's private skills and scripts. Manual-only skills are labelled; selecting one
+does not list it for the model or load its body.
 
 ```json
 {"op":"list","query":"evidence","kinds":["packages"],"limit":10}
 ```
 
-Use exact returned package names, skill/agent names, instruction IDs and registered tool names:
+Use the exact package names, skill and agent names, instruction IDs and tool names it returns:
 
 ```json
 {"op":"apply","packages":["@finngi2/pi-evidence-research"],"tools":["read","write","bash","subagent","agent_list","subagent_check","subagent_close"]}
@@ -27,212 +28,279 @@ Use exact returned package names, skill/agent names, instruction IDs and registe
 
 | Input | Effect |
 |---|---|
-| `op: "list"` | Inspect the effective selection and searchable available metadata; optional `query`, `kinds`, `limit` (1–50) |
-| `op: "apply"` with `skills`, `agents`, `instructions` or `tools` | Replace each supplied category; omitted categories retain their selection; `[]` clears a category |
-| `packages` on `apply` | Replace skills, agents and instructions with the packages' public members plus explicit same-call choices; `packages: []` clears those categories; tools are independent |
-| `op: "reset"` | Remove the session override and use saved resource defaults again |
+| `op: "list"` | Show the current selection and what is available; optional `query`, `kinds` and `limit` (1–50) |
+| `op: "apply"` with `skills`, `agents`, `instructions` or `tools` | Replace each category you pass; others stay as they are; `[]` clears one |
+| `packages` with `apply` | Replace skills, agents and instructions with those packages' public resources plus any individual choices in the same call; `[]` clears all three; tools are separate |
+| `op: "reset"` | Drop the session's choices and use saved defaults. `kinds: ["agents"]` resets only that category |
 
-Package IDs are native `package.json` names, including any npm scope. Public skills excluded by
-native package filters or CLI loading flags cannot be recovered by selecting their package.
-Selecting `packages` changes only the public skill, agent and instruction sets, not executable
-package loading. New packages use native `pi install` or a new invocation with `-e`; ordinary
-extension changes require idle `/reload`. Configured and temporary `-e` packages
-are discoverable through Pi's native resolver, including custom-only packages without skills. Restarting with active children requires preserving their artifacts first. Unknown package IDs return
-these next actions without applying a partial selection. See [package decisions](../package-design.md).
+Package IDs are `package.json` names, including any npm scope. Skills that Pi's filters or CLI
+flags excluded cannot be brought back by selecting their package. Selecting packages changes only
+skills, agents and instructions, never which code is loaded. To add a package, use `pi install` or
+start a new run with `-e`; extension code changes need an idle `/reload`. Configured and `-e`
+packages are found through Pi's resolver, including ones with no skills. Before restarting with
+running children, keep their collected files. An unknown package ID returns these next steps and
+changes nothing.
 
-The complete plan is validated before changes. Unknown, untrusted or unavailable IDs reject the
-plan without a partial update. The tool remains available for inspecting or resetting the selection.
-Registered tool results mark whether they are active or need native activation checks. Pi's CLI
-filters can refuse activation; a refusal leaves the previous plan intact. Tools change through
-Pi's native active-tool API and reach the next provider request in the same run. Instruction and skill prompt sections
-change at the next run boundary, not midway through an existing model run; the receipt states this.
-New child launches use the effective selected agents and public skills. Already-launched children
-keep their prepared resources and user model pins still apply. Until the next parent run, new
-children inherit that run's existing static instruction snapshot, not newly selected snippets.
-Trusted agent definitions and their private bundle resources retain their normal discovery behavior:
-source edits can affect future launches, while already-staged children retain their own copy.
-Setup selects registered identities; it does not freeze authored bundles. The apply receipt includes
-selected agents' current model pins and capability previews.
+### Validation and timing
 
-The override is stored as a native custom session entry, outside model messages. Resume restores
-the current history branch's override; a new session uses saved defaults. Reset does not stop
-children or delete artifacts. All four resource pickers change session choices only; Ctrl+S saves
-project defaults and Ctrl+Shift+S saves personal defaults for new sessions across projects.
-Project defaults take precedence, and recorded choices remain unchanged in resumed sessions.
-A history branch without a selection entry records available defaults when first loaded; it cannot reconstruct older, unrecorded choices.
-`reset` with `kinds: ["agents"]` resets only that category; other categories and active tools stay selected.
+- The whole request is checked first. An unknown, untrusted or unavailable ID rejects all of it.
+  The tool stays available for listing and resetting.
+- Tool results show whether each tool is active. Pi's CLI filters can refuse to activate a tool,
+  which leaves the previous choice in place.
+- Tool changes go through Pi's active-tool API and apply to the next provider request in the same
+  run.
+- Instruction and skill sections change at the next run, never part-way through one. The reply
+  says so.
+- New children use the selected agents and public skills. Running children keep what they have,
+  and fixed agent models still apply. Until the next parent run, new children get that run's
+  existing instruction snapshot, not newly selected snippets.
+- Agent files and their bundles are still discovered normally, so edits affect future launches.
+  Running children keep their staged copy. The apply reply includes selected agents' fixed models
+  and capability previews.
 
-`/packages` provides a human-controlled session selection in the existing searchable resource
-browser. Enter/Space toggles a package's available public skills, agents and instructions while
-preserving unrelated individual selections. A partial marker means some, but not all, available
-members are selected. In contrast, `session_setup` with `packages` replaces those categories.
-Ctrl+S in `/packages` explicitly saves resource sets from the loaded providers as project defaults in
-trusted `.pi/settings.json`, including individual choices; native package declarations, tools and
-permission settings stay unchanged. Ctrl+Shift+S saves personal defaults, excluding project-only resources. Individual pickers save only their category.
+The choice is saved as a custom session entry, outside the model's messages. Resume restores the
+current branch's choice; a new session uses saved defaults. Reset does not stop children or delete
+files. A branch with no saved choice records the available defaults when first loaded; it cannot
+recover earlier, unrecorded choices.
 
-For example, open `/packages`, search `evidence` and toggle `@finngi2/pi-evidence-research`.
-The next parent run receives the evidence-attribution instruction body, the `check-evidence`
-skill description and location, and the `evidence-verifier` agent description and capabilities.
-The model loads a skill body when it chooses to use it. A launched verifier receives its own agent
-body and private `verify-claims` skill without advertising that private skill to the parent.
-Close the picker to keep this session choice, or press Ctrl+S first to reuse it in new project
-sessions. Neither action loads extension code or changes MCP connections.
+`/packages` offers the same choices in the picker, but toggling a package there keeps your other
+individual choices. See [the `/packages` picker](../package-design.md#the-packages-picker) and
+[saved defaults](configuration.md#saved-defaults).
 
-Setup selects existing resources; it installs no extension, hook or MCP server and changes no
-permission policy. A tool must be registered and available in the current Pi session. Native
-deferred/codemode tools can remain callable while hidden from the active list, so this controls
-presentation, not security. An optional permission gate still checks calls.
-Custom policies can allow the registered `session_setup` tool explicitly; an unmatched call uses
-their normal review path.
+For example, open `/packages`, search for `evidence` and toggle `@finngi2/pi-evidence-research`.
+The next parent run gets the evidence-attribution instruction text, the `check-evidence` skill's
+description and location, and the `evidence-verifier` agent's description and capabilities. The
+model reads the skill when it wants to. A launched verifier gets its own agent body and its private
+`verify-claims` skill, which the parent never sees. Close the picker to keep the choice for this
+session, or press Ctrl+S first to reuse it in new project sessions. Neither loads code or changes
+MCP connections.
+
+Setup never installs extensions, hooks or MCP servers, and never changes permission rules. A tool
+must already be registered in the session. Pi's deferred and codemode tools can stay callable while
+hidden from the active list, so this controls what the model sees, not what it can do. The
+permission package, if loaded, still checks every call. A permission rule can allow
+`session_setup` by name; otherwise it goes through the normal check.
 
 ```mermaid
 flowchart LR
-  Saved[Saved defaults] --> Effective[Effective session selection]
-  Plan[Validated session_setup plan] --> History[Current branch session entry]
+  Saved[Saved defaults] --> Effective[Session selection]
+  Plan[Validated session_setup request] --> History[Session entry on this branch]
   History --> Effective
-  Effective --> Lookup[Agent lookup and child public skills]
-  Effective --> Next[Next run prompt sections]
-  Tools[Registered tool choices] --> Native[Native active-tool API]
+  Effective --> Lookup[Agent lookup and child skills]
+  Effective --> Next[Prompt sections at next run]
+  Tools[Tool choices] --> Native[Pi active-tool API]
   Native --> Call[Tool call]
-  Call --> Gate[Existing permission checks]
+  Call --> Gate[Permission checks]
 ```
 
 ## Delegation tools
 
-| Tool | Caller | Parameters | Result |
+| Tool | Caller | Parameters | Returns |
 | --- | --- | --- | --- |
-| `subagent` | Parent | `agent: string`, `task: string`; optional `model: string`, `conversation: string`, `workspace: "scratch" \| "project"` | Dispatch acknowledgement and effective resources |
-| `agent_list` | Parent or child | `{}` | Reachable main/child identities, definition names, states |
-| `agent_message` | Parent or child | `to: string`, `message: string`; optional `kind: "progress" \| "question" \| "message"`, `mode: "steer" \| "followUp"` | Broker/RPC acceptance receipt; not the recipient's answer |
-| `subagent_check` | Parent | `id: string`; optional `after`, `limit` (1–4), `replySequence`, `textOffset` | State and one bounded page of retained replies; works for active and recently closed agents |
-| `subagent_cancel` | Parent | `id: string`; optional `discard: boolean` | Stops process, collects files, returns a compact state/artifact summary |
-| `subagent_close` | Parent | `id: string`; optional `discard: boolean` | Stops process, collects files, returns a compact state/artifact summary |
+| `subagent` | Parent | `agent: string`, `task: string`; optional `model: string`, `conversation: string`, `workspace: "scratch" \| "project"` | Launch receipt with effective resources |
+| `agent_list` | Parent or child | `{}` | Reachable agents with IDs, names and states |
+| `agent_message` | Parent or child | `to: string`, `message: string`; optional `kind: "progress" \| "question" \| "message"`, `mode: "steer" \| "followUp"` | Delivery receipt, not an answer |
+| `subagent_check` | Parent | `id: string`; optional `after`, `limit` (1–4), `replySequence`, `textOffset` | State and one page of answers; works for running and recently closed agents |
+| `subagent_cancel` | Parent | `id: string`; optional `discard: boolean` | Stops the child, collects files, returns a short summary |
+| `subagent_close` | Parent | `id: string`; optional `discard: boolean` | Stops the child, collects files, returns a short summary |
 
-`workspace` defaults to `scratch`; `project` uses the shared project directory. `conversation` accepts `"none"`, `"all"`, or a positive integer string, subject to the definition ceiling. Routine `kind: "progress"` can target only the parent and never starts an idle parent turn. `question` and default `message` are actionable and can wake recipients. A receipt does not prove reading or revised-task acceptance.
+`workspace` defaults to `scratch`; `project` works in the parent's project. `conversation` takes
+`"none"`, `"all"` or a whole number of turns as a string, up to the agent's own limit.
+`progress` messages go only to the parent and never wake it. `question` and the default `message`
+can wake the recipient. A receipt does not mean the message was read or a changed task accepted.
 
-Launch text uses `agent_id`, `name`, `status: "started"`, `workspace`, `workspace_mode`, `tools`, `scope`, and `request_id`. An accepted goal wait adds `wait_id`; launch details include `id`, `requestId`, `waitId`, `effective`, and `goalWait`. A message receipt uses `accepted`, `message_id`, `to`, and either `mode`, `kind`, and `trigger_turn` for the parent or `request_id` for a child, with `wait_id` if accepted by a goal. Main-message receipts do not wait for an answer.
+### Launch receipt
 
-Child replies are numbered and correlated with `requestIds`. `after` is a reply-sequence cursor, not a byte cursor. A check returns up to four replies and 32 KiB of reply text, with the complete serialized tool response capped at 32 KiB; each reply is limited to 8 KiB per page. If a reply continues, use its `sequence` as `replySequence` and its `nextTextOffset` as `textOffset` to read the next UTF-8 byte range. `nextAfter` advances only through complete replies returned by that page. Checks consume pending ordinary notifications only after contiguous pages from byte offset zero cover the full retained text and any longer queued delivery copy; retained history remains readable again. After close, JSON escaping can make the archive shorter than a queued reply, so paging that archive does not consume the larger pending notification. Results include state, usage, retention gaps and pagination fields. After close or cancel, up to four recent histories (8 MiB total, 30-minute lifetime) remain available in the same Pi session; shutdown, session-tree changes, session replacement, or eviction removes them. Automatic parent delivery is capped at 64 replies or a combined 4 MiB budget for XML-escaped result envelopes and gap notices; overflow drops the oldest pending notifications, emits a delivery-gap notice, and leaves retained child history available while it remains within the limits. A single envelope larger than the delivery budget is omitted and reported as a gap. Reply-panel usage is the total known when that message is delivered; later session-stat reconciliation appears in the current `subagent_check` snapshot and `/costs`. Failure, acknowledgement, and empty settlement do not become synthetic successful replies. Exact RPC state fields are in [RPC dialogue](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
+The text result is JSON with:
 
-Artifact descriptors contain `id`, `directory`, up to eight relative `files` and `omitted` path previews (128 characters each), full `fileCount`/`omittedCount` values, and `owned`. `moreFiles` and `moreOmitted` show how many paths were omitted; `truncatedPaths` counts previews clipped by length. `discard` deletes only an owned collected copy. Direct project references have `owned: false`. See [artifact collection](../guides/delegation.md#retain-and-integrate-artifacts).
+| Field | Meaning |
+| --- | --- |
+| `agent_id` | The running child's ID |
+| `name` | Agent name |
+| `status` | `"started"` |
+| `workspace` | The child's working directory |
+| `workspace_mode` | `"scratch"` or `"project"` |
+| `tools` | The child's tools |
+| `skills` | The child's skill names |
+| `warnings` | Only when there are warnings, such as skills that were not found |
+| `scope` | Short capability summary |
+| `request_id` | ID of the first request |
+| `wait_id` | Only when an active goal accepted a wait for the answer |
+
+`details` holds `id`, `requestId`, `waitId`, `warnings` (when present), `effective` (tools, model,
+thinking and conversation) and `goalWait` (`"accepted"`, `"handled"` or `"not-registered"`).
+
+### Message receipt
+
+Has `accepted`, `message_id` and `to`. For a message to the parent it adds `mode`, `kind` and
+`trigger_turn`; for a message to a child it adds `request_id`, and `wait_id` if a goal accepted a
+wait. Receipts for the main agent's messages do not wait for an answer.
+
+### Reading answers
+
+Answers are numbered and carry their `requestIds`. `after` is an answer number, not a byte offset.
+A page has at most four answers, 8 KiB per answer and 32 KiB in total, including the whole tool
+response. If an answer continues, pass its `sequence` as `replySequence` and its `nextTextOffset`
+as `textOffset` to read the next UTF-8 byte range. `nextAfter` only moves past answers the page
+returned in full. Results include state, usage, retention gaps and paging fields.
+
+Delivery, clearing of pending notifications and retention after close are described in
+[reading answers](../guides/delegation.md#reading-answers). In short: up to four closed children's
+histories (8 MiB total) stay readable for 30 minutes in the same session, and automatic delivery
+holds up to 64 answers in just under 4 MiB, reporting gaps when it drops older ones.
+
+Usage in the answer panel is what was known when the answer arrived. Later session-stats updates
+appear in the next `subagent_check` and in `/costs`. Failures, acknowledgements and empty turns
+never become fake answers. Exact RPC state fields are in
+[RPC dialogue](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
+
+Close and cancel results describe collected files with `id`, `directory`, up to eight `files` and
+`omitted` paths (128 characters each), the full `fileCount` and `omittedCount`, `owned`,
+`moreFiles`, `moreOmitted` and `truncatedPaths`. `discard` deletes only an owned collected copy.
+Project-mode results have `owned: false`. See
+[collected files](../guides/delegation.md#collected-files).
 
 ### Dialogue limits
 
-| Quantity | Limit |
+| What | Limit |
 | --- | --- |
-| Message text | 64 KiB of UTF-8 bytes |
-| Child instructions | 256 KiB of UTF-8 bytes; NUL refused |
-| One retained reply | 2 MiB |
-| Retained replies | 128 replies and 32 MiB |
-| Undelimited child RPC input buffer | 4 MiB; oversize cancels the child |
+| Message text | 64 KiB (UTF-8) |
+| Child instructions | 256 KiB (UTF-8); NUL characters refused |
+| One kept answer | 2 MiB |
+| Kept answers per child | 128 answers and 32 MiB |
+| Child RPC line without a newline | 4 MiB; larger cancels the child |
 
-Sources: [tool registration](../../packages/pi-delegation/extensions/subagent.ts), [message validation](../../packages/pi-delegation/lib/subagent/messages.ts), [resource validation](../../packages/pi-delegation/lib/subagent/child-resources.ts), and [dialogue retention](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
+Source: [tool registration](../../packages/pi-delegation/extensions/subagent.ts),
+[message checks](../../packages/pi-delegation/lib/subagent/messages.ts),
+[resource checks](../../packages/pi-delegation/lib/subagent/child-resources.ts) and
+[answer retention](../../packages/pi-delegation/lib/subagent/rpc-dialogue.ts).
 
 ## Codemode
 
-Pi's native `codemode` evaluates JavaScript in QuickJS and composes callable tools. Nested tool
-calls use Pi's ordinary tool pipeline. Our packages do not replace this executor or implement
-another MCP transport. Load native built-ins through the normal Pi loader; use Pi's installed
-documentation for their current schema and API. Model calls made directly through native
-`models.*` are not individual tool calls reviewed by the optional permission gate.
+Pi's built-in `codemode` runs JavaScript in QuickJS and calls tools from it. Those nested calls go
+through Pi's normal tool pipeline. These packages do not replace it or add another MCP transport.
+Load Pi's built-ins with Pi's normal loader and check Pi's installed docs for their current API.
+Model calls made directly through `models.*` are not tool calls, so the permission package does not
+check them.
 
 ## Background process tool
 
-`background_process({action, id?, cursor?, maxBytes?})` operates on processes owned by its active manager. `action: "list"` does not need an ID; `"status"`, `"read"`, and `"cancel"` require one. The model tool cannot launch a process or write stdin. Trusted extension clients use the separate [background service](events.md#background-service).
+`background_process({action, id?, cursor?, maxBytes?})` works on jobs owned by its session.
+`action: "list"` needs no ID; `"status"`, `"read"` and `"cancel"` need one. The tool cannot start
+jobs or write to stdin. Other extensions use the [background service](events.md#background-service)
+for that.
 
-`cursor` is a nonnegative byte offset. `maxBytes` is a positive integer at most 1 MiB. Reads return a text preview, `nextCursor`, `retainedFrom`, and `gap`. Exact chunks in details carry stream, byte start/end, base64 data, and `encoding: "base64"`. A gap means earlier output was dropped from the bounded buffer.
+`cursor` is a byte offset of zero or more. `maxBytes` is a whole number up to 1 MiB. A read returns
+a text preview, `nextCursor`, `retainedFrom` and `gap`. `details` holds the exact chunks with
+stream, start and end byte, base64 data and `encoding: "base64"`. A gap means earlier output was
+dropped from the buffer.
 
-| `pi-background` default transport limit | Value |
+| Default limit | Value |
 | --- | --- |
-| Concurrent shell commands | 4 |
-| Concurrent subagents | 16 |
-| Retained jobs | 32 |
-| Output retained per job | 16 MiB |
-| Pending input bytes per job | 16 MiB |
+| Shell commands running at once | 4 |
+| Child agents running at once | 16 |
+| Finished jobs kept | 32 |
+| Output kept per job | 16 MiB |
+| Pending input per job | 16 MiB |
 | Pending writes per job | 128 |
-| Result payload | 4 MiB |
-| Kill grace / stream drain | 1 second each |
+| Result size | 4 MiB |
+| Kill grace and output drain | 1 second each |
 | Protocol write timeout | 30 seconds |
 
-The `/jobs` command lists, reads and cancels session jobs. `/background` hands off a foreground
-shell wait or yields a foreground goal wait without killing its job or discarding results.
-`bash` accepts `background: true` to return a managed job ID immediately. Tool calls use ordinary
-host permissions, with optional before-tool review when `pi-permissions` is loaded.
+`/jobs` lists, reads and cancels jobs. `/background` ends a foreground shell wait or goal wait
+without killing the job or losing its result. `bash` with `background: true` returns a job ID at
+once. Calls run with your normal user permissions, checked first if `pi-permissions` is loaded.
 
-An explicit cancel, configured timeout, session shutdown, or natural completion ends a job. Timeout values are positive and capped at 2,147,483,647 ms (2,147,483.647 seconds), Node.js's maximum single timer delay. Session shutdown and cancellation terminate the process group; natural leader exit drains output for up to the configured drain limit before stopping remaining descendants. Shell commands and subagents have separate capacity pools, so long-lived agents do not consume shell slots. The class constructor accepts trusted limit overrides. Generic shell stdin is closed; protocol clients may request a pipe. Process groups do not contain deliberate daemon/session escapes. See the [process guide](../guides/background-processes.md). Sources: [tool](../../packages/pi-background/extensions/background-process.ts), [process manager](../../packages/pi-runtime/src/processes/processes.ts), and [output buffer](../../packages/pi-runtime/src/processes/output-buffer.ts).
+A job ends when it is cancelled, times out, exits or the session shuts down. Timeouts must be
+positive and at most 2,147,483.647 seconds, the longest single timer Node.js allows. Shutdown and
+cancel stop the whole process group. When the main process exits, output is drained for up to the
+drain limit, then remaining child processes are stopped. Shell commands and child agents have
+separate limits, so long-running agents never use up shell slots. Extension code can pass other
+limits to the class constructor. Ordinary shell stdin is closed; protocol clients can ask for a
+pipe. Process groups do not catch processes that deliberately detach themselves. See the
+[jobs guide](../guides/background-processes.md).
+
+Source: [tool](../../packages/pi-background/extensions/background-process.ts),
+[process manager](../../packages/pi-runtime/src/processes/processes.ts) and
+[output buffer](../../packages/pi-runtime/src/processes/output-buffer.ts).
 
 ## Goal tools
 
-| Tool | Parameters | Behavior |
+| Tool | Parameters | What it does |
 | --- | --- | --- |
-| `create_goal` | `objective: string`; optional `criteria: string[]`; optional positive integer `budget`; optional `deadline: string` | Requests exact user confirmation or trusted preauthorization; deadline is a duration or timestamp; criteria default to the exact objective; cannot replace an unfinished goal |
-| `get_goal` | `{}` | Reads objective/state and returns `id`, `revision`, `branchToken`, `status`, and fixed `criteria` in details |
-| `wait_for_goal_event` | `id: string` | Waits for an acknowledged response offer in the current active authorized goal scope |
+| `create_goal` | `objective: string`; optional `criteria: string[]`, positive whole-number `budget`, `deadline: string` | Asks you to confirm the exact goal, or uses approval from embedding code. `deadline` is a duration or timestamp. Criteria default to the objective. Cannot replace an unfinished goal |
+| `get_goal` | `{}` | Reads the goal; `details` has `id`, `revision`, `branchToken`, `status` and `criteria` |
+| `wait_for_goal_event` | `id: string` | Waits for an answer offered to the current active goal |
 
-The worker can create an authorized goal, read its state, or wait for a producer-owned response.
-There is no worker status setter. `/goal start <objective>` starts a goal with that exact objective
-as its criterion; `/goal edit <objective>` replaces the criterion and clears earlier assessments.
-Starting, editing, and resuming queue the authorized objective as the next user message. Pause and
-resume are human controls.
+The working model can create a goal, read it, or wait for a child's answer. It cannot set the
+goal's status. Commands, evaluation, retries and budgets are described in the
+[goal guide](../guides/goals.md) and [goal reference](goals.md#assessment). Delegation returns
+`wait_id`; `pi-background` does not offer goal waits itself.
 
-A separate goal evaluator runs at a completed worker settlement with no outstanding owned wait.
-It returns `finished`, `incomplete`, or `blocked` and assesses every criterion. `finished` requires
-all criteria to be `met`. Three consecutive fresh evaluations of the same unresolved blocker stop
-automatic work; waits do not count. Evaluator errors disarm automatic continuation but leave manual
-messages available without goal instructions. See [goal assessment](goals.md#assessment-and-completion).
-
-A completed evaluator response that fails validation gets one corrective attempt with a bounded
-excerpt of the invalid response, under the original timeout. Provider, authentication, abort,
-timeout, or response-length failures do not retry; a second invalid response disarms continuation.
-
-An explicit budget covers parent-provider usage on main-model calls, checked before every provider dispatch, including tool loops. The current run retains its goal authority through completion or blocking, so a later tool-loop call is stopped locally and returned as an aborted continuation reason before provider dispatch. One already-dispatched request can finish after a pause or overshoot the limit. Missing or incomplete usage stops automatic continuation for an explicit budget. Omitted budget means unlimited and hides accumulated totals from model context; `/goal status` shows accounting. The shipped child producer returns `wait_id`; `pi-background` does not itself offer goal waits. See the [goal guide](../guides/goals.md) for workflow and [goal services](events.md#goal-services) for authorization, request, and wait contracts. Sources and checks: [goal extension](../../packages/pi-goal/extensions/goal.ts), [request admission](../../packages/pi-goal/lib/continuation.ts), [persistence](../../packages/pi-goal/lib/persistence.ts), [serialized-context fixture](../../packages/pi-goal/lib/serialized-context.test.ts), and [wait integration](../../packages/pi-goal/lib/waiter-integration.test.ts).
+Source and tests: [goal extension](../../packages/pi-goal/extensions/goal.ts),
+[request checks](../../packages/pi-goal/lib/continuation.ts),
+[persistence](../../packages/pi-goal/lib/persistence.ts),
+[serialized-context test](../../packages/pi-goal/lib/serialized-context.test.ts) and
+[wait tests](../../packages/pi-goal/lib/waiter-integration.test.ts).
 
 ## Search tool
 
-`codex_search` accepts:
+`codex_search` takes:
 
 | Parameter | Values |
 | --- | --- |
-| `queries` | 1–32 nonempty strings, each at most 2,000 characters |
-| `search_context_size` | `"low"`, `"medium"`, or `"high"`; default `"medium"` |
-| `freshness` | `"live"`, `"cached"`, or `"indexed"`; default `"live"` |
+| `queries` | 1–32 non-empty strings, each up to 2,000 characters |
+| `search_context_size` | `"low"`, `"medium"` or `"high"`; default `"medium"` |
+| `freshness` | `"live"`, `"cached"` or `"indexed"`; default `"live"` |
 
-It resolves OpenAI Codex OAuth through Pi's `modelRegistry.getProviderAuth("openai-codex")` and derives account identity from that token. Missing account claims fail with sign-in guidance. It does not use an ambient credential file or fork-only metadata API.
+It gets your OpenAI Codex login from Pi's `modelRegistry.getProviderAuth("openai-codex")` when it
+runs, and reads the account ID from that token. If the token has no account, it fails and tells you
+to sign in. It does not read credential files directly.
 
-The tool uses one fixed backend protocol. It resolves native authentication when executing the
-call, refuses redirects and validates backend origin directly. Optional before-tool permissions
-review happens through the normal hook, without a special search capability service.
+It talks to one fixed backend, refuses redirects and checks the backend origin. The permission
+package, if loaded, checks calls through Pi's normal hook.
 
-Output contains model, optional submitted reasoning effort, freshness, context size, query/failure counts, `successes`, `failures`, `partial`, and elapsed time. Each success has text, provider URL citations, search calls, and optional usage/response ID/truncation flag. Failures classify auth, rate-limit, transport, timeout, schema, or unknown errors. Cite URLs the provider actually returns; an empty citation list supplies no sources.
+The result gives the model, reasoning effort if sent, freshness, context size, query and failure
+counts, `successes`, `failures`, `partial` and elapsed time. Each success has text, the URLs the
+provider cited, search calls, and optional usage, response ID and truncation flag. Failures are
+classed as auth, rate-limit, transport, timeout, schema or unknown. Cite only URLs the provider
+returned; an empty citation list means no sources.
 
-| Search bound | Value |
+| Limit | Value |
 | --- | --- |
-| Concurrent queries | At most 5 |
-| Request and reader deadline | 60 seconds per request |
+| Queries at once | 5 |
+| Time per request | 60 seconds |
 | Model JSON | 1 MiB |
-| SSE data | 2 MiB per query |
-| Individual SSE frame | 1 Mi characters |
-| Returned answer text | 12,000 characters, with explicit truncation |
+| SSE data per query | 2 MiB |
+| One SSE frame | 1 Mi characters |
+| Answer text | 12,000 characters, marked when cut |
 
-Redirects are refused. The parser requires the terminal completion marker and validates optional primitive fields. Cancellation aborts transport and rejects stale updates/results. Source and tests: [tool and auth adapter](../../packages/pi-codex-search/extensions/search.ts), [protocol](../../packages/pi-codex-search/lib/search.ts), and [tests](../../packages/pi-codex-search/tests/search.test.ts).
+The parser requires the final completion marker and validates optional fields. Cancelling aborts
+the request and ignores late results. Source and tests:
+[tool and login](../../packages/pi-codex-search/extensions/search.ts),
+[protocol](../../packages/pi-codex-search/lib/search.ts) and
+[tests](../../packages/pi-codex-search/tests/search.test.ts).
 
 ## Commands
 
-| Command | Owner | Purpose |
+| Command | From | What it does |
 | --- | --- | --- |
-| `/agents` | `pi-delegation` | Browse definitions, effective settings, and diagnostics |
-| `/agents trust [directory]` | `pi-delegation` | Interactive session-only trust for a discovered ancestor |
-| `/skills` | `pi-resources` | Browse Pi's selected skill registry |
-| `/packages` | `pi-resources` | Toggle loaded package guidance for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults |
-| `/goal <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |
-| `/goal` or `/goal status` | `pi-goal` | Inspect goal state and accounting |
-| `/goal start <objective>` / `/goal edit <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |
-| `/goal clear` | `pi-goal` | Remove the goal and revoke its old waits and automatic continuation |
-| `/goal pause` / `/goal resume` | `pi-goal` | Pause or resume automatic continuation |
-| `/jobs [list]` | `pi-background` | List session background jobs |
-| `/jobs read ID [CURSOR]` / `/jobs cancel ID` | `pi-background` | Read output or cancel a session background job |
-| `/background` | `pi-background` | Yield `pi-background` foreground shell waits and goal waits while preserving their pending work |
-| `/costs` | Shared accounting installed by delegation/goals/permissions | Show combined total, parent/agent/classifier/evaluator breakdowns and missing-usage limitations |
-| `/mcp` | Pi native MCP | Manage native servers, connections and authentication |
+| `/agents` | `pi-delegation` | Browse and select agents, with settings and diagnostics |
+| `/agents trust [directory]` | `pi-delegation` | Trust a discovered project agent folder for this session |
+| `/skills` | `pi-resources` | Browse and select skills |
+| `/packages` | `pi-resources` | Turn package guidance on or off; Ctrl+S saves project defaults, Ctrl+Shift+S personal defaults |
+| `/instructions` | `pi-context` | Browse and select instruction snippets |
+| `/permissions [off\|ask\|auto]` | `pi-permissions` | Show rules, or switch mode for this session |
+| `/goal <objective>` | `pi-goal` | Start or replace the goal and send its objective |
+| `/goal` or `/goal status` | `pi-goal` | Show the goal and its usage |
+| `/goal start <objective>` / `/goal edit <objective>` | `pi-goal` | Start or replace the goal and send its objective |
+| `/goal clear` | `pi-goal` | Drop the goal, its waits and automatic work |
+| `/goal pause` / `/goal resume` | `pi-goal` | Pause or resume automatic work |
+| `/jobs [list]` | `pi-background` | List jobs |
+| `/jobs read ID [CURSOR]` / `/jobs cancel ID` | `pi-background` | Read a job's output or cancel it |
+| `/background` | `pi-background` | End foreground shell and goal waits, keeping their work |
+| `/costs` | Shared accounting, installed by delegation, goals or permissions | Show total usage with parent, agent, classifier and evaluator breakdowns and anything missing |
+| `/mcp` | Pi | Manage MCP servers, connections and logins |
 
-The `/goal` shorthand treats `start`, `edit`, `pause`, `resume`, `clear`, and `status` as controls when they are the first word. Put an objective beginning with one of those words after explicit `/goal start`.
+After `/goal`, the words `start`, `edit`, `pause`, `resume`, `clear` and `status` are commands. If
+your objective starts with one of them, use `/goal start`.

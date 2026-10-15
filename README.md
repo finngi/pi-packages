@@ -1,20 +1,29 @@
 # Pi packages
 
-Experimental development packages. They are not released or ready to use as a supported harness.
-Passing isolated checks establishes only the behaviour covered by those checks.
-See [the development layout and package loading guide](docs/guides/development-packages.md).
+Extensions for [Pi](https://github.com/earendil-works/pi). Each feature is its own package, so you
+load only what a session needs:
 
-Extensions for [Pi](https://github.com/earendil-works/pi), with separate packages for delegation, background processes, permission decisions, goals, local instructions, resource selection, and Codex search. Select the features a session needs; shared libraries provide contracts and common implementations without activating extensions.
+- **Delegation**: run child Pi sessions, message them and keep their results.
+- **Background jobs**: run shell commands in the background, read their output, cancel them.
+- **Permissions**: check tool calls by rule, by asking you, or with a classifier model.
+- **Goals**: keep Pi working on one objective until an evaluator says it is done.
+- **Context**: add personal `AGENTS.local.md` files and selected instruction snippets.
+- **Resources**: choose which skills, agents and instructions a session uses.
+- **Codex search**: web search using your Pi Codex login.
 
-A parent Pi session can delegate to child Pi processes, exchange messages, and retain their results. Children normally work in scratch directories, where they can prepare files for the parent to review and integrate. A child can also work in the project directory, where changes are immediately shared; the [workspace table](docs/architecture.md#workspaces-and-private-configuration) lists the configuration each mode supports. Tools use ordinary host permissions. An optional allow/deny/classifier gate can review calls before execution.
+Shared libraries hold common code. Importing one never turns on an extension.
 
-The development baseline is **Node 24 and Pi 1.2.0**. Use the Git checkout or build local package tarballs; see [installation and distribution](docs/guides/distribution.md) for the available paths.
+These packages are experimental. They are not released, and passing tests only shows what those
+tests cover.
 
-- [Get started](docs/getting-started.md): build the checkout and launch a session.
-- [Documentation](docs/index.md): task guides, architecture, and technical reference.
-- [Package reference](docs/reference/packages.md): choose extensions and understand their dependencies.
-- [Independent packages](docs/decisions/native-thin-slices.md): independent capabilities, native resource discovery and the small opt-in permission gate.
-- [Contributing checks](docs/testing.md): test source, subprocess integration, and packed consumers.
+A parent session can hand work to child sessions. By default a child works in its own scratch
+directory and the parent reviews what it produces. A child can also work directly in the project
+([workspace modes](docs/guides/delegation.md#choose-where-files-go)). Either way, tools run with
+your normal user permissions. The optional permission package can check calls before they run.
+
+## Quick start
+
+You need Node 24. The repository pins Pi 1.2.0.
 
 ```sh
 npm ci --ignore-scripts
@@ -23,13 +32,24 @@ npm run check
 npm test
 ```
 
-For a complete integration check on macOS, also run `npm run test:e2e`. See [testing](docs/testing.md) for platform requirements and the limits of fixture evidence.
+On macOS, `npm run test:e2e` runs the full integration check. See [testing](docs/testing.md).
 
-Each capability has its own package under `packages/`; this monorepo shares development tools and checks. The packages have not been published to npm.
+- [Get started](docs/getting-started.md): build the checkout and launch a session.
+- [Documentation](docs/index.md): guides, architecture and reference.
+- [Packages](docs/reference/packages.md): what each package does and depends on.
+- [Install and distribute](docs/guides/distribution.md): load from Git or build local tarballs.
+- [Development layout](docs/guides/development-packages.md): how the repository is organised.
+- [Design decisions](docs/decisions/native-thin-slices.md): why the packages are split this way.
 
-Personal models, security rules, agent bundles and presentation preferences belong in a
-[local profile](docs/guides/local-profiles.md). The goal evaluator has no provider-specific default;
-configure an authenticated evaluator explicitly when using goals. The permission gate is optional; delegation and jobs work independently.
+The packages are not published to npm.
 
-The code is covered by [MIT](LICENSE), with retained upstream notices in the relevant packages.
-[Publication preparation](docs/publication.md) explains clean snapshots and private-history handling.
+## Personal settings
+
+Keep your own models, permission rules, agents and themes in a
+[local profile](docs/guides/local-profiles.md), not in these packages. Goals have no default
+evaluator model, so choose one when you use goals.
+
+## Licence
+
+[MIT](LICENSE). Packages derived from other projects keep their upstream notices.
+[Publication](docs/publication.md) explains how this repository was separated from private history.

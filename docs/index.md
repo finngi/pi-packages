@@ -1,38 +1,40 @@
 # Documentation
 
-Start with [getting started](getting-started.md) to build the packages and launch Pi from this checkout. For the process model and the meaning of workspace, extension, and library, read [architecture](architecture.md).
+New here? Start with [getting started](getting-started.md). For how the pieces fit together, read
+[architecture](architecture.md).
 
-## Task guides
+## Guides
 
-| Task | Guide |
+| I want to… | Guide |
 | --- | --- |
-| Develop an experimental package or choose a session setup | [Development packages](guides/development-packages.md) |
-| Review tool calls | [Permissions](../packages/pi-permissions/README.md) |
-| Define an agent, delegate work, and retain files | [Delegate work](guides/delegation.md) |
-| Run shell jobs and hand foreground work to the background | [Manage processes](guides/background-processes.md) |
-| Start a goal and manage evaluation and continuation | [Manage goals](guides/goals.md) |
-| Customize prompts, tools, and optional skills | [Configure prompt context](guides/prompts.md) |
-| Add personal and selected instructions | [Load local context](guides/context.md) |
-| Load from Git, pack tarballs, or embed with the SDK | [Install and distribute](guides/distribution.md) |
-| Keep personal models, policies and styling local | [Local profiles](guides/local-profiles.md) |
-| Check a contribution | [Testing](testing.md) |
+| Understand the repository layout and which packages to load | [Development packages](guides/development-packages.md) |
+| Check tool calls before they run | [Permissions](../packages/pi-permissions/README.md) |
+| Define an agent, hand it work and keep its files | [Delegate work](guides/delegation.md) |
+| Run shell commands in the background | [Run shell jobs](guides/background-processes.md) |
+| Keep Pi working until a goal is met | [Goals](guides/goals.md) |
+| Shape the system prompt, tools and skills | [Prompt context](guides/prompts.md) |
+| Add personal and selected instructions | [Local context](guides/context.md) |
+| Load from Git, build tarballs or embed with the SDK | [Install and distribute](guides/distribution.md) |
+| Keep personal models, rules and styling out of these packages | [Local profiles](guides/local-profiles.md) |
+| Test a change | [Testing](testing.md) |
 
 ## Concepts
 
-- [Architecture](architecture.md): where code executes, how processes communicate, and how optional approval works.
-- [Usage and cost accounting](accounting.md): recorded provider usage, result delivery, estimates, and unknown usage.
+- [Architecture](architecture.md): what runs where and how processes talk.
+- [Package design](package-design.md): how packages are found, selected and loaded.
+- [Usage and costs](accounting.md): how usage from children, classifiers and evaluators is counted.
+- [Semantic IDs](semantic-ids.md): the readable IDs used for agents, jobs and other objects.
 
 ## Reference
 
-| Reference | Contents |
+| Page | Contents |
 | --- | --- |
-| [Packages](reference/packages.md) | Responsibilities, dependencies, entrypoints, SDK pins, and licences |
-| [Tools and commands](reference/tools.md) | Parameters, returned values, and limits |
-| [Configuration](reference/configuration.md) | Package loading, permission policy, agent metadata, and context settings |
-| [Permission policy](../packages/pi-permissions/README.md) | Allow/deny rules and manual/automatic review |
-| [Goals](reference/goals.md) | Authorization, assessment roles, provider accounting, persisted state, and waits |
-| [Events and delivery](reference/events.md) | In-process services, RPC frames, session records, and response ownership |
-| [Semantic IDs](semantic-ids.md) | Format, vocabulary, collision behavior, and tokenizer evidence |
-| [Pi API reuse](reference/pi-api-reuse.md) | Supported SDK APIs and the ownership boundaries implemented by these extensions |
+| [Packages](reference/packages.md) | What each package does, dependencies, versions, licences |
+| [Tools and commands](reference/tools.md) | Parameters, results and limits |
+| [Configuration](reference/configuration.md) | Settings, agent metadata, context and goal options |
+| [Goals](reference/goals.md) | Goal approval, evaluation, budgets, saved state and waits |
+| [Events and delivery](reference/events.md) | In-process services, RPC frames and session records |
+| [Pi API reuse](reference/pi-api-reuse.md) | Which Pi APIs these packages build on |
 
-See [publication preparation](publication.md) for the clean source boundary and private-history separation.
+[Decisions](decisions/native-thin-slices.md) record why things are built the way they are.
+[Publication](publication.md) covers the public/private repository split.

@@ -1,57 +1,68 @@
 # pi-resources
 
-Select skills and package guidance for a Pi session without loading delegation, background jobs
-or permissions. This extension provides `/skills`, `/packages` and the shared `session_setup` tool.
-It reuses Pi's loaded resources and the existing searchable resource browser.
+Choose which skills and package guidance a Pi session uses, without loading delegation, background
+jobs or permissions. It adds `/skills`, `/packages` and the shared `session_setup` tool, using
+Pi's loaded resources and the shared resource browser.
 
-- `/skills` selects which available skill descriptions enter the parent prompt. Bodies stay lazy;
-  unselected `/skill:name` commands are refused.
-- `/packages` groups available public skills, agents and instructions by their native package.
-  Agent members require `pi-delegation`; instruction members require `pi-context`. Those packages
-  are optional and are never activated by opening this picker.
-- Changes apply to this session and survive resume. Ctrl+S saves project defaults;
-  Ctrl+Shift+S saves personal defaults for future sessions. Project defaults take precedence.
-  Saved Project and Global controls offer Inherit / On / Off. Project Inherit follows Global;
-  Global Inherit follows Pi's native default. Changing one row preserves the other rows.
-  Ctrl+S and Ctrl+Shift+S deliberately snapshot eligible session choices. Saves affect only
-  resource kinds supplied by loaded extensions; other defaults are preserved.
+- `/skills` chooses which skill descriptions the parent's prompt lists. Skill bodies still load on
+  demand, and `/skill:name` is refused for skills that are off.
+- `/packages` groups public skills, agents and instructions by package. Agents need
+  `pi-delegation` and instructions need `pi-context`. Both are optional, and opening the picker
+  never loads them.
 
-A grey Global control means the resource is available only from this project or temporary
-launch. Its reason appears in Overview and when the control is used. To make a temporary
-package available in future projects, register its source in personal settings with native Pi
-and include the resource in any package filters.
+## Saving choices
+
+Changes apply to this session and survive resume. Ctrl+S saves project defaults and Ctrl+Shift+S
+saves personal defaults for future sessions; project defaults win. Each resource's saved Project and
+Global controls offer Inherit, On or Off. Project Inherit follows Global, and Global Inherit follows
+Pi's default. Changing one row leaves the others alone. Ctrl+S and Ctrl+Shift+S copy all eligible
+session choices on purpose. Saves only touch resource kinds from loaded extensions; other defaults
+stay.
+
+A grey Global control means the resource only exists in this project or this `-e` run. The reason
+shows in Overview and when you use the control. To make a package available in every project,
+register its source in personal settings with Pi and include the resource in any package filters.
 Saving defaults does not register sources.
 
-This picker selects guidance. Native `pi install SOURCE` saves a personal package source;
-`pi install --local SOURCE` saves a project source. `pi -e SOURCE` tries a package for one
-invocation. These remain Pi operations: this extension does not install packages, unload code,
-change permissions or restart children. See [package decisions](../../docs/package-design.md).
+## Picking is not installing
 
-`pi-delegation` owns `/agents` and child execution. `pi-context` owns `/instructions` and prompt
-injection. All three use one shared `session_setup` service and the existing session record format.
-Without `pi-resources`, native Pi skill loading and delegation's skill inheritance work normally.
-Children receive their launcher's explicit skills rather than running a second resource picker.
+`pi install SOURCE` saves a personal package source, `pi install --local SOURCE` a project one,
+and `pi -e SOURCE` tries a package for one run. Those are Pi commands. This extension never
+installs packages, unloads code, changes permissions or restarts children. See
+[package design](../../docs/package-design.md).
 
-Source entrypoint: [resources.ts](extensions/resources.ts). Run
-`npm run test --workspace=pi-resources` and `npm run typecheck --workspace=pi-resources`.
-Stock-Pi checks cover independent providers, both loading orders and resumed selections.
+`pi-delegation` owns `/agents` and child sessions; `pi-context` owns `/instructions` and adds
+snippets to the prompt. All three share one `session_setup` service and session record format.
+Without `pi-resources`, Pi loads skills as usual and delegation's skill rules still work. Children
+get their launcher's explicit skills and never run a picker.
 
-When resuming recorded skill choices, load `pi-resources` again. If a required provider is
-missing, setup names it and offers reset; it does not silently replace saved choices with defaults.
+When you resume a session with recorded skill choices, load `pi-resources` again. If a needed
+extension is missing, setup names it and offers a reset; it never silently swaps saved choices for
+defaults.
 
 ## Library APIs
 
-Other extensions can import these modules without activating `/skills`, `/packages` or parent
-skill filtering:
+Other extensions can import these without turning on `/skills`, `/packages` or parent skill
+filtering:
 
-| Import | Responsibility |
+| Import | Provides |
 | --- | --- |
-| `pi-resources/discovery` | Native resolved package resources and custom agent/instruction descriptors |
-| `pi-resources/selection` | Saved personal/project selections and explicit persistence |
-| `pi-resources/session-setup` | Shared session selection service, installed by an explicit function call |
-| `pi-resources/instructions` | Request saved instruction text from the loaded context provider |
+| `pi-resources/discovery` | Resolved package resources and agent and instruction descriptors |
+| `pi-resources/selection` | Saved personal and project selections and saving |
+| `pi-resources/session-setup` | The shared session selection service, installed by calling a function |
+| `pi-resources/instructions` | Requests saved instruction text from the loaded context extension |
 
-The default package entrypoint is the extension. Library subpaths never import it. Delegation and
-context depend on these library APIs but remain independently loadable: each explicitly installs
-the session setup service it needs. Pi still owns package installation, trust and native filters.
-No library import scans a new catalogue, loads another extension or writes settings.
+The package's default entrypoint is the extension, and the library subpaths never import it.
+Delegation and context use these APIs but still load on their own; each installs the session setup
+service it needs. Pi still owns installation, trust and filters. No import scans a new catalogue,
+loads another extension or writes settings.
+
+## Tests
+
+```sh
+npm run test --workspace=pi-resources
+npm run typecheck --workspace=pi-resources
+```
+
+Stock-Pi tests cover each extension on its own, both loading orders and resumed choices.
+Entrypoint: [resources.ts](extensions/resources.ts).
