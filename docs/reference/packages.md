@@ -1,12 +1,13 @@
 # Package reference
 
-The root npm workspace has one lockfile for ten packages: seven Pi extensions and three shared libraries. Extension packages declare their library dependencies; importing a library does not activate an extension. Distribution packs all ten packages together with each package's README, license files, and provenance file when present.
+The root npm workspace has one lockfile for eleven packages: eight Pi extensions and three shared libraries. Extension packages declare their library dependencies; importing a library does not activate an extension. Distribution packs all eleven packages together with each package's README, license files, and provenance file when present.
 
 ## Responsibilities and entrypoints
 
 | Package | Kind and responsibility | Source entrypoint | Runtime requirement |
 | --- | --- | --- | --- |
 | `pi-delegation` | Extension: definitions, delegation, dialogue, retained results | [subagent.ts](../../packages/pi-delegation/extensions/subagent.ts) | Pi 1.2.0; optional `pi-background` and `pi-security` |
+| `pi-resources` | Extension: `/skills`, `/packages`, session skill selection and prompt filtering | [resources.ts](../../packages/pi-resources/extensions/resources.ts) | Pi 1.2.0; context/delegation contribute their own resource kinds when loaded |
 | `pi-background` | Extension: session process lifetime, output, job controls, foreground handoff | [background-process.ts](../../packages/pi-background/extensions/background-process.ts) | Pi 1.2.0; required by security's `extensions` shell transport |
 | `pi-permissions` | Extension: simple rules and manual/automatic tool approval, without OS confinement | [permissions.ts](../../packages/pi-permissions/extensions/permissions.ts) | Pi 1.2.0; explicit policy; choose instead of the full sandbox |
 | `pi-security` | Extension: policy, approvals, confined effect tools | [extension.ts](../../packages/pi-security/src/extension.ts) | Pi 1.2.0 and supported kernel/toolchain prerequisites |
@@ -24,9 +25,9 @@ The root npm workspace has one lockfile for ten packages: seven Pi extensions an
 | Consumer | Declared shared package dependencies |
 | --- | --- |
 | `pi-background`, `pi-goal`, `pi-security` | `pi-contracts`, `pi-runtime` at `0.1.0` |
-| `pi-delegation` | `pi-contracts`, `pi-runtime`, `pi-resource-browser` at `0.1.0`; `proper-lockfile` at `4.1.2` |
+| `pi-delegation`, `pi-resources` | `pi-contracts`, `pi-runtime`, `pi-resource-browser` at `0.1.0` |
 | `pi-context` | `pi-runtime`, `pi-resource-browser` at `0.1.0`; `proper-lockfile` at `4.1.2` |
-| `pi-runtime` | `pi-contracts`, `pi-resource-browser` at `0.1.0` |
+| `pi-runtime` | `pi-contracts`, `pi-resource-browser` at `0.1.0`; `proper-lockfile` at `4.1.2` |
 | `pi-codex-search` | `pi-contracts` at `0.1.0` |
 | `pi-permissions` | `pi-security` at `0.1.0` (library only; no extension activation) |
 | `pi-contracts`, `pi-resource-browser` | None |

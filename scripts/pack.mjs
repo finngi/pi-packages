@@ -15,6 +15,7 @@ const names = [
   "pi-permissions",
   "pi-background",
   "pi-delegation",
+  "pi-resources",
   "pi-goal",
   "pi-context",
   "pi-codex-search",

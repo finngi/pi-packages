@@ -33,11 +33,13 @@ workflow is needed during this experimental stage.
 | --- | --- |
 | Stock interactive Pi | Nothing extra |
 | Selected instructions, `/instructions` and instruction session setup | `pi-context` |
-| Child agents, `/agents`, our `/skills` and `/packages` pickers | `pi-delegation` |
+| Child agents and `/agents` | `pi-delegation` |
+| `/skills`, `/packages` and session skill filtering | `pi-resources` |
 | Personal tool presentation and available themes | Private `personal-interactive` |
 | Model-facing timestamps, including print/RPC | Private `personal-extensions`; enable `modelTime` separately |
 
-For our resource-selection workflow, start with **`pi-context` + `pi-delegation`**.
+For our resource-selection workflow, load **`pi-resources`**, adding `pi-context` for instructions
+and `pi-delegation` for child agents. Each works independently.
 Libraries (`pi-runtime`, `pi-contracts`, `pi-resource-browser`) resolve through dependencies;
 do not select them as extensions. `pi-background`, `pi-goal` and `pi-codex-search` are optional features.
 Agents do not require `pi-background`. `pi-permissions` and the full `pi-security` sandbox are optional
@@ -57,7 +59,7 @@ from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \
-  -e ./packages/pi-context -e ./packages/pi-delegation --subagent-security=off
+  -e ./packages/pi-resources -e ./packages/pi-context -e ./packages/pi-delegation --subagent-security=off
 ```
 
 `--no-extensions` excludes automatically discovered and built-in extensions; explicit `-e`

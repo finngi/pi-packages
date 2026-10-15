@@ -11,3 +11,4 @@ export { MAX_NODE_TIMER_DELAY_MS } from "./timers.ts";
 export * from "./token-usage.ts";
 export * from "./usage.ts";
 export { BackgroundProcesses } from "./processes/processes.ts";
+export * from "./resource-selection.ts";

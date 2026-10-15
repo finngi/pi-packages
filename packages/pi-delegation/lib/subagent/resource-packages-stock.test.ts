@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import background from "../../../pi-background/extensions/background-process.ts"
 import context from "../../../pi-context/extensions/context.ts";
 import { catalogueInstructionId } from "../../../pi-context/lib/instruction-selection.ts";
 import subagents from "../../extensions/subagent.ts";
-import { configuredSkillChoices } from "./resource-selection.ts";
+import { configuredSkillChoices } from "pi-runtime";
 
 const system = (messages: any[]) =>
   messages
@@ -258,6 +259,7 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
                   emit(name, value);
                 };
                 subagents(pi);
+                resources(pi);
                 context(pi);
                 pi.registerTool({
                   name: "hold_pack_child",

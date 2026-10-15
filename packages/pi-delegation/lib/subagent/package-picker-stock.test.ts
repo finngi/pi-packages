@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -155,6 +156,7 @@ test(
             path: "fixture:picker",
             factory(pi) {
               subagents(pi);
+              resources(pi);
               context(pi);
             },
           },

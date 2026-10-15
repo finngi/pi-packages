@@ -373,3 +373,74 @@ test("extensions reuse one explicit session setup owner", () => {
   const f = fixture();
   assert.equal(installSessionSetup(f.pi), f.setup);
 });
+
+test("package groups are available with an instructions provider and no picker or delegation", () => {
+  const f = fixture();
+  f.resources.splice(0, f.resources.length, {
+    kind: "instructions",
+    candidates: [
+      {
+        kind: "instructions",
+        id: "evidence",
+        name: "Evidence",
+        description: "Check sources",
+        packName: "corpus",
+        globalDefaultable: false,
+      },
+    ],
+    selected: [],
+  });
+  f.setup.restore(f.ctx, true);
+  const groups = f.setup.execute({ op: "list", kinds: ["packages"] }, f.ctx).candidates;
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].id, "corpus");
+  assert.equal(groups[0].globalDefaultable, false);
+  const receipt = f.setup.execute({ op: "apply", packages: ["corpus"] }, f.ctx);
+  assert.deepEqual(receipt.selected.instructions, ["evidence"]);
+  assert.equal(receipt.overrides.skills, undefined);
+  assert.equal(receipt.overrides.agents, undefined);
+});
+
+test("absent providers do not become explicit empty selections at session birth", () => {
+  const f = fixture();
+  f.resources.splice(0, f.resources.length, {
+    kind: "agents",
+    candidates: [{ kind: "agents", id: "worker", name: "worker", description: "Work" }],
+    selected: ["worker"],
+  });
+  f.hooks.get("resources_discover")!({}, f.ctx);
+  assert.deepEqual(f.setup.selection("agents"), ["worker"]);
+  assert.equal(f.setup.selection("skills"), undefined);
+  assert.equal(f.setup.selection("instructions"), undefined);
+  assert.deepEqual(f.entries[0].data.overrides, { agents: ["worker"] });
+});
+
+test("derived grouping preserves explicit package metadata and rejects duplicate providers", () => {
+  const f = fixture();
+  const groups = f.setup.execute(
+    { op: "list", kinds: ["packages"], query: "bm25" },
+    f.ctx,
+  ).candidates;
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].description, "Evidence work");
+  f.resources.push(structuredClone(f.resources[0]));
+  assert.throws(() => f.setup.inspect(f.ctx), /Duplicate or invalid/);
+});
+
+test("resuming saved choices without their provider names the missing extension and reset remedy", () => {
+  const f = fixture();
+  f.setup.execute({ op: "apply", skills: ["lexical"] }, f.ctx);
+  f.resources.splice(
+    f.resources.findIndex((value) => value.kind === "skills"),
+    1,
+  );
+  f.setup.restore(f.ctx, true);
+  assert.match(
+    f.setup.execute({ op: "list" }, f.ctx).error!,
+    /No skills provider is loaded.*Load pi-resources.*session_setup reset/,
+  );
+  assert.deepEqual(f.active(), ["session_setup"]);
+  f.setup.execute({ op: "reset" }, f.ctx);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).error, undefined);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+});

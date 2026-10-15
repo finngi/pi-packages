@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -77,7 +78,7 @@ test("stock Pi selects an agent-only package without an instructions provider", 
     const receipt = setup!.execute({ op: "apply", packages: ["agent-only"] }, ctx!);
     assert.deepEqual(receipt.selected.agents, ["worker"]);
     assert.deepEqual(receipt.overrides.instructions, before);
-    assert.match(receipt.effects.packages, /Available resource types: skills, agents/);
+    assert.match(receipt.effects.packages, /Available resource types: agents/);
     assert.match(receipt.effects.packages, /Unloaded extensions stay off/);
     assert.equal(
       session.getAllTools().some((tool) => tool.name === "background_process"),
@@ -159,6 +160,7 @@ test("stock Pi discovers temporary package skills, agents and instructions witho
           factory(pi) {
             context(pi);
             subagents(pi);
+            resources(pi);
             setup = sessionSetupService(pi.events);
             pi.on("session_start", (_event, current) => {
               ctx = current;

@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -297,6 +298,7 @@ test(
                   emit(name, value);
                 };
                 subagents(pi);
+                resources(pi);
                 context(pi);
                 pi.registerTool({
                   name: "hold_child",

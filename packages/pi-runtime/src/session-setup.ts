@@ -88,14 +88,24 @@ export function planSessionSetup(
       candidates.filter((candidate) => candidate.kind === kind).map((candidate) => candidate.id),
     );
     const missing = selected.filter((id) => !available.has(id));
-    if (missing.length)
+    if (missing.length) {
+      const provider = {
+        skills: "pi-resources",
+        agents: "pi-delegation",
+        instructions: "pi-context",
+      }[kind as "skills" | "agents" | "instructions"];
+      const recovery =
+        provider && !contributions.some((value) => value.kind === kind)
+          ? `. No ${kind} provider is loaded. Load ${provider} to retain these choices, or use session_setup reset to discard the saved override.`
+          : "";
       throw Error(
-        `Unknown or unavailable ${kind} IDs: ${missing.join(", ")}${
+        `Unknown or unavailable ${kind} IDs: ${missing.join(", ")}${recovery}${
           kind === "packages"
             ? ". Choose a package returned by session_setup list. Add new sources with pi install, then /reload while idle. Use -e for temporary packages in a new invocation. Security/runtime changes or running children need a restart. No selection was changed."
             : ""
         }`,
       );
+    }
   };
   if (request.op === "apply") {
     for (const kind of kinds) if (request[kind] !== undefined) known(kind, request[kind]!);
@@ -159,6 +169,37 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       ctx,
       contribute: (value: SessionSetupContribution) => values.push(structuredClone(value)),
     });
+    // A package groups resources supplied by the loaded providers. It does not require
+    // the interactive picker (or delegation) to be installed.
+    const declaredPackages = new Set(
+      values
+        .filter((value) => value.kind === "packages")
+        .flatMap((value) => value.candidates.map((candidate) => candidate.id)),
+    );
+    const grouped = new Map<string, SessionSetupCandidate[]>();
+    for (const value of values)
+      if (value.kind !== "packages" && value.kind !== "tools")
+        for (const candidate of value.candidates)
+          if (candidate.packName && !declaredPackages.has(candidate.packName)) {
+            const members = grouped.get(candidate.packName) ?? [];
+            members.push(candidate);
+            grouped.set(candidate.packName, members);
+          }
+    if (grouped.size)
+      values.push({
+        kind: "packages",
+        candidates: [...grouped].map(([id, members]) => ({
+          kind: "packages",
+          id,
+          name: id,
+          description: `Available resources: ${[...new Set(members.map((member) => member.kind))].join(", ")}`,
+          keywords: members
+            .map((member) => `${member.name} ${member.description} ${member.keywords ?? ""}`)
+            .join(" "),
+          globalDefaultable: members.every((member) => member.globalDefaultable !== false),
+        })),
+        selected: [],
+      });
     const activeTools = new Set(pi.getActiveTools());
     values.push({
       kind: "tools",
@@ -264,9 +305,10 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       }
       if (!entry && captureDefaults) {
         for (const kind of ["skills", "agents", "instructions"] as const)
-          next[kind] = contributions
-            .filter((value) => value.kind === kind)
-            .flatMap((value) => value.selected);
+          if (contributions.some((value) => value.kind === kind))
+            next[kind] = contributions
+              .filter((value) => value.kind === kind)
+              .flatMap((value) => value.selected);
         next = planSessionSetup({ op: "apply", ...next }, {}, contributions);
         // Save resource choices at session birth; later personal defaults must not rewrite a resumed session.
         pi.appendEntry(SESSION_SETUP_STATE, {

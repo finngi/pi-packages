@@ -23,14 +23,14 @@ A denied command bypasses review even when extra paths are supplied. The `write`
 infer a requested destination from `path` and need no extra path parameter. See
 [per-call write scope](security-policy.md#requested-resources).
 
-## Delegation tools
-
-### Session setup
+## Session setup
 
 `session_setup` lets the parent choose registered resources for a task without writing project or
-user settings. Either `pi-context` or `pi-delegation` provides it. Available selections depend
-on the loaded contributors: `pi-context` supplies instructions; `pi-delegation` supplies
-agents, skills and package groups. Loading one does not activate the other.
+user settings. `pi-resources`, `pi-context` and `pi-delegation` each explicitly
+install the same shared service. Available selections depend on the loaded contributors:
+`pi-resources` supplies skills, `pi-context` instructions, and `pi-delegation` agents.
+Package groups derive from the available members, including in context-only or delegation-only
+sessions. Loading one extension does not activate another.
 It searches trusted metadata using the same BM25 search as the resource picker. Skill bodies and
 agent-owned skills/scripts are not returned by this search.
 Manual-only skills are labelled; selecting one does not add its description to the native model
@@ -57,8 +57,8 @@ Package IDs are native `package.json` names, including any npm scope. Public ski
 native package filters or CLI loading flags cannot be recovered by selecting their package.
 Selecting `packages` changes only the public skill, agent and instruction sets, not executable
 package loading. New packages use native `pi install` or a new invocation with `-e`; ordinary
-extension changes require idle `/reload`. Native `-e` skills are individually selectable; stock
-Pi 1.2 does not expose their package roots, so custom package grouping requires a saved declaration. Replacing security/runtime code or restarting processes
+extension changes require idle `/reload`. Configured and temporary `-e` packages
+are discoverable through Pi's native resolver, including custom-only packages without skills. Replacing security/runtime code or restarting processes
 with children requires staged activation after those processes exit. Unknown package IDs return
 these next actions without applying a partial selection. See [package decisions](../package-design.md).
 
@@ -88,7 +88,7 @@ A history branch without a selection entry records available defaults when first
 browser. Enter/Space toggles a package's available public skills, agents and instructions while
 preserving unrelated individual selections. A partial marker means some, but not all, available
 members are selected. In contrast, `session_setup` with `packages` replaces those categories.
-Ctrl+S in `/packages` explicitly saves the current effective resource sets as project defaults in
+Ctrl+S in `/packages` explicitly saves resource sets from the loaded providers as project defaults in
 trusted `.pi/settings.json`, including individual choices; native package declarations, tools and
 permission settings stay unchanged. Ctrl+Shift+S saves personal defaults, excluding project-only resources. Individual pickers save only their category.
 
@@ -118,6 +118,8 @@ flowchart LR
   Native --> Call[Tool call]
   Call --> Gate[Existing permission checks]
 ```
+
+## Delegation tools
 
 | Tool | Caller | Parameters | Result |
 | --- | --- | --- | --- |
@@ -246,8 +248,8 @@ Redirects are refused. The parser requires the terminal completion marker and va
 | --- | --- | --- |
 | `/agents` | `pi-delegation` | Browse definitions, effective settings, and diagnostics |
 | `/agents trust [directory]` | `pi-delegation` | Interactive session-only trust for a discovered ancestor |
-| `/skills` | `pi-delegation` | Browse Pi's selected skill registry |
-| `/packages` | `pi-delegation` | Toggle loaded package guidance for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults |
+| `/skills` | `pi-resources` | Browse Pi's selected skill registry |
+| `/packages` | `pi-resources` | Toggle loaded package guidance for this session; Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults |
 | `/goal <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |
 | `/goal` or `/goal status` | `pi-goal` | Inspect goal state and accounting |
 | `/goal start <objective>` / `/goal edit <objective>` | `pi-goal` | Start or replace the goal, then queue its objective as a user message |

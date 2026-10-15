@@ -87,6 +87,11 @@ settings. Tools are selected independently through Pi's active-tool API; permiss
 unchanged. Existing children retain their prepared resources; future children use the selected
 public resources plus their own private bundle, narrowed by their agent definition.
 
+The independent `pi-resources` extension owns `/packages` and `/skills`, using the existing
+searchable resource browser. Delegation owns `/agents`; context owns `/instructions`.
+They contribute to the shared setup service without activating one another. Generic persistence
+lives in `pi-runtime`; native Pi still owns installation, executable loading and reload.
+
 The `/packages` picker uses the existing searchable resource browser. Enter/Space toggles the
 highlighted package's available public skills, agents and instructions for this session; unrelated
 individual selections stay selected. A partial marker means only some of the package's members
@@ -94,7 +99,7 @@ are selected. Changes use the same session-history override as `session_setup` a
 The model tool's `packages` apply operation instead replaces those three categories with the
 requested packages and same-call explicit choices.
 
-Ctrl+S explicitly saves the current effective skill, agent and instruction selections as project
+Ctrl+S explicitly saves the current effective selections from loaded resource providers as project
 defaults in trusted `.pi/settings.json`. It saves concrete resource IDs, including individual
 choices, rather than a package name that could silently select future new members. Native package
 registrations, tools and permission settings are preserved. Existing session overrides still take

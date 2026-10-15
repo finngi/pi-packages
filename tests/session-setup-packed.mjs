@@ -9,6 +9,7 @@ const sdk = await fromConsumer("@earendil-works/pi-coding-agent");
 const ai = await fromConsumer("@earendil-works/pi-ai/compat");
 const { default: subagents } = await fromConsumer("pi-delegation");
 const { default: context } = await fromConsumer("pi-context");
+const { default: resources } = await fromConsumer("pi-resources");
 const cwd = join(consumer, "setup-project"),
   agentDir = join(consumer, "setup-agent");
 await mkdir(cwd);
@@ -97,6 +98,7 @@ async function open(manager) {
         path: "fixture:packed-setup",
         factory(pi) {
           subagents(pi);
+          resources(pi);
           context(pi);
         },
       },

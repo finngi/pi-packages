@@ -42,6 +42,17 @@ inside that bundle. Only explicitly public `pi.skills` paths are advertised to t
 Instruction files are Markdown under the declared directories; selected bodies enter a separate
 `<instructions>` system-prompt section. Project `AGENTS.md` context remains separate.
 
+## Selection ownership
+
+`pi-resources` owns skill selection and the package picker. Keeping those inside delegation
+would require child-process machinery merely to select guidance. `pi-delegation` owns agent
+definitions, `/agents` and child execution; `pi-context` owns instructions and `/instructions`.
+They explicitly share the existing runtime setup service, persistence helpers and browser library.
+Package groups can be derived from any loaded provider, so context-only sessions can select
+package instructions without loading the picker or delegation. Missing providers do not become
+empty selections and package saves preserve their existing defaults. Session entry IDs and
+settings keys are unchanged; this is an ownership split, not a data-format migration.
+
 ## What was reused and removed
 
 - Kept native package discovery, the existing agent parser/private-skill loader, RPC dialogue,

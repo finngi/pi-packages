@@ -1,3 +1,4 @@
+import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -88,6 +89,7 @@ function fixture() {
     },
   };
   extension(pi as any);
+  resources(pi as any);
 
   return {
     root,

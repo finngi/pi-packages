@@ -14,13 +14,14 @@ Agents can be flat definitions or directory bundles with private skills and rela
 - [Architecture](../../docs/architecture.md): parent/child processes and imported library code.
 - [Accounting](../../docs/accounting.md): all-call usage and estimates.
 
-Use `/agents` or `/skills` to search available resources with BM25, inspect the side panel,
+Use `/agents` to search available definitions with BM25, inspect the side panel,
 and toggle choices for this session. Ctrl+S saves this category as project defaults;
 Ctrl+Shift+S saves personal defaults for new sessions across projects. Project defaults take
 precedence over personal defaults, including an empty selection. Existing sessions retain their
 recorded choices on resume. `inherit` resets only that category to saved defaults; it does not
-remove project settings. Selection does not reload Pi or stop children. Skills load through Pi's
-resource-discovery hook and unselected `/skill:name` commands are refused. See
+remove project settings. Selection does not reload Pi or stop children. The optional
+[`pi-resources`](../pi-resources/README.md) extension owns `/skills`, `/packages` and parent skill
+filtering. Without it, native Pi skills remain available to children as usual. See
 [Browse project resources](../../docs/guides/delegation.md#browse-project-resources).
 
 Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-delegation` and `npm run typecheck --workspace=pi-delegation`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.
@@ -32,13 +33,9 @@ pickers. Package agents are inactive when selection is omitted; their bundle-own
 remain child-private. Selection does not grant tools or permissions. Existing native skill package
 loading is unchanged.
 
-Use `/packages` to search those packages and inspect their members. Enter/Space adds or removes
-a package's available public skills, agents and instructions for this session, preserving unrelated
-individual choices. Partial selection is marked. Resume restores the session selection; a new
-session uses saved defaults. Ctrl+S explicitly saves the current resource sets as project defaults
-in trusted `.pi/settings.json`, including individual choices. Ctrl+Shift+S saves personal defaults, excluding project-only resources. Native package registrations, tools
-and permissions stay unchanged. This picker selects guidance, not executable extensions or MCP
-connections. See [package decisions](../../docs/package-design.md) for native discovery and shape.
+For package and skill selection, load [`pi-resources`](../pi-resources/README.md) explicitly.
+Delegation contributes its available agent definitions to the shared setup service; it does not
+own package installation, package browsing or parent skill filtering.
 
 For a task-specific selection, the parent can use
 `session_setup({op: "list", query: "evidence"})`, then `session_setup({op: "apply", ...})`.

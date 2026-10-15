@@ -387,6 +387,7 @@ export default function(pi) {
       securityEntrypoint,
       backgroundEntrypoint,
       extensionPath("pi-delegation", "extensions/subagent.ts", "dist/extensions/subagent.js"),
+      extensionPath("pi-resources", "extensions/resources.ts", "dist/extensions/resources.js"),
       extensionPath("pi-goal", "extensions/goal.ts", "dist/extensions/goal.js"),
       extensionPath("pi-context", "extensions/context.ts", "dist/extensions/context.js"),
     ],

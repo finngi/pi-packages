@@ -25,7 +25,7 @@ import {
   writeProjectAgentSelection,
   writeGlobalResourceSelection,
   writeProjectSkillSelection,
-} from "./resource-selection.ts";
+} from "pi-runtime";
 
 const parse = (text: string) => {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);

@@ -6,7 +6,7 @@ import test from "node:test";
 import { initTheme, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { SESSION_SETUP_CONTRIBUTIONS } from "pi-contracts";
 import { installSessionSetup } from "pi-runtime";
-import type { ResourceBrowser } from "./resource-browser.ts";
+import type { ResourceBrowser } from "pi-resource-browser";
 import { registerPackagePicker } from "./package-picker.ts";
 initTheme("dark", false);
 
@@ -123,7 +123,6 @@ async function fixture(t: any, trusted = true) {
     setup,
     () => [],
     () => [],
-    () => {},
   );
   let action: (browser: ResourceBrowser) => Promise<void> = async () => {};
   return {
@@ -206,5 +205,33 @@ test("a partial package is visible and selecting it fills only its public member
     assert.match(browser.render(120).join("\n"), /partial/);
     await browser.toggleCurrent();
     assert.deepEqual(f.setup.selection("agents"), ["standalone", "pack-agents"]);
+  });
+});
+
+test("saving package defaults preserves settings for absent resource providers", async (t) => {
+  const f = await fixture(t);
+  f.contributions.splice(
+    0,
+    f.contributions.length,
+    ...f.contributions.filter((value) => value.kind !== "agents" && value.kind !== "instructions"),
+  );
+  await writeFile(
+    f.file,
+    JSON.stringify({
+      packages: ["native-source"],
+      subagents: { agents: ["saved-agent"] },
+      localContext: { instructions: ["saved-instruction"] },
+    }),
+  );
+  await f.run(async (browser) => {
+    await browser.toggleCurrent();
+    await browser.saveDefaults();
+    const saved = JSON.parse(await readFile(f.file, "utf8"));
+    assert.deepEqual(saved.subagents.agents, ["saved-agent"]);
+    assert.deepEqual(saved.localContext.instructions, ["saved-instruction"]);
+    assert.deepEqual(saved.subagents.skills, ["standalone", "pack-skills"]);
+    assert.deepEqual(saved.packages, ["native-source"]);
+    assert.equal(f.setup.selection("agents"), undefined);
+    assert.equal(f.setup.selection("instructions"), undefined);
   });
 });

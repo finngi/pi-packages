@@ -77,9 +77,9 @@ it does not change tool registration, model pins or security policy.
 | Project `subagents.skillPaths` | Extension-maintained paths added to the native project skill list for selected catalogue skills. The `/skills` commands use this ownership list, plus a creation marker, to remove only paths and settings they added. |
 | Global `resources.skillCatalogues` | Paths to skill directories offered by `/skills`; these are discovery roots and do not load skills into the model. |
 | Global `subagents.skills` | Optional list of public skill names used as the default selection when a project has no `subagents.skills` entry. |
-| Ctrl+S in a resource picker | Saves project defaults; individual pickers save one category and `/packages` saves all three guidance categories. |
+| Ctrl+S in a resource picker | Saves project defaults; individual pickers save one category and `/packages` saves guidance categories whose providers are loaded; absent categories are preserved. |
 | Ctrl+Shift+S in a resource picker | Saves personal defaults for new sessions across projects; project-only resources are excluded and project defaults still take precedence. |
-| Project `skills` | Pi's native list of skill paths. pi-delegation writes paths here when a selected catalogue skill must be loaded; Pi can still auto-discover other project and user skills. |
+| Project `skills` | Pi's native list of skill paths. pi-resources writes paths here when a selected standalone skill must be loaded; Pi can still auto-discover other project and user skills. |
 | `/agents` and `/skills` | Interactive session selectors; `enable NAME`, `disable NAME`, `none`, `all`, and `inherit` are also accepted. Selection updates lookup immediately without reloading. |
 | Global `resources.instructionCatalogues` | Trusted directories of Markdown instruction snippets offered in `/instructions`. |
 | Global/project `localContext.instructions` | Default and project-specific resource IDs for instruction snippets. Project `[]` disables the global selection. |

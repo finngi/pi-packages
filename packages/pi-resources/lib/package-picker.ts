@@ -1,17 +1,17 @@
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SessionSetupContribution } from "pi-contracts";
 import type { installSessionSetup } from "pi-runtime";
 import {
   showResourceBrowser,
   resourceBrowserNavigation,
   type ResourceEntry,
-} from "./resource-browser.ts";
+} from "pi-resource-browser";
 import {
   assertSafeProjectSettingsLocation,
   writeProjectResourceSelection,
   writeGlobalResourceDefaults,
-} from "./resource-selection.ts";
+} from "pi-runtime";
 
 const kinds = ["skills", "agents", "instructions"] as const;
 type Selection = Record<(typeof kinds)[number], string[]>;
@@ -21,7 +21,6 @@ export function registerPackagePicker(
   setup: ReturnType<typeof installSessionSetup>,
   diagnostics: () => string[],
   skillPaths: (names: string[]) => string[],
-  saved: (ctx: ExtensionContext) => void,
 ) {
   pi.registerCommand("packages", {
     description:
@@ -30,6 +29,12 @@ export function registerPackagePicker(
       await ctx.waitForIdle();
       const inspect = () => setup.inspect(ctx);
       const selected = (): Selection => setup.execute({ op: "list" }, ctx).selected as Selection;
+      const supported = (selection: Selection) =>
+        Object.fromEntries(
+          kinds
+            .filter((kind) => inspect().some((value) => value.kind === kind))
+            .map((kind) => [kind, selection[kind]]),
+        );
       const members = (contributions: SessionSetupContribution[], id: string) =>
         Object.fromEntries(
           kinds.map((kind) => [
@@ -130,7 +135,7 @@ export function registerPackagePicker(
                 : current[kind].filter((id) => !grouped[kind].includes(id)),
             ]),
           ) as Selection;
-          setup.execute({ op: "apply", ...next }, ctx);
+          setup.execute({ op: "apply", ...supported(next) }, ctx);
           entry.badge = undefined;
         },
         setDefault: async (entry, enabled, scope) => {
@@ -163,15 +168,14 @@ export function registerPackagePicker(
               return [kind, [...names].sort()];
             }),
           ) as Selection;
-          if (scope === "global") await writeGlobalResourceDefaults(getAgentDir(), next);
+          if (scope === "global") await writeGlobalResourceDefaults(getAgentDir(), supported(next));
           else {
             if (!ctx.isProjectTrusted())
               throw Error("Saving package defaults requires a trusted project");
             await assertSafeProjectSettingsLocation(ctx.cwd);
-            await writeProjectResourceSelection(ctx.cwd, next, skillPaths(next.skills));
-            saved(ctx);
+            await writeProjectResourceSelection(ctx.cwd, supported(next), skillPaths(next.skills));
           }
-          setup.execute({ op: "apply", ...current }, ctx);
+          setup.execute({ op: "apply", ...supported(current) }, ctx);
         },
         saveGlobalDefaults: async () => {
           const available = inspect(),
@@ -190,7 +194,7 @@ export function registerPackagePicker(
               ),
             ]),
           ) as Selection;
-          await writeGlobalResourceDefaults(getAgentDir(), personal);
+          await writeGlobalResourceDefaults(getAgentDir(), supported(personal));
           const skipped = kinds.reduce(
             (sum, kind) => sum + current[kind].length - personal[kind].length,
             0,
@@ -206,8 +210,7 @@ export function registerPackagePicker(
             throw Error("Saving package defaults requires a trusted project");
           await assertSafeProjectSettingsLocation(ctx.cwd);
           const next = selected();
-          await writeProjectResourceSelection(ctx.cwd, next, skillPaths(next.skills));
-          saved(ctx);
+          await writeProjectResourceSelection(ctx.cwd, supported(next), skillPaths(next.skills));
         },
       });
       // Session setup rebuilds prompt guidance on the next run; reloading would stop owned children.

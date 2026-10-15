@@ -1,0 +1,53 @@
+{
+  "name": "pi-resources",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session selection of native skills and package guidance for Pi",
+  "pi": {
+    "extensions": [
+      "./extensions/resources.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "test": "node --test 'lib/**/*.test.ts' 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build.mjs --package pi-resources"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE*",
+    "PROVENANCE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/extensions/resources.d.ts",
+      "default": "./dist/extensions/resources.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pi-runtime": "0.1.0",
+    "pi-resource-browser": "0.1.0",
+    "pi-contracts": "0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/finngi/pi-packages.git",
+    "directory": "packages/pi-resources"
+  },
+  "bugs": {
+    "url": "https://github.com/finngi/pi-packages/issues"
+  }
+}

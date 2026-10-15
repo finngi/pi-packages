@@ -38,7 +38,7 @@ Only flat root `*.md` files and immediate `<name>/<name>.md` entrypoints are dis
 
 Use `/agents trust /absolute/project/directory` to grant interactive, session-only trust to a discovered ancestor level. Project trust saved by Pi is also recognized. User-directory definitions are loaded after trusted project levels. The home source directory `~/.agents/agents` is excluded from project levels because shared configuration tooling can deploy it to the user directory.
 
-`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. Pi may load other skills internally, but pi-delegation filters the model's advertised skills, public skills inherited by children, and manual `/skill:name` invocation. Private bundle skills remain child resources.
+`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. The optional `pi-resources` extension owns `/skills`, filters the parent's advertised skills and manual `/skill:name` invocation, and supplies the public selection inherited by children. Without it, delegation inherits Pi's native loaded skills. Private bundle skills remain child resources.
 
 ## Browse project resources
 
@@ -47,7 +47,7 @@ Use `/agents trust /absolute/project/directory` to grant interactive, session-on
 - Ctrl+S saves project defaults in trusted `.pi/settings.json`.
 - Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only resources.
 
-The three individual pickers save only their own category; `/packages` saves all three guidance categories, including individual choices. A project list replaces its personal default list, including `[]`. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
+The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. A project list replaces its personal default list, including `[]`. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
 
 For example, project A saves instruction 1 with Ctrl+S. Project B can turn that instruction on or off in personal defaults; new A sessions still use A's saved list. A session already started in B retains its own choices until explicitly changed.
 
@@ -66,7 +66,7 @@ not index instruction bodies or search the network. An empty query restores the 
 | Input | Action |
 |---|---|
 | Up / Down | Move through results; when details have focus, scroll that pane |
-| Enter | Toggle the highlighted resource for this project |
+| Enter | Toggle the highlighted resource for this session |
 | Space | Toggle while the list has focus; enter a space while searching |
 | Tab | Switch between the list and details |
 | Page Up / Page Down | Move through results or scroll details |

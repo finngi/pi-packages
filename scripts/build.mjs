@@ -12,6 +12,7 @@ const packages = [
   "pi-security",
   "pi-permissions",
   "pi-delegation",
+  "pi-resources",
   "pi-goal",
   "pi-context",
   "pi-codex-search",

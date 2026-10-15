@@ -29,6 +29,7 @@
       "packages/pi-security/src/extension.ts",
       "packages/pi-background/extensions/background-process.ts",
       "packages/pi-delegation/extensions/subagent.ts",
+      "packages/pi-resources/extensions/resources.ts",
       "packages/pi-goal/extensions/goal.ts",
       "packages/pi-context/extensions/context.ts",
       "packages/pi-codex-search/extensions/search.ts"

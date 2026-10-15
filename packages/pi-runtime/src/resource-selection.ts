@@ -3,8 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { loadSkills } from "@earendil-works/pi-coding-agent";
-import { type ResourcePackage, resourcePackageKeywords } from "pi-runtime";
-import type { FoundAgent } from "./agents.ts";
+import { type ResourcePackage, resourcePackageKeywords } from "./resource-packages.ts";
 
 const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
   lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
@@ -271,11 +270,11 @@ export function filterPromptSkills<T extends { name: string }>(
   return skills.filter((skill) => names.has(skill.name));
 }
 
-export function selectedAgents(
+export function selectedAgents<T extends { name: string; catalogueOnly?: boolean }>(
   settings: SettingsManager,
-  agents: FoundAgent[],
+  agents: T[],
   globalSnapshot?: GlobalSelectionSnapshot,
-): { agents: FoundAgent[]; configured: boolean; error?: string } {
+): { agents: T[]; configured: boolean; error?: string } {
   const project = settings.getProjectSettings() as ResourceSettings;
   const global = settings.getGlobalSettings() as ResourceSettings;
   const nestedSelection = (settings: ResourceSettings) => {
@@ -548,52 +547,75 @@ function applySkillSelection(
   };
 }
 
-/** Save the same public selection as project defaults in one locked, atomic settings update. */
+/** Persist only resource types supplied by the loaded extensions. */
+export interface ResourceDefaultsSelection {
+  skills?: string[];
+  agents?: string[];
+  instructions?: string[];
+}
 export function writeProjectResourceSelection(
   cwd: string,
-  selection: { skills: string[]; agents: string[]; instructions: string[] },
+  selection: ResourceDefaultsSelection,
   paths: string[],
 ): Promise<void> {
   return updateProjectSettingsFile(cwd, (current) => {
-    const context = current.localContext;
-    if (
-      context !== undefined &&
-      (!context || typeof context !== "object" || Array.isArray(context))
-    )
-      throw Error("Project localContext value must be an object");
-    applySkillSelection(current, cwd, paths, selection.skills);
-    current.subagents = {
-      ...(current.subagents as Record<string, unknown>),
-      agents: selection.agents,
-    };
-    current.localContext = {
-      ...(context as Record<string, unknown> | undefined),
-      instructions: selection.instructions,
-    };
+    if (selection.skills !== undefined) applySkillSelection(current, cwd, paths, selection.skills);
+    if (selection.agents !== undefined) {
+      const subagents = current.subagents;
+      if (
+        subagents !== undefined &&
+        (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
+      )
+        throw Error("Project subagents value must be an object");
+      current.subagents = {
+        ...(subagents as Record<string, unknown> | undefined),
+        agents: selection.agents,
+      };
+    }
+    if (selection.instructions !== undefined) {
+      const context = current.localContext;
+      if (
+        context !== undefined &&
+        (!context || typeof context !== "object" || Array.isArray(context))
+      )
+        throw Error("Project localContext value must be an object");
+      current.localContext = {
+        ...(context as Record<string, unknown> | undefined),
+        instructions: selection.instructions,
+      };
+    }
   });
 }
 
 export function writeGlobalResourceDefaults(
   agentDir: string,
-  selection: { skills: string[]; agents: string[]; instructions: string[] },
+  selection: ResourceDefaultsSelection,
 ): Promise<void> {
   return updateSettingsFile(join(resolve(agentDir), "settings.json"), (current) => {
-    const subagents = current.subagents,
-      context = current.localContext;
-    for (const [name, value] of [
-      ["subagents", subagents],
-      ["localContext", context],
-    ] as const)
-      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value)))
-        throw Error(`Global ${name} must be an object`);
-    current.subagents = {
-      ...(subagents as Record<string, unknown> | undefined),
-      skills: selection.skills,
-      agents: selection.agents,
-    };
-    current.localContext = {
-      ...(context as Record<string, unknown> | undefined),
-      instructions: selection.instructions.filter((id) => id.startsWith("catalogue:")),
-    };
+    if (selection.skills !== undefined || selection.agents !== undefined) {
+      const subagents = current.subagents;
+      if (
+        subagents !== undefined &&
+        (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
+      )
+        throw Error("Global subagents must be an object");
+      current.subagents = {
+        ...(subagents as Record<string, unknown> | undefined),
+        ...(selection.skills !== undefined ? { skills: selection.skills } : {}),
+        ...(selection.agents !== undefined ? { agents: selection.agents } : {}),
+      };
+    }
+    if (selection.instructions !== undefined) {
+      const context = current.localContext;
+      if (
+        context !== undefined &&
+        (!context || typeof context !== "object" || Array.isArray(context))
+      )
+        throw Error("Global localContext must be an object");
+      current.localContext = {
+        ...(context as Record<string, unknown> | undefined),
+        instructions: selection.instructions.filter((id) => id.startsWith("catalogue:")),
+      };
+    }
   });
 }

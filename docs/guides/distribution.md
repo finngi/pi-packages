@@ -33,7 +33,7 @@ npm run pack
 npm run test:packages
 ```
 
-`pack` builds ten tarballs in `.artifacts/packages`: seven extension packages and three shared libraries. It does not publish anything. The source manifests are private; the packing script prepares distribution manifests with JavaScript entrypoints and declaration exports. Each tarball includes its README, license files, and provenance file when present. The set also includes security profiles, the optional Pi-help skill and its resource script. The consumer test installs all ten tarballs into a fresh directory and loads the entrypoints and compiled file helper from `node_modules`.
+`pack` builds eleven tarballs in `.artifacts/packages`: eight extension packages and three shared libraries. It does not publish anything. The source manifests are private; the packing script prepares distribution manifests with JavaScript entrypoints and declaration exports. Each tarball includes its README, license files, and provenance file when present. The set also includes security profiles, the optional Pi-help skill and its resource script. The consumer test installs all eleven tarballs into a fresh directory and loads the entrypoints and compiled file helper from `node_modules`.
 
 Install the required tarballs together into a consumer project, including the shared libraries declared in each extension's package dependencies. `pi-delegation` works independently of `pi-background`; both reuse the shared process library. `pi-permissions` is separately packed and is not included in the repository-root aggregate manifest, which retains the existing sandbox entrypoint. Do not assume that a source-workspace import proves an installed consumer can resolve the same files.
 
