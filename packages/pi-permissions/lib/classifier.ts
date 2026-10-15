@@ -1,7 +1,7 @@
 import type { Api, ClassifierApi, ClassifierModel, Model, Usage } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { readUsage } from "pi-runtime/usage";
-import { type ClassifierView, classifierTranscript } from "./classifier-context.ts";
+import { type ClassifierView, classifierTranscript, MAX_CALL_BYTES } from "./classifier-context.ts";
 
 export interface Classification {
   verdict: "allow" | "deny" | "unsure";
@@ -46,68 +46,81 @@ export function parseVerdict(text: string): Classification | undefined {
   }
 }
 
+const unsure = (reason: string): Classification => ({ verdict: "unsure", reason });
+
 /** Ask a model about one call. Never rejects; failures come back as unsure. */
 export async function classify(
   view: ClassifierView,
   { model, client, native, timeoutSec, signal, onUsage }: ClassifierOptions,
 ): Promise<Classification> {
+  if (Buffer.byteLength(JSON.stringify(view.input)) > MAX_CALL_BYTES)
+    return unsure("the call is too large for the classifier to see in full");
+  if (signal?.aborted) return unsure("cancelled");
   const controller = new AbortController();
-  const abort = () => controller.abort();
-  signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(abort, timeoutSec * 1000);
-  const transcript = classifierTranscript(view);
+  let settle!: (result: Classification) => void;
+  // The deadline settles the decision even if a provider ignores the abort signal.
+  const deadline = new Promise<Classification>((resolve) => {
+    settle = resolve;
+  });
+  const stop = (reason: string) => {
+    controller.abort();
+    settle(unsure(reason));
+  };
+  const cancel = () => stop("cancelled");
+  signal?.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(() => stop("the classifier timed out"), timeoutSec * 1000);
   try {
-    if (native) {
-      const result = await client.classify(
-        model as ClassifierModel<ClassifierApi>,
-        {
-          state: { transcript },
-          questions: {
-            verdict: { type: "choice", instructions: CLASSIFIER_PROMPT, criteria: CHOICES },
-          },
-        },
-        { signal: controller.signal, timeoutMs: timeoutSec * 1000 },
-      );
-      onUsage?.(readUsage(result?.usage));
-      const answer = result?.answers?.verdict;
-      if (result?.stopReason !== "stop" || answer?.type !== "choice")
-        return { verdict: "unsure", reason: "the classifier gave no answer" };
-      if (!(answer.choice in CHOICES))
-        return { verdict: "unsure", reason: `unexpected answer ${answer.choice}` };
-      return { verdict: answer.choice as Classification["verdict"], reason: "" };
-    }
-    const response = await client.complete(
-      model as Model<Api>,
-      {
-        systemPrompt: `${CLASSIFIER_PROMPT}\n\nReply with only a JSON object: {"reason": "<one short sentence>", "verdict": "allow" | "deny" | "unsure"}.`,
-        messages: [
-          {
-            role: "user",
-            content: `${transcript}\n\nJudge the tool call above.`,
-            timestamp: Date.now(),
-          },
-        ],
-      },
-      { signal: controller.signal, maxTokens: 1024 },
-    );
-    onUsage?.(readUsage(response?.usage));
-    if (response?.stopReason !== "stop")
-      return {
-        verdict: "unsure",
-        reason: response?.errorMessage ?? "the classifier request failed",
-      };
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-    return parseVerdict(text) ?? { verdict: "unsure", reason: "the classifier reply was not JSON" };
-  } catch (error) {
-    onUsage?.();
-    if (signal?.aborted) return { verdict: "unsure", reason: "cancelled" };
-    if (controller.signal.aborted) return { verdict: "unsure", reason: "the classifier timed out" };
-    return { verdict: "unsure", reason: error instanceof Error ? error.message : String(error) };
+    return await Promise.race([deadline, request(classifierTranscript(view))]);
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener("abort", abort);
+    signal?.removeEventListener("abort", cancel);
+  }
+
+  async function request(transcript: string): Promise<Classification> {
+    try {
+      if (native) {
+        const result = await client.classify(
+          model as ClassifierModel<ClassifierApi>,
+          {
+            state: { transcript },
+            questions: {
+              verdict: { type: "choice", instructions: CLASSIFIER_PROMPT, criteria: CHOICES },
+            },
+          },
+          { signal: controller.signal, timeoutMs: timeoutSec * 1000 },
+        );
+        onUsage?.(readUsage(result?.usage));
+        const answer = result?.answers?.verdict;
+        if (result?.stopReason !== "stop" || answer?.type !== "choice")
+          return unsure("the classifier gave no answer");
+        if (!(answer.choice in CHOICES)) return unsure(`unexpected answer ${answer.choice}`);
+        return { verdict: answer.choice as Classification["verdict"], reason: "" };
+      }
+      const response = await client.complete(
+        model as Model<Api>,
+        {
+          systemPrompt: `${CLASSIFIER_PROMPT}\n\nReply with only a JSON object: {"reason": "<one short sentence>", "verdict": "allow" | "deny" | "unsure"}.`,
+          messages: [
+            {
+              role: "user",
+              content: `${transcript}\n\nJudge the tool call above.`,
+              timestamp: Date.now(),
+            },
+          ],
+        },
+        { signal: controller.signal, maxTokens: 1024 },
+      );
+      onUsage?.(readUsage(response?.usage));
+      if (response?.stopReason !== "stop")
+        return unsure(response?.errorMessage ?? "the classifier request failed");
+      const text = response.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      return parseVerdict(text) ?? unsure("the classifier reply was not JSON");
+    } catch (error) {
+      onUsage?.();
+      return unsure(error instanceof Error ? error.message : String(error));
+    }
   }
 }

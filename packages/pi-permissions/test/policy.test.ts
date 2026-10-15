@@ -64,3 +64,11 @@ test("session rules name the tool, or the program for a plain command", () => {
   assert.equal(sessionRule("bash", { command: "npm test; rm x" }), undefined);
   assert.equal(plainCommand("  ls -la  "), "ls -la");
 });
+
+test("prefixes match across tabs and repeated spaces", () => {
+  const tabs = { allow: ["bash"], deny: ["bash:rm", "bash:git push"] };
+  assert.equal(decide("bash", { command: "rm\t-rf build" }, tabs).verdict, "deny");
+  assert.equal(decide("bash", { command: "git \t push origin" }, tabs).verdict, "deny");
+  assert.equal(decide("bash", { command: "ls; \trm x" }, tabs).verdict, "deny");
+  assert.equal(bash("git\tstatus"), "allow");
+});

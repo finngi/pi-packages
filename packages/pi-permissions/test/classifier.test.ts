@@ -93,7 +93,7 @@ test("the transcript keeps the newest user messages and trims long fields", () =
     userMessages: ["first", ...Array(8).fill(long), "latest"],
     assistantDecision: { text: long, thinking: "" },
   });
-  assert.ok(Buffer.byteLength(text) < 50 * 1024);
+  assert.ok(Buffer.byteLength(text) <= 64 * 1024);
   assert.match(text, /^\[earlier user messages omitted\]/);
   assert.match(text, /User: latest/);
   assert.doesNotMatch(text, /User: first/);
@@ -125,4 +125,55 @@ test("context comes from user messages and the text before the matching call", (
     assistantDecisionBeforeTool(entries, { toolCallId: "x", parentToolCallId: "call-1/0" }),
     { text: "Running tests.", thinking: "npm test is the script" },
   );
+});
+
+test("calls too large to show in full are left to the user", async () => {
+  let called = false;
+  const result = await classify(
+    { ...view, tool: "write", input: { path: "/etc/hosts", content: "x".repeat(30_000) } },
+    {
+      model: chatModel,
+      native: false,
+      timeoutSec: 5,
+      client: {
+        complete: async () => {
+          called = true;
+          return reply('{"reason":"ok","verdict":"allow"}');
+        },
+      } as any,
+    },
+  );
+  assert.equal(result.verdict, "unsure");
+  assert.equal(called, false);
+});
+
+test("the deadline holds even when a provider ignores the abort signal", async () => {
+  const late = () =>
+    new Promise((resolve) =>
+      setTimeout(() => resolve(reply('{"reason":"late","verdict":"allow"}')), 100),
+    );
+  const timedOut = await classify(view, {
+    model: chatModel,
+    native: false,
+    timeoutSec: 0.01,
+    client: { complete: late } as any,
+  });
+  assert.deepEqual(timedOut, { verdict: "unsure", reason: "the classifier timed out" });
+  const hung = await classify(view, {
+    model: chatModel,
+    native: false,
+    timeoutSec: 0.01,
+    client: { complete: () => new Promise(() => {}) } as any,
+  });
+  assert.equal(hung.verdict, "unsure");
+  const controller = new AbortController();
+  controller.abort();
+  const cancelled = await classify(view, {
+    model: chatModel,
+    native: false,
+    timeoutSec: 5,
+    signal: controller.signal,
+    client: { complete: late } as any,
+  });
+  assert.deepEqual(cancelled, { verdict: "unsure", reason: "cancelled" });
 });

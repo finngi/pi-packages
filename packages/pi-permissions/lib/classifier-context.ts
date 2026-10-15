@@ -10,7 +10,9 @@ export interface ClassifierView {
   assistantDecision?: { text: string; thinking: string };
 }
 
-const TRANSCRIPT_BYTES = 48 * 1024;
+const TRANSCRIPT_BYTES = 64 * 1024;
+/** Larger calls go to the user: the classifier must see the whole call it approves. */
+export const MAX_CALL_BYTES = 24 * 1024;
 const FIELD_BYTES = 8 * 1024;
 
 const bytes = (text: string) => Buffer.byteLength(text);
@@ -92,7 +94,7 @@ export function classifierTranscript(view: ClassifierView): string {
         ]
       : []),
     `Working directory: ${view.cwd}`,
-    `Tool call: ${view.tool} ${tail(JSON.stringify(view.input), 16 * 1024)}`,
+    `Tool call: ${view.tool} ${JSON.stringify(view.input)}`,
   ];
   let budget = TRANSCRIPT_BYTES - bytes(fixed.join("\n"));
   const users: string[] = [];

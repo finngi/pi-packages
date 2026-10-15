@@ -63,7 +63,9 @@ Native classifier models answer a choice question; chat models reply with a shor
 `timeoutSec` (default 15) limits each request.
 
 The classifier sees your messages in the session, the agent's text and reasoning just before the
-call, the working directory and the call itself. Long sessions are trimmed to the newest messages.
+call, the working directory and the call itself. Long sessions are trimmed to the newest messages, but the call itself is never trimmed: one over
+24 KiB, such as a large `write`, goes to you instead. The timeout holds even if a provider ignores
+cancellation.
 It is told that only your messages say what is wanted. A denial is returned to the agent with the
 classifier's reason, so the agent can change course.
 

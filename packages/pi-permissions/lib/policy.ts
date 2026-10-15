@@ -67,8 +67,12 @@ function parseRule(rule: string) {
     : { tool: rule.slice(0, split), prefix: rule.slice(split + 1).trim() };
 }
 
-const startsWith = (command: string, prefix: string) =>
-  command === prefix || command.startsWith(`${prefix} `);
+// Bash splits words on any run of spaces or tabs, so compare with whitespace collapsed.
+const words = (text: string) => text.trim().replace(/\s+/g, " ");
+const startsWith = (command: string, prefix: string) => {
+  const [a, b] = [words(command), words(prefix)];
+  return a === b || a.startsWith(`${b} `);
+};
 
 /** A single program invocation with no operators, redirects or substitutions. */
 export function plainCommand(command: unknown): string | undefined {
@@ -95,7 +99,7 @@ export function decide(
   // mistakes rather than confine anything: a script can always hide a program name.
   const segments = command
     .split(/&&|\|\||[;&|\n]/)
-    .map((part) => part.trim().replace(/^[({]\s*/, ""))
+    .map((part) => part.trim().replace(/^[({\s]+/, ""))
     .filter(Boolean);
   for (const rule of settings.deny) {
     const { tool: name, prefix } = parseRule(rule);
