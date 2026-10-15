@@ -1,104 +1,114 @@
-import { matches, parseBash, validateMatch } from "./matcher.ts";
-import type { Rule } from "./types.ts";
+export type Mode = "off" | "ask" | "auto";
+export const MODES: readonly Mode[] = ["off", "ask", "auto"];
 
-export interface PermissionPolicy {
-  mode: "off" | "manual" | "auto";
-  deny: Rule[];
-  allow: Rule[];
-  classifier: { model: string; timeoutSec: number };
+export interface PermissionSettings {
+  mode: Mode;
+  /** `provider/id` or bare id of a classifier or chat model. Required for auto mode. */
+  model?: string;
+  timeoutSec: number;
+  allow: string[];
+  deny: string[];
 }
 
-function object(
-  value: unknown,
-  allowed: string[],
-  name: string,
-): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw Error(`${name}: expected object`);
+export interface Decision {
+  verdict: "allow" | "deny" | "ask";
+  reason: string;
+}
+
+export const DEFAULT_ALLOW = ["read", "grep", "find", "ls"];
+export const DEFAULT_SETTINGS: PermissionSettings = {
+  mode: "ask",
+  timeoutSec: 15,
+  allow: DEFAULT_ALLOW,
+  deny: [],
+};
+
+const RULE = /^[a-zA-Z0-9_.-]+(?::\S.*)?$/;
+// Any of these means the command is more than one plain program invocation.
+const SHELL_SYNTAX = /[;&|`$<>\n\r]/;
+
+/** Validate the `permissions` key from Pi's personal settings. */
+export function readSettings(raw: unknown): PermissionSettings {
+  if (raw === undefined) return DEFAULT_SETTINGS;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw Error("permissions: expected an object");
+  const value = raw as Record<string, unknown>;
   for (const key of Object.keys(value))
-    if (!allowed.includes(key)) throw Error(`${name}: unknown key ${key}`);
-}
-
-export function permissionPolicy(value: unknown): PermissionPolicy {
-  object(value, ["mode", "deny", "allow", "classifier"], "permissions");
-  if (!["off", "manual", "auto"].includes(value.mode as string))
-    throw Error("permissions.mode: expected off, manual or auto");
-  const ruleList = (raw: unknown, family: string): Rule[] => {
-    if (raw === undefined) return [];
-    if (!Array.isArray(raw)) throw Error(`${family}: expected array`);
-    return raw.map((item, index) => {
-      const name = `${family}[${index}]`;
-      object(item, ["id", "tool", "match"], name);
-      if (typeof item.tool !== "string" || !/^(?:\*|[a-zA-Z0-9_.:-]+)$/.test(item.tool))
-        throw Error(`${name}.tool: invalid`);
-      if (
-        item.id !== undefined &&
-        (typeof item.id !== "string" || !/^[a-zA-Z0-9._-]+$/.test(item.id))
-      )
-        throw Error(`${name}.id: invalid`);
-      if (item.match !== undefined) {
-        if (item.tool !== "bash") throw Error(`${name}.match: only bash supports command matching`);
-        validateMatch(item.match);
-      }
-      return structuredClone(item) as unknown as Rule;
-    });
+    if (!["mode", "model", "timeoutSec", "allow", "deny"].includes(key))
+      throw Error(`permissions: unknown key ${key}`);
+  const mode = value.mode ?? DEFAULT_SETTINGS.mode;
+  if (!MODES.includes(mode as Mode)) throw Error("permissions.mode: expected off, ask or auto");
+  if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim()))
+    throw Error("permissions.model: expected a model name");
+  const timeoutSec = value.timeoutSec ?? DEFAULT_SETTINGS.timeoutSec;
+  if (typeof timeoutSec !== "number" || !(timeoutSec > 0 && timeoutSec <= 120))
+    throw Error("permissions.timeoutSec: expected 0 < seconds <= 120");
+  const rules = (key: "allow" | "deny", fallback: string[]) => {
+    const list = value[key] ?? fallback;
+    if (!Array.isArray(list)) throw Error(`permissions.${key}: expected a list`);
+    for (const rule of list)
+      if (typeof rule !== "string" || !RULE.test(rule))
+        throw Error(`permissions.${key}: "${String(rule)}" is not "tool" or "tool:prefix"`);
+    return list as string[];
   };
-  const classifier = value.classifier ?? {};
-  object(classifier, ["model", "timeoutSec"], "classifier");
-  const model = classifier.model ?? "openai-codex/gpt-6-luna";
-  const timeoutSec = classifier.timeoutSec ?? 15;
-  if (typeof model !== "string" || !model.trim()) throw Error("classifier.model: expected model");
-  if (
-    typeof timeoutSec !== "number" ||
-    !Number.isFinite(timeoutSec) ||
-    timeoutSec <= 0 ||
-    timeoutSec > 120
-  )
-    throw Error("classifier.timeoutSec: expected 0 < seconds <= 120");
   return {
-    mode: value.mode as PermissionPolicy["mode"],
-    deny: ruleList(value.deny, "deny"),
-    allow: ruleList(value.allow, "allow"),
-    classifier: { model, timeoutSec },
+    mode: mode as Mode,
+    ...(typeof value.model === "string" ? { model: value.model.trim() } : {}),
+    timeoutSec,
+    allow: rules("allow", DEFAULT_ALLOW),
+    deny: rules("deny", []),
   };
 }
 
-export function permissionRule(
+function parseRule(rule: string) {
+  const split = rule.indexOf(":");
+  return split < 0
+    ? { tool: rule, prefix: undefined }
+    : { tool: rule.slice(0, split), prefix: rule.slice(split + 1).trim() };
+}
+
+const startsWith = (command: string, prefix: string) =>
+  command === prefix || command.startsWith(`${prefix} `);
+
+/** A single program invocation with no operators, redirects or substitutions. */
+export function plainCommand(command: unknown): string | undefined {
+  if (typeof command !== "string") return undefined;
+  const trimmed = command.trim();
+  return trimmed && !SHELL_SYNTAX.test(trimmed) ? trimmed : undefined;
+}
+
+/** The rule "Allow for this session" would add, if the call can be described by one. */
+export function sessionRule(tool: string, input: Record<string, unknown>): string | undefined {
+  if (tool !== "bash") return tool;
+  const program = plainCommand(input.command)?.split(/\s+/)[0];
+  return program ? `bash:${program}` : undefined;
+}
+
+/** Apply deny rules, then allow rules. Anything unmatched is left to the mode. */
+export function decide(
   tool: string,
   input: Record<string, unknown>,
-  policy: PermissionPolicy,
-): { verdict: "allow" | "deny" | "ask"; reason: string } {
-  if (policy.mode === "off")
-    return { verdict: "allow", reason: "permission checks disabled explicitly" };
-  const applies = (rule: Rule) => rule.tool === tool || rule.tool === "*";
-  const parsed = tool === "bash" ? parseBash(input.command) : undefined;
-  for (const [index, rule] of policy.deny.entries()) {
-    if (
-      applies(rule) &&
-      (!rule.match ||
-        !Object.keys(rule.match).length ||
-        parsed?.stages.some((stage) => matches(rule, stage, true)))
-    )
-      return { verdict: "deny", reason: `deny rule ${rule.id ?? `deny[${index}]`}` };
+  settings: Pick<PermissionSettings, "allow" | "deny">,
+): Decision {
+  const command = tool === "bash" && typeof input.command === "string" ? input.command.trim() : "";
+  // Deny prefixes are checked against each command in a simple chain. They guard against
+  // mistakes rather than confine anything: a script can always hide a program name.
+  const segments = command
+    .split(/&&|\|\||[;&|\n]/)
+    .map((part) => part.trim().replace(/^[({]\s*/, ""))
+    .filter(Boolean);
+  for (const rule of settings.deny) {
+    const { tool: name, prefix } = parseRule(rule);
+    if (name !== tool) continue;
+    if (prefix === undefined || segments.some((segment) => startsWith(segment, prefix)))
+      return { verdict: "deny", reason: `denied by rule "${rule}"` };
   }
-  const allowed = policy.allow.filter(applies);
-  if (
-    parsed?.opaque &&
-    policy.deny.some((rule) => rule.tool === "bash" && rule.match && Object.keys(rule.match).length)
-  )
-    return { verdict: "ask", reason: `cannot establish command deny rules: ${parsed.reason}` };
-  if (allowed.some((rule) => !rule.match || !Object.keys(rule.match).length))
-    return { verdict: "allow", reason: "allow rule" };
-  // The existing parser inspects nested commands for denies; only closed literal commands can auto-allow.
-  if (
-    parsed &&
-    !parsed.opaque &&
-    !parsed.writes &&
-    parsed.stages.every((stage) => allowed.some((rule) => matches(rule, stage, false)))
-  )
-    return { verdict: "allow", reason: "every command matched an allow rule" };
-  return {
-    verdict: "ask",
-    reason: parsed?.opaque ? parsed.reason : "no allow rule matched the complete action",
-  };
+  const plain = tool === "bash" ? plainCommand(command) : undefined;
+  for (const rule of settings.allow) {
+    const { tool: name, prefix } = parseRule(rule);
+    if (name !== tool) continue;
+    if (prefix === undefined || (plain && startsWith(plain, prefix)))
+      return { verdict: "allow", reason: `allowed by rule "${rule}"` };
+  }
+  return { verdict: "ask", reason: "no rule matched" };
 }

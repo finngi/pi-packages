@@ -1,182 +1,227 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Usage } from "@earendil-works/pi-ai";
 import {
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
+  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
   CHILD_LAUNCH_CONTRIBUTIONS,
   type ChildLaunchContributionRequest,
-  HUMAN_INPUT,
-  type HumanInput,
   USAGE_EVENT,
 } from "pi-contracts";
 import { installAccounting } from "pi-runtime/accounting";
 import { classify } from "../lib/classifier.ts";
 import { assistantDecisionBeforeTool, recentUserMessages } from "../lib/classifier-context.ts";
-import { type PermissionPolicy, permissionPolicy, permissionRule } from "../lib/policy.ts";
+import {
+  DEFAULT_SETTINGS,
+  decide,
+  MODES,
+  type Mode,
+  type PermissionSettings,
+  readSettings,
+  sessionRule,
+} from "../lib/policy.ts";
 
-/** Native tool-call gate; approved tools retain ordinary host access. */
+const MODE_ENTRY = "pi-permissions.mode";
+const CHILD_ENV = "PI_CHILD_EXTENSION_PERMISSIONS";
+
+/** Checks each tool call against rules, then asks the user or a classifier model. */
 export default function permissions(pi: ExtensionAPI) {
   installAccounting(pi);
-  pi.registerFlag("permissions-policy", {
-    type: "string",
-    description: "Trusted permission policy JSON (default: user agent directory/permissions.json)",
-  });
-  let policy: PermissionPolicy | undefined;
-  let context: ExtensionContext | undefined;
-  let inheritedUsers: string[] | undefined;
-  let failure = "not initialized";
-  let epoch = 0;
-  let queue: Promise<unknown> = Promise.resolve();
   const childSession = process.env.PI_SUBAGENT === "1";
-  const userMessages = (ctx: ExtensionContext) =>
-    childSession ? (inheritedUsers ?? []) : recentUserMessages(ctx.sessionManager.getBranch());
-  pi.events.on(HUMAN_INPUT, (value) => {
-    const input = value as HumanInput;
-    if (
-      childSession ||
-      input?.version !== 1 ||
-      input.sessionId !== context?.sessionManager.getSessionId() ||
-      typeof input.message !== "string"
-    )
-      return;
+  let settings: PermissionSettings = DEFAULT_SETTINGS;
+  let mode: Mode = DEFAULT_SETTINGS.mode;
+  let sessionAllow: string[] = [];
+  let rootUserMessages: string[] | undefined;
+  // Bumped on every user message so an approval in flight cannot outlive a change of mind.
+  let epoch = 0;
+  let prompts: Promise<unknown> = Promise.resolve();
+
+  const showMode = (ctx: ExtensionContext) =>
+    ctx.ui.setStatus?.("pi-permissions", `permissions: ${mode}`);
+  const block = (reason: string) => ({ block: true as const, reason: `pi-permissions: ${reason}` });
+
+  pi.on("session_start", async (_event, ctx) => {
     epoch++;
-    pi.appendEntry("pi-permissions.human-input.v1", { message: input.message });
+    sessionAllow = [];
+    rootUserMessages = undefined;
+    const inherited = childSession ? process.env[CHILD_ENV] : undefined;
+    try {
+      if (inherited) {
+        const value = JSON.parse(inherited);
+        settings = readSettings(value.settings);
+        rootUserMessages = Array.isArray(value.userMessages)
+          ? value.userMessages.filter((text: unknown) => typeof text === "string")
+          : [];
+      } else {
+        const global = SettingsManager.create(ctx.cwd, getAgentDir()).getGlobalSettings();
+        settings = readSettings((global as { permissions?: unknown }).permissions);
+      }
+    } catch (error) {
+      settings = DEFAULT_SETTINGS;
+      const message = error instanceof Error ? error.message : String(error);
+      if (ctx.hasUI) ctx.ui.notify(`pi-permissions: ${message}; using ask mode`, "warning");
+    }
+    mode = settings.mode;
+    // A mode chosen with /permissions earlier in this session survives resume.
+    for (const entry of ctx.sessionManager.getBranch() as any[])
+      if (
+        entry?.type === "custom" &&
+        entry.customType === MODE_ENTRY &&
+        MODES.includes(entry.data?.mode)
+      )
+        mode = entry.data.mode;
+    if (mode === "auto" && !settings.model && ctx.hasUI)
+      ctx.ui.notify(
+        "pi-permissions: auto mode needs permissions.model; unsure calls will ask",
+        "warning",
+      );
+    showMode(ctx);
   });
+
+  pi.on("input", () => {
+    epoch++;
+  });
+
+  pi.registerCommand("permissions", {
+    description: "Show or set how tool calls are approved: off, ask or auto",
+    async handler(args, ctx) {
+      const requested = args.trim();
+      if (!requested) {
+        const lines = [
+          `Mode: ${mode}${mode === "auto" ? ` (${settings.model ?? "no model configured"})` : ""}`,
+          `Allow: ${[...settings.allow, ...sessionAllow].join(", ") || "none"}`,
+          `Deny: ${settings.deny.join(", ") || "none"}`,
+        ];
+        ctx.ui.notify(lines.join("\n"), "info");
+        return;
+      }
+      if (!MODES.includes(requested as Mode)) {
+        ctx.ui.notify("Usage: /permissions [off|ask|auto]", "warning");
+        return;
+      }
+      mode = requested as Mode;
+      pi.appendEntry(MODE_ENTRY, { mode });
+      showMode(ctx);
+      ctx.ui.notify(`Permissions: ${mode} for this session`, "info");
+    },
+  });
+
   pi.events.on(CHILD_LAUNCH_CONTRIBUTIONS, (value) => {
     const request = value as ChildLaunchContributionRequest;
     if (request?.version !== 1) return;
-    if (!policy) {
-      request.reject(`pi-permissions: ${failure}`);
-      return;
-    }
+    const userMessages =
+      rootUserMessages ?? recentUserMessages(request.ctx.sessionManager.getBranch());
     request.contribute({
       extension: fileURLToPath(import.meta.url),
       env: {
-        PI_CHILD_EXTENSION_PERMISSIONS: JSON.stringify({
-          policy,
-          userMessages: userMessages(request.ctx),
+        [CHILD_ENV]: JSON.stringify({
+          settings: { ...settings, mode, allow: [...settings.allow, ...sessionAllow] },
+          userMessages,
         }),
       },
     });
   });
-  pi.on("input", () => {
-    epoch++;
-  });
-  pi.on("session_start", async (_event, ctx) => {
-    context = ctx;
-    epoch++;
-    policy = undefined;
-    inheritedUsers = undefined;
-    const file = pi.getFlag("permissions-policy") || path.join(getAgentDir(), "permissions.json");
-    try {
-      const inherited = childSession && process.env.PI_CHILD_EXTENSION_PERMISSIONS;
-      if (inherited) {
-        const value = JSON.parse(inherited);
-        if (
-          !Array.isArray(value?.userMessages) ||
-          value.userMessages.some((text: unknown) => typeof text !== "string")
-        )
-          throw Error("inherited user messages must be strings");
-        policy = permissionPolicy(value.policy);
-        inheritedUsers = value.userMessages;
-      } else {
-        policy = permissionPolicy(JSON.parse(await readFile(String(file), "utf8")));
-      }
-    } catch (error) {
-      failure = `cannot load ${file}: ${error instanceof Error ? error.message : String(error)}`;
-    }
-  });
-  pi.on("tool_call", async (event, ctx) => {
-    const deny = (reason: string) => ({
-      block: true as const,
-      reason: `pi-permissions: ${reason}`,
-    });
-    if (!policy) return deny(failure);
-    const decision = permissionRule(event.toolName, event.input, policy);
-    if (decision.verdict === "deny") return deny(decision.reason);
-    if (decision.verdict === "allow") return;
-    const startedEpoch = epoch;
-    if (policy.mode === "manual") {
-      if (!ctx.hasUI)
-        return deny(
-          "manual approval requires an approval-capable client; configure auto mode when no approval UI is available",
-        );
-      const approve = async () => {
-        if (startedEpoch !== epoch)
-          return deny("user instructions changed before approval; retry the action");
-        const answer = await ctx.ui.select(
-          `Allow ${event.toolName}?\n${JSON.stringify(event.input)}`,
-          ["Allow once", "Deny"],
-          { signal: ctx.signal },
-        );
-        return answer === "Allow once" && startedEpoch === epoch
-          ? undefined
-          : deny("approval denied, cancelled, or superseded by new user instructions");
-      };
-      const result = queue
-        .then(approve)
-        .catch(() => deny("manual approval UI failed; action blocked"));
-      queue = result.catch(() => undefined);
-      return result;
-    }
-    const registry = ctx.modelRegistry;
-    const requested = policy.classifier.model;
-    const matches = (model: { id: string; provider: string }) =>
-      model.id === requested || `${model.provider}/${model.id}` === requested;
-    const native = registry.getModelsOfType("classifier").find(matches);
-    const model = native ?? registry.getAll().find(matches);
-    if (!model)
-      return deny(
-        `classifier model ${requested} is unavailable; configure an available model or add an allow rule`,
+
+  const askUser = (
+    ctx: ExtensionContext,
+    toolName: string,
+    input: Record<string, unknown>,
+    note: string,
+  ) => {
+    const started = epoch;
+    const run = async () => {
+      if (started !== epoch) return block("a new user message arrived; retry the call");
+      const rule = sessionRule(toolName, input);
+      const always =
+        rule &&
+        `Allow ${rule.startsWith("bash:") ? `"${rule.slice(5)}" commands` : toolName} for this session`;
+      const detail = toolName === "bash" ? String(input.command) : JSON.stringify(input, null, 2);
+      const answer = await ctx.ui.select(
+        `${note ? `${note}\n\n` : ""}Allow ${toolName}?\n${detail}`,
+        ["Allow once", ...(always ? [always] : []), "Deny"],
+        { signal: ctx.signal },
       );
+      if (started !== epoch) return block("a new user message arrived; retry the call");
+      if (answer === always && rule) {
+        sessionAllow.push(rule);
+        return undefined;
+      }
+      return answer === "Allow once" ? undefined : block("the user denied this call");
+    };
+    // One dialog at a time when the model makes parallel calls.
+    const result = prompts.then(run).catch(() => block("the approval prompt failed"));
+    prompts = result.catch(() => undefined);
+    return result;
+  };
+
+  const classifierModel = (ctx: ExtensionContext) => {
+    const wanted = settings.model;
+    if (!wanted) return undefined;
+    const matches = (model: { id: string; provider: string }) =>
+      model.id === wanted || `${model.provider}/${model.id}` === wanted;
+    const native = ctx.modelRegistry.getModelsOfType("classifier").find(matches);
+    if (native) return { model: native, native: true };
+    const chat = ctx.modelRegistry.getAll().find(matches);
+    return chat ? { model: chat, native: false } : undefined;
+  };
+
+  pi.on("tool_call", async (event, ctx) => {
+    if (mode === "off") return;
+    const input = event.input as Record<string, unknown>;
+    const rules = decide(event.toolName, input, {
+      allow: [...settings.allow, ...sessionAllow],
+      deny: settings.deny,
+    });
+    if (rules.verdict === "deny") return block(rules.reason);
+    if (rules.verdict === "allow") return;
+
+    const fallBack = (note: string) =>
+      ctx.hasUI
+        ? askUser(ctx, event.toolName, input, note)
+        : block(`${note}; no one is available to ask`);
+    if (mode === "ask") return fallBack("");
+
+    const found = classifierModel(ctx);
+    if (!found)
+      return fallBack(`Classifier model ${settings.model ?? "(not configured)"} is unavailable`);
+    const started = epoch;
     const entries = ctx.sessionManager.getBranch();
-    const users = userMessages(ctx);
     const sessionId = ctx.sessionManager.getSessionId();
     const receiptId = `${sessionId}:classifier:${randomUUID()}`;
-    const receipt = (usage?: import("@earendil-works/pi-ai").Usage) => {
-      pi.events.emit(USAGE_EVENT, {
-        id: receiptId,
-        ownerSessionId: sessionId,
-        kind: "classifier",
-        source: sessionId,
-        label: requested,
-        model: requested,
-        usage,
-      });
-    };
     const result = await classify(
       {
         tool: event.toolName,
-        input: event.input,
+        input,
         cwd: ctx.cwd,
-        userMessages: users,
+        userMessages: rootUserMessages ?? recentUserMessages(entries),
         ...(childSession ? { childTask: recentUserMessages(entries).join("\n\n") } : {}),
         assistantDecision: assistantDecisionBeforeTool(entries, event),
       },
       {
-        model,
-        timeoutSec: policy.classifier.timeoutSec,
+        ...found,
+        client: ctx.modelRegistry,
+        timeoutSec: settings.timeoutSec,
         signal: ctx.signal,
-        client: native
-          ? { classify: registry.classify.bind(registry) }
-          : { complete: registry.complete.bind(registry) },
+        onUsage: (usage?: Usage) =>
+          pi.events.emit(USAGE_EVENT, {
+            id: receiptId,
+            ownerSessionId: sessionId,
+            kind: "classifier",
+            source: sessionId,
+            label: settings.model,
+            model: settings.model,
+            usage,
+          }),
       },
-      receipt,
     );
-    if (result.reasonCode === "oversize")
-      return deny(
-        "classifier context exceeds 64 KiB; use manual approval or start a new session with the current request",
-      );
-    if (startedEpoch !== epoch)
-      return deny("user instructions changed during classification; retry the action");
-    if (result.verdict !== "allow")
-      return deny(
-        `classifier ${result.reasonCode}${result.note ? `: ${result.note}` : "; check the configured model, provider authentication, and user request"}`,
-      );
+    if (started !== epoch) return block("a new user message arrived; retry the call");
+    if (result.verdict === "allow") return;
+    if (result.verdict === "deny")
+      return block(`the classifier blocked this call${result.reason ? `: ${result.reason}` : ""}`);
+    return fallBack(`The classifier was unsure${result.reason ? `: ${result.reason}` : ""}`);
   });
 }

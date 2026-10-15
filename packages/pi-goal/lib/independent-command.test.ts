@@ -359,7 +359,6 @@ test("pinned Pi CLI start alone dispatches its objective as a native user messag
     contextWindow: 8192,
     maxTokens: 128,
   };
-  const humanIntents: any[] = [];
   let providerCalls = 0;
   let handler: ((args: string, ctx: any) => Promise<unknown>) | undefined;
   let commandContext: any;
@@ -409,7 +408,6 @@ test("pinned Pi CLI start alone dispatches its objective as a native user messag
       },
     });
     const captureCommand = (pi: any) => {
-      pi.events.on("pi:human-input:v1", (value: any) => humanIntents.push(value));
       const registerCommand = pi.registerCommand.bind(pi);
       pi.registerCommand = (name: string, command: any) => {
         if (name === "goal") handler = command.handler;
@@ -453,13 +451,6 @@ test("pinned Pi CLI start alone dispatches its objective as a native user messag
       attempt++
     )
       await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.deepEqual(humanIntents, [
-      {
-        version: 1,
-        sessionId: session.sessionManager.getSessionId(),
-        message: "initial objective",
-      },
-    ]);
     assert.equal(
       providerCalls,
       1,

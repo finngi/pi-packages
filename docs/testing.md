@@ -22,7 +22,7 @@ while developing; run the combined checks before merging a cross-package migrati
 | Resources/context tests | Native filters, session/project/global selection, project trust, prompt separation and resume |
 | Background tests | Actual managed commands, output cursors, cancellation and process ownership |
 | Search tests | Native registry auth, scripted HTTP, citations, usage and abort/error handling |
-| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule precedence, constrained classifier output, genuine user context, native hooks and block-before-write |
+| Permissions tests + `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and blocking before a write on stock Pi |
 | Goal tests | Independent scripted evaluator, deadlines/budgets, stop/resume, wait delivery and accounting |
 | `test:packages` | Packs and installs all ten packages in a fresh consumer; native entrypoints and compiled child tooling work without checkout resolution |
 | `test:e2e` | Native context, child tools, jobs, permissions and installed-consumer workflows |

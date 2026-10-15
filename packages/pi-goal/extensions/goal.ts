@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { HUMAN_INPUT, USAGE_EVENT } from "pi-contracts";
+import { USAGE_EVENT } from "pi-contracts";
 import { installAccounting } from "pi-runtime/accounting";
 import { MAX_NODE_TIMER_DELAY_MS } from "pi-runtime/timers";
 import { newSemanticId } from "pi-runtime/semantic-id";
@@ -889,11 +889,6 @@ export default function (pi: ExtensionAPI) {
           automaticDisarmed
         )
           return;
-        pi.events.emit(HUMAN_INPUT, {
-          version: 1,
-          sessionId: ctx.sessionManager.getSessionId(),
-          message: authorized.objective,
-        });
         pi.sendUserMessage(
           command === "resume"
             ? `Resume the authorized goal: ${authorized.objective}`

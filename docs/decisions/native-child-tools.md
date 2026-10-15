@@ -21,8 +21,8 @@ and OAuth refresh. A symlink under each child directory was
 rejected because the native lock is based on the path, so different links can race token rotation.
 Resolved credential snapshots and fallback streaming adapters are removed. Native providers use
 native configuration and auth; custom callback providers require their trusted extension entrypoint.
-The optional permission gate contributes its entrypoint, policy and genuine user messages through
-the trusted child-launch event, independently of selected tool provenance.
+The optional permission package contributes its entrypoint, settings and the parent's user
+messages through the trusted child-launch event, independently of selected tool provenance.
 
 Each child owns its managed jobs. Reuse Bash's existing managed-process path for `background:true`
 in headless sessions. Keep native tool usage and the existing RPC statistics reconciliation; do not

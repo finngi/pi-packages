@@ -247,8 +247,8 @@ Implementation and checks: [agent discovery](../../packages/pi-delegation/lib/su
 
 ## Permission review in child sessions
 
-Children use the same native launcher and ordinary host permissions. When the parent loads the
-optional gate, its trusted policy and genuine root-user messages accompany child initialization.
-Worker-authored tasks remain distinct from user authorization. Allow rules skip classification;
-deny rules block; unmatched calls use the inherited review mode. Manual clients must be capable
-of answering approval requests. See [permissions](../../packages/pi-permissions/README.md).
+Children use the same native launcher and ordinary host permissions. When the parent loads
+`pi-permissions`, each new child gets the parent's current mode and rules, including anything
+allowed for the session, plus the parent's user messages. The classifier sees the child's task as
+the parent agent's words, not the user's. Approval prompts from a child appear in the parent's UI;
+a headless parent blocks them. See [permissions](../../packages/pi-permissions/README.md).

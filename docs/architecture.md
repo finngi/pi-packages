@@ -55,10 +55,9 @@ and missing-usage explanations. See [accounting](accounting.md).
 
 ## Optional permissions
 
-`pi-permissions` is a before-tool gate. Explicit deny rules precede allow rules; unmatched actions
-ask the human or configured classifier. It leaves Pi's file, process, GPU and network access at
-ordinary host permissions. The selected gate contributes its trusted configuration and genuine
-user context to child launches.
+`pi-permissions` checks each tool call before it runs. Deny rules win, then allow rules; anything
+else is left to the mode: run it, ask you, or ask a classifier model. Calls that run keep Pi's
+normal host access. Child agents receive the parent's settings and user messages at launch.
 See [the permission package](../packages/pi-permissions/README.md).
 
 ## Resources

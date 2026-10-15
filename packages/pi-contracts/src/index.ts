@@ -5,7 +5,6 @@ export const BACKGROUND_SERVICE = "background:service";
 export const CHILD_CONTEXT = "pi-subagents:context:v1";
 export const USAGE_EVENT = "pi-runtime:usage:v1";
 /** Trusted extensions forward human slash-command intent; model tool inputs must never emit this. */
-export const HUMAN_INPUT = "pi:human-input:v1";
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
@@ -75,12 +74,6 @@ export interface SessionSetupRequest {
   instructions?: string[];
   tools?: string[];
 }
-export interface HumanInput {
-  version: 1;
-  sessionId: string;
-  message: string;
-}
-
 /** Trusted hook-only extensions may join an explicitly prepared child launch. */
 export const CHILD_LAUNCH_CONTRIBUTIONS = "pi-child-launch:contribute:v1";
 export interface ChildLaunchContribution {

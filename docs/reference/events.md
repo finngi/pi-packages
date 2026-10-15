@@ -14,8 +14,8 @@ The process remains session-owned when a foreground wait yields.
 ## Child launch contributions
 
 A trusted loaded extension can contribute its child entrypoint and initialization data through
-`pi-child-launch:contribute:v1`. The optional permission gate uses this to carry its policy and
-genuine root-user context. Model task text cannot register a contribution.
+`pi-child-launch:contribute:v1`. `pi-permissions` uses this to pass its settings and the parent's user
+messages. Model task text cannot register a contribution.
 
 ## Goal services
 
@@ -40,9 +40,8 @@ Pi 1.1's `tool_execution_end.durationMs` measures the tool's `execute()` call. F
 
 These use `extension_ui_request`/`extension_ui_response` as protocol frames handled by trusted code. Messaging and usage frames are not displayed as human approval questions. `message.delivered` records handoff to Pi or an RPC acknowledgement; Pi may still queue it. It does not establish that a model read the content or accepted a changed task. Root message receipts do not wait for a recipient's answer, avoiding a circular parent/child wait.
 
-Permission review happens in the selected gate before tool execution. Agent dialogue is never
-promoted into human authorization. Manual review requires an approval-capable client; automatic
-mode uses the configured classifier. See [permissions](../../packages/pi-permissions/README.md).
+`pi-permissions` checks calls before they run. Messages between agents never count as user
+instructions. Approval prompts need a client that can show them; otherwise the call is blocked. See [permissions](../../packages/pi-permissions/README.md).
 
 ## Message and response delivery
 
@@ -130,10 +129,6 @@ evaluator's responsibility.
 Leave support negotiation enabled unless configuring a terminal that explicitly supports the
 protocol. `PI_PROGRAM_STATUS=0` disables reports; `PI_PROGRAM_STATUS=1` forces them. See Pi's
 [program-status reference](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/terminal-setup.md#program-status).
-
-## Human command intent
-
-`pi:human-input:v1` carries `{version: 1, sessionId, message}` from trusted extensions that submit a human slash command as a user message. Goal start, edit and resume send the authorized objective through this channel before dispatch. The optional permission gate uses it as classifier context and passes genuine intent to child review. It accepts only the current parent session; child messages and model tool inputs do not establish human intent.
 
 ## Saved child instructions
 

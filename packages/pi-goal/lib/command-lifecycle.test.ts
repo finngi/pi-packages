@@ -493,12 +493,7 @@ test("resume restarts a restored active goal as a normal user message", async ()
   assert.equal(f.current().disarmed, false);
   assert.deepEqual(f.userMessages, [`Resume the authorized goal: ${restored.objective}`]);
   assert.deepEqual(f.userMessageOptions, [{ deliverAs: "followUp", expandPromptTemplates: false }]);
-  assert.deepEqual(f.emittedEvents, [
-    {
-      name: "pi:human-input:v1",
-      value: { version: 1, sessionId: "fixture", message: restored.objective },
-    },
-  ]);
+  assert.deepEqual(f.emittedEvents, []);
 });
 
 test("resume does not fence or duplicate an already-running active goal", async () => {
