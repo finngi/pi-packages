@@ -43,8 +43,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "pi-runtime": "0.1.0",
-    "pi-resource-browser": "0.1.0"
+    "pi-resource-browser": "0.1.0",
+    "pi-resources": "0.1.0",
+    "pi-contracts": "0.1.0"
   },
   "repository": {
     "type": "git",

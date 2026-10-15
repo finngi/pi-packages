@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { PreparedChild } from "pi-contracts";
-import { collectArtifacts } from "../src/artifacts.ts";
+import { collectArtifacts } from "./artifacts.ts";
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "pi-artifacts-"));

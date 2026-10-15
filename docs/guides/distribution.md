@@ -33,9 +33,17 @@ npm run test:packages
 ```
 
 `pack` builds ten tarballs in `.artifacts/packages`: seven extensions and three shared libraries.
-It does not publish. Each includes emitted JavaScript, declarations, README and licenses. Install
-required extension tarballs with their declared library dependencies. `test:packages` installs all
-ten in a fresh consumer, loads each through native Pi and exercises compiled child tools.
+It does not publish. Each includes emitted JavaScript, declarations, README and licenses. Each extension artifact bundles the unpublished workspace dependencies it declares using npm's
+`bundleDependencies`. Install just that artifact alongside stock Pi; npm resolves ordinary public
+dependencies and host peers. No sibling tarball preinstallation or custom package installer is
+required. Bundled dependencies remain ordinary libraries and do not activate sibling extensions.
+
+`test:packages` installs one extension artifact into each fresh stock-Pi consumer, verifies that
+only its entrypoint activates, and exercises the package's actual behavior. A separate combined
+integration check exercises compiled child tools across packages. Sharing a download cache is
+allowed; sharing the consumers' `node_modules` is not. The three helper artifacts are ordinary
+npm libraries, verified through their public APIs; they are not registered as Pi extensions.
+Nothing is published by these checks.
 
 Git checkouts can execute TypeScript helper sources with Node 24. Installed packages execute emitted JavaScript helpers from `node_modules`. See [package dependencies and SDK pins](../reference/packages.md).
 

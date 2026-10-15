@@ -1,7 +1,7 @@
 import { type Dirent, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
-import { readResourceFile, withinResourceRoot } from "pi-runtime";
+import { readResourceFile, withinResourceRoot } from "pi-resources/discovery";
 import { parseContext } from "./context.ts";
 import type { ContextSetting } from "./context.ts";
 

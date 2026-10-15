@@ -7,7 +7,7 @@ import * as sdk from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
 import { setKittyProtocolActive, stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { ResourceBrowser } from "pi-resource-browser";
-import { sessionSetupService, type SessionSetupService } from "pi-runtime";
+import { sessionSetupService, type SessionSetupService } from "pi-resources/session-setup";
 import resources from "../extensions/resources.ts";
 import context from "../../pi-context/extensions/context.ts";
 import delegation from "../../pi-delegation/extensions/subagent.ts";

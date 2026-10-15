@@ -18,7 +18,7 @@ import {
   discoverResourcePackages,
   readResourcePackage,
   resourcePackageKeywords,
-} from "../src/resource-packages.ts";
+} from "../lib/resource-packages.ts";
 const put = (path: string, body: string) => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, body);
@@ -217,7 +217,7 @@ test("the read cap holds when a regular file grows after its descriptor was insp
       import assert from "node:assert/strict";
       import fs from "node:fs";
       import {syncBuiltinESMExports} from "node:module";
-      import {readResourceFile} from ${JSON.stringify(new URL("../src/resource-packages.ts", import.meta.url).href)};
+      import {readResourceFile} from ${JSON.stringify(new URL("../lib/resource-packages.ts", import.meta.url).href)};
       const initial=fs.fstatSync;
       fs.fstatSync=(fd)=>{const info=initial(fd);fs.appendFileSync(${JSON.stringify(file)},Buffer.alloc(1024*1024+1));return info;};
       syncBuiltinESMExports();

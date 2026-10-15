@@ -6,7 +6,7 @@ import type {
   ExtensionContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { prepareChildProvider } from "pi-runtime";
+import { prepareChildProvider } from "../../pi-delegation/lib/subagent/child-provider.ts";
 import { GoalAdmission } from "./continuation.ts";
 import { GoalRequests } from "./usage.ts";
 

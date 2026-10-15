@@ -32,7 +32,7 @@ Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the re
 
 Parents can select an authenticated worker with `subagent({agent: "general-purpose", task: "…", model: "openai-codex/gpt-6-luna:low"})` when the definition omits `model` or sets it to `inherit`. An explicit definition model is a user pin; conflicting requests fail before launch. Worker-model selection does not change the optional permission classifier. See [configuration](../../docs/reference/configuration.md#agent-definitions) and [permission review](../../docs/guides/delegation.md#permission-review-in-child-sessions).
 
-Native [resource packages](../pi-runtime/README.md) add opt-in public skills and agents to the same
+Native [resource packages](../pi-resources/README.md) add opt-in public skills and agents to the same
 pickers. Package agents are inactive when selection is omitted; their bundle-owned skills and scripts
 remain child-private. Selection does not grant tools or permissions. Existing native skill package
 loading is unchanged.
@@ -59,3 +59,9 @@ Children resolve credentials through Pi's native auth/models/store files, includ
 The optional `pi-permissions` package passes its settings and the parent's user messages to each child. The classifier treats the child's task as the parent agent's words, not the user's. Approval prompts from a child use native RPC and appear in the parent's UI with the child's name; a headless parent, cancellation or stale session blocks the call. The package checks tool calls; it does not confine processes.
 
 Live MCP connections are not transferred to children. The capability preview states this limit; requesting an unavailable MCP tool fails before launch. Native child extension entrypoints are supported.
+
+Child bootstrap, native provider configuration, bundle/skill staging and artifact retention are
+owned here. `pi-delegation/child-rpc` is the prepared child entrypoint;
+`pi-delegation/child-resources` exports resource preparation without activating delegation.
+Resource selection imports use `pi-resources` library subpaths; importing them does not enable
+the resources extension. Shared `pi-runtime` helpers are limited to processes and accounting.
