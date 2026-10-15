@@ -33,7 +33,7 @@ its own fresh project and exercise what it actually does.
 
 ## Versions
 
-Tested with Node 24, Pi coding-agent, AI, TUI and MCP 1.2.0, TypeScript 5.9.3 and Biome 2.3.5. Pi
+Tested with Node 24, Pi coding-agent, AI, TUI and MCP 1.2.0, TypeScript 7.0.2 and Biome 2.3.5. Pi
 modules are peer dependencies with `*` ranges, which does not promise every Pi release works. The
 manifests and root lockfile hold the exact versions. Run the installed-package checks when you
 change entrypoints or dependencies.
