@@ -79,6 +79,9 @@ test("an empty tools or skills list is kept, an absent one is not", () => {
   assert.deepEqual(withFields({ tools: [], skills: "" }).tools, []);
   assert.deepEqual(withFields({ skills: "" }).skills, []);
   assert.equal(withFields({ tools: null }).tools, undefined);
+  assert.deepEqual(withFields({ skills: "*" }).skills, ["*"]);
+  assert.deepEqual(withFields({ skills: ["*"] }).skills, ["*"]);
+  assert.throws(() => withFields({ skills: ["*", "named"] }), /use "\*" alone/);
 });
 
 test("bad field values make the agent unusable with a reason", () => {

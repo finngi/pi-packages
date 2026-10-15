@@ -32,3 +32,14 @@ Tests exercise actual child processes: inherited and narrowed tools, independent
 search, background launch/read/cancel, shutdown, native authentication refresh locking, package
 settings ignored at startup and repeated usage reconciliation. No extra live model calls are needed
 to establish these launch and accounting properties.
+
+## Guidance scopes
+
+Children resolve saved personal/project skill and instruction choices independently of the
+parent's temporary session selections. The agent bundle supplies the child's specific behavior
+and private skills. Copying the parent's rendered instruction section was simpler initially, but it made a
+parent's temporary choice silently change specialist workers. Reuse native resolved skill paths
+and saved selection helpers; the optional context provider renders only saved instructions.
+Agent metadata may explicitly select available native skills, so shared skills remain reusable
+without becoming an implicit dependency on the parent's current selection. Existing children
+retain their launch snapshot; tools and permission hooks keep their separate launch rules.

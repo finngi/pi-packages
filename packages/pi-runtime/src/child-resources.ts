@@ -313,7 +313,7 @@ const xml = (value: string) =>
     .replaceAll('"', "&quot;");
 export async function installChildResources(resources: ChildResources, directory: string) {
   const instructions = path.join(directory, "instructions.md");
-  let instructionText = resources.instructions;
+  let instructionText = "";
   if (resources.staticContext?.files.length) {
     const contextDir = path.join(directory, "context");
     await mkdir(contextDir, { mode: 0o700 });
@@ -331,6 +331,7 @@ export async function installChildResources(resources: ChildResources, directory
   }
   if (resources.staticContext?.instructions)
     instructionText += `\n\n<instructions>\n${resources.staticContext.instructions}\n</instructions>`;
+  instructionText += `\n\n${resources.instructions}`;
   const skillPaths = [];
   let stagedBundle: string | undefined;
   if (resources.agentBundle) {

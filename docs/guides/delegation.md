@@ -38,7 +38,7 @@ Only flat root `*.md` files and immediate `<name>/<name>.md` entrypoints are dis
 
 Use `/agents trust /absolute/project/directory` to grant interactive, session-only trust to a discovered ancestor level. Project trust saved by Pi is also recognized. User-directory definitions are loaded after trusted project levels. The home source directory `~/.agents/agents` is excluded from project levels because shared configuration tooling can deploy it to the user directory.
 
-`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. The optional `pi-resources` extension owns `/skills`, filters the parent's advertised skills and manual `/skill:name` invocation, and supplies the public selection inherited by children. Without it, delegation inherits Pi's native loaded skills. Private bundle skills remain child resources.
+`/agents enable NAME`, `/agents disable NAME`, `/agents none`, `/agents all`, and `/agents inherit` control the trusted agent selection for this session. A filtered-out agent cannot be launched by guessing its name. `/skills` supports the same actions for public skills. The optional `pi-resources` extension owns `/skills`, filters the parent's advertised skills and manual `/skill:name` invocation, and controls the parent session's public skill selection. Children independently resolve saved personal/project choices from Pi's native loaded skills. Private bundle skills remain child resources.
 
 ## Browse project resources
 
@@ -47,7 +47,7 @@ Use `/agents trust /absolute/project/directory` to grant interactive, session-on
 - Ctrl+S saves project defaults in trusted `.pi/settings.json`.
 - Ctrl+Shift+S saves personal defaults for new sessions across projects, excluding project-only resources.
 
-The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. Explicit project choices override personal choices per resource; Inherit follows the personal default. Legacy exact lists, including `[]`, retain their existing meaning until edited. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
+The three individual pickers save only their own category; `/packages` saves guidance categories from loaded providers, including individual choices; absent providers' defaults are preserved. Explicit project choices override personal choices per resource; Inherit follows the personal default. Existing sessions retain recorded choices on resume. `inherit` resets only the requested session category to saved defaults, preserving project settings and other session choices.
 
 For example, project A saves instruction 1 with Ctrl+S. Project B can turn that instruction on or off in personal defaults; new A sessions still use A's saved list. A session already started in B retains its own choices until explicitly changed.
 
@@ -86,7 +86,23 @@ The layout follows established [fzf preview](https://github.com/junegunn/fzf/blo
 and [Bubble Tea list](https://github.com/charmbracelet/bubbletea/tree/main/examples) patterns,
 implemented with Pi's native custom UI, input, Markdown and mouse APIs.
 
-An omitted `skills` field in an agent definition inherits the project's selected public skills and adds every skill in that agent's bundle. `skills: []` selects none; an explicit list narrows across both public and private skills, with a bundle skill winning a same-name collision. Bundle skills need no separate parent registration. Deliberately exporting one through a public skill path makes it independently selectable by the parent. See [agent metadata](../reference/configuration.md#agent-definitions) for the exact rules.
+New children resolve saved personal/project skill choices independently of the parent's temporary
+session selection, then add their bundle skills. The agent bundle is the child's specific layer.
+The parent may select no skills while its child still receives saved and bundle skills.
+
+| Agent metadata | Child skills |
+| --- | --- |
+| Omitted, `skills: "*"` or `skills: ["*"]` | Saved personal/project selections plus every bundle skill |
+| `skills: [one, two]` | Only these names, resolved from the bundle or Pi's available native skills |
+| `skills: []` | None |
+
+Quote `"*"` in YAML and use it alone. Explicit names may select native skills that are not enabled
+in saved defaults. Missing names are omitted with a warning in `/agents` and the launch receipt.
+A bundle skill wins a same-name collision; other names use Pi's already-resolved native winner,
+without a second nearest-directory search. Pi reports native name collisions. Bundle skills need
+no parent registration. Standalone package skills are independently selectable by the invoking
+session; an agent can explicitly reference them. The launcher does not rescan excluded native
+skill roots. See [agent metadata](../reference/configuration.md#agent-definitions).
 
 Security-off children inherit the parent's selected task tools, including native package tools
 such as `codex_search` and `background_process`. An explicit agent `tools` list narrows that set;
@@ -104,9 +120,6 @@ use Codex OAuth even when the worker model belongs to another provider. Resource
 transcripts stay isolated and in memory: starting a child never installs configured packages.
 Each child owns its jobs; `bash({command: "…", background: true})` returns a job ID for that child's
 `background_process` calls. Closing the child stops its remaining jobs.
-
-The separate secured launcher still restricts children to its existing tool set; equivalent native
-selected native package tools load through Pi in the child.
 
 ### Use private skills and scripts
 
@@ -128,7 +141,8 @@ write outputs there. This also makes bundle scripts usable with `skills: []`.
 
 ```mermaid
 flowchart LR
-  P[Parent: agent description and task] --> C[Child: agent body and static project instructions]
+  P[Parent: task and selected tools] --> C[Child: saved guidance then agent body]
+  D[Saved personal/project choices] --> C
   B[Agent bundle] --> M[Child: selected skill descriptions and locations]
   C --> R[Child chooses a relevant skill]
   M --> R
@@ -158,7 +172,7 @@ The acknowledgement contains `agent_id`, `workspace`, `workspace_mode`, `tools`,
 
 If startup fails and cleanup also fails, the closed child remains available in `agent_list`; inspect it with `subagent_check`, retry cleanup with `subagent_close`, and use `/agents` to read the diagnostic.
 
-The selected definition body becomes child instructions. Task text is separate user-message data. Pi's static project files are carried into the child with their source paths and original project path; frontmatter is removed. The parent's known `instructions` section is carried separately under `<instructions>`, including selected behavior snippets and caller guidance. These categories describe source and purpose, not instruction priority. The child disables its own Pi context-file discovery, so files in its agent directory, workspace, or ancestor directories do not add instructions implicitly. Goal state, running-agent snapshots, and counters are not inherited as static child instructions. Conversation text is shared only through the explicit `conversation` setting. Protected startup information binds the child identity, parent identity, and workspace. Effect tool selection is narrowed to the parent's active resources; communication tools are added independently. Resource bundles and private skills do not widen filesystem or network permissions. An empty effect-tool list can still leave `agent_message` and `agent_list` available.
+The selected definition body becomes child instructions. Task text is separate user-message data. Pi's static project files are carried into the child with their source paths and original project path; frontmatter is removed. Saved personal/project instruction choices are freshly rendered through the optional `pi-context` provider under `<instructions>`. The parent's temporary instruction selection and rendered instruction section are not copied. The agent body follows inherited static context and saved instructions as the child's specific behavior; its task remains a separate user message. These sections do not create new system/developer priority levels. The child disables its own Pi context-file discovery, so files in its agent directory, workspace, or ancestor directories do not add instructions implicitly. Goal state, running-agent snapshots, and counters are not inherited as static child instructions. Conversation text is shared only through the explicit `conversation` setting. Protected startup information binds the child identity, parent identity, and workspace. Effect tool selection is narrowed to the parent's active resources; communication tools are added independently. Resource bundles and private skills do not widen filesystem or network permissions. An empty effect-tool list can still leave `agent_message` and `agent_list` available.
 
 ## Choose where files go
 

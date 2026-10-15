@@ -9,10 +9,13 @@ Picker changes apply to this session. Ctrl+S saves project defaults to `.pi/sett
 Ctrl+Shift+S saves personal defaults for new sessions, excluding project-only resources.
 Resume and branch navigation restore recorded choices.
 
+Children receive saved personal/project instruction defaults and static project context at launch.
+Temporary parent session selections stay with the parent; each child's agent body is added separately.
+
 Packages declare instruction directories in `pi.instructions`. `localContext.instructions`
 sets personal defaults. Saved choices use ID-to-boolean maps: a missing project ID inherits
-the personal choice, and a missing personal ID uses the local/native default. Legacy exact lists
-remain readable. Unavailable IDs in saved maps stay dormant and do not load instruction bodies.
+the personal choice, and a missing personal ID uses the local/native default.
+Unavailable IDs in saved maps stay dormant and do not load instruction bodies.
 Global instruction libraries are native packages, not a separate directory catalogue. A leading YAML header
 with a closing delimiter is removed before selected text enters the prompt.
 

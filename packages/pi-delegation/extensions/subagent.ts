@@ -25,6 +25,8 @@ import type { ArtifactResult } from "pi-runtime";
 import {
   BackgroundProcesses,
   discoverResourcePackages,
+  selectedSkills,
+  savedInstructionContext,
   installAccounting,
   installSessionSetup,
   newSemanticId,
@@ -263,20 +265,20 @@ export default function (pi: ExtensionAPI) {
     | {
         cwd: string;
         contextFiles?: Array<{ path: string; content: string }>;
-        sections?: Record<string, string>;
       }
     | undefined;
-  const parentStaticContext = () =>
-    parentPromptOptions && {
+  const parentStaticContext = (ctx: ExtensionContext) => {
+    if (!parentPromptOptions) return undefined;
+    const instructions = savedInstructionContext(pi.events, ctx);
+    return {
       originalCwd: parentPromptOptions.cwd,
       files: (parentPromptOptions.contextFiles ?? []).map(({ path, content }) => ({
         path,
         content,
       })),
-      ...(parentPromptOptions.sections?.instructions === undefined
-        ? {}
-        : { instructions: parentPromptOptions.sections.instructions }),
+      ...(instructions === undefined ? {} : { instructions }),
     };
+  };
   const nativeLauncher = createNativeLauncher(
     pi,
     () => {
@@ -457,12 +459,6 @@ export default function (pi: ExtensionAPI) {
     };
     defaultsSnapshotCaptured = true;
   };
-  const selectedPublicSkillNames = (ctx: ExtensionContext) => {
-    const contribution = setup.inspect(ctx).find((value) => value.kind === "skills");
-    return contribution
-      ? (setup.selection("skills") ?? contribution.selected)
-      : skills().map((skill) => skill.name);
-  };
   const discoverAgents = (ctx: ExtensionContext) => {
     const store = new ProjectTrustStore(getAgentDir());
     const found = discover(
@@ -539,7 +535,16 @@ export default function (pi: ExtensionAPI) {
     model?: string,
   ) =>
     ctx.modelRegistry.getAvailableOfType("chat").then((available) => {
-      const parentSkills = selectedPublicSkillNames(ctx);
+      // New children use saved personal/project choices, never this parent's session override.
+      const choices = skills().map((skill) => ({
+        ...skill,
+        description: skill.description ?? "",
+        toggleable: true,
+        defaultSelected: true,
+      }));
+      const inheritedSkills = selectedSkills(settingsManager(ctx), choices).map(
+        (skill) => skill.name,
+      );
       const resolved = resolveSettings(
         agent,
         {
@@ -547,8 +552,8 @@ export default function (pi: ExtensionAPI) {
           thinking: pi.getThinkingLevel(),
           available: [...available],
           tools: pi.getActiveTools(),
-          skills: parentSkills,
-          privateSkills: agent.privateSkills?.map((s) => s.name) ?? [],
+          skills: inheritedSkills,
+          availableSkills: choices.map((skill) => skill.name),
         },
         model,
       );
@@ -566,6 +571,9 @@ export default function (pi: ExtensionAPI) {
     for (const agent of found.agents) {
       try {
         const resolved = await settings(agent, ctx);
+        found.warnings.push(
+          ...(resolved.warnings ?? []).map((warning) => `${agent.name}: ${warning}`),
+        );
         const spec = {
           ...restrictionSpec(agent, "Preview capabilities", resolved),
           communication: {
@@ -933,6 +941,9 @@ export default function (pi: ExtensionAPI) {
                     },
                     { label: "Tools", value: capabilities.tools.join(", ") || "none" },
                     { label: "Child skills", value: resolved.skills.join(", ") || "none" },
+                    ...(resolved.warnings?.length
+                      ? [{ label: "Warnings", value: resolved.warnings.join("\n") }]
+                      : []),
                     { label: "History", value: String(agent.context ?? "none") },
                     ...Object.entries(scope).map(([key, value]) => ({
                       label:
@@ -1061,7 +1072,7 @@ export default function (pi: ExtensionAPI) {
       try {
         effective = await settings(agent, ctx, params.model);
         spec = {
-          ...restrictionSpec(agent, "Preview capabilities", effective, parentStaticContext()),
+          ...restrictionSpec(agent, "Preview capabilities", effective, parentStaticContext(ctx)),
           communication,
         };
       } catch (error) {
@@ -1113,7 +1124,7 @@ export default function (pi: ExtensionAPI) {
               : undefined;
           },
           spec: {
-            ...restrictionSpec(agent, task, effective, parentStaticContext()),
+            ...restrictionSpec(agent, task, effective, parentStaticContext(ctx)),
             communication,
             workspace: params.workspace ?? "scratch",
           },
@@ -1238,6 +1249,8 @@ export default function (pi: ExtensionAPI) {
                 workspace: worker.prepared.cwd,
                 workspace_mode: worker.prepared.workspaceKind ?? "scratch",
                 tools: worker.prepared.effectiveResources?.tools ?? preview.tools,
+                skills: effective.skills,
+                ...(effective.warnings?.length ? { warnings: effective.warnings } : {}),
                 scope: preview.scope,
                 request_id: ack.requestId,
                 ...(waitId ? { wait_id: waitId } : {}),
@@ -1246,6 +1259,7 @@ export default function (pi: ExtensionAPI) {
           ],
           details: {
             id: communication.id,
+            ...(effective.warnings?.length ? { warnings: effective.warnings } : {}),
             requestId: ack.requestId,
             waitId,
             effective: {

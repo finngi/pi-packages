@@ -17,7 +17,7 @@ for (const [workspace, inheritProjectContext] of [
   ["project", false],
 ] as const)
   test(
-    `stock child ${workspace} without pi-background inherits ${inheritProjectContext ? "project and selected" : "only selected"} instructions, communicates and preserves output`,
+    `stock child ${workspace} without pi-background keeps static context and excludes temporary instructions, communicates and preserves output`,
     { timeout: 30000 },
     async () => {
       const root = await mkdtemp(join(tmpdir(), "pi-unrestricted-stock-")),
@@ -269,16 +269,9 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
           .filter((message: any) => message.role === "system")
           .map(getSystemMessageText)
           .join("\n");
-        const behavior =
-          '<instruction path="/fixture/selected/careful.md">LATE_BEHAVIOR_SENTINEL</instruction>';
-        assert.ok(
-          childSystem.includes(`<instructions>\n${behavior}\n</instructions>`),
-          childSystem,
-        );
-        assert.equal(childSystem.match(/<instructions>/g)?.length, 1);
         assert.doesNotMatch(
           childSystem,
-          /EARLY_BEHAVIOR_SENTINEL|DYNAMIC_GOAL_SENTINEL|DYNAMIC_AGENTS_SENTINEL|DYNAMIC_COUNTERS_SENTINEL/,
+          /<instructions>|EARLY_BEHAVIOR_SENTINEL|LATE_BEHAVIOR_SENTINEL|DYNAMIC_GOAL_SENTINEL|DYNAMIC_AGENTS_SENTINEL|DYNAMIC_COUNTERS_SENTINEL/,
         );
         assert.match(JSON.stringify(calls[0]), /DYNAMIC_GOAL_SENTINEL/);
         const projectContext = childSystem.match(

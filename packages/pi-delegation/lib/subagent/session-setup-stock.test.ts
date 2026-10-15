@@ -385,7 +385,10 @@ test(
       assert.equal(receipt.effectivePreviews[0].id, "worker");
       assert.equal(receipt.effectivePreviews[0].locked, false);
       assert.ok(receipt.effectivePreviews[0].tools.includes("read"));
-      assert.match(receipt.effects.children, /last parent prompt until the parent runs again/);
+      assert.match(
+        receipt.effects.children,
+        /Temporary parent guidance selections are not inherited/,
+      );
       assert.ok(
         receipt.candidates
           .filter(
@@ -435,8 +438,7 @@ test(
       assert.match(system(calls[0]), /PACK_DESCRIPTION/);
       assert.match(system(calls[0]), /PACK_INSTRUCTION_BODY/);
       const freshChild = system(JSON.parse(await readFile(observed, "utf8")));
-      assert.match(freshChild, /PACK_INSTRUCTION_BODY/);
-      assert.equal(freshChild.match(/<instructions>/g)?.length, 1);
+      assert.doesNotMatch(freshChild, /PACK_INSTRUCTION_BODY|<instructions>/);
       await run("clear");
       assert.equal(last("subagent").isError, true);
       const beforeClearedManual = calls.length;

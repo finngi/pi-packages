@@ -6,7 +6,10 @@ The default child workspace is scratch. `workspace: "project"` uses the parent p
 
 `agent_message` accepts `kind: "progress" | "question" | "message"` (default `message`). Routine `progress` can only target the parent and never starts an idle parent turn; actionable questions/messages and completed results retain wakeups. A receipt confirms broker/RPC acceptance, not reading or acceptance of a revised task.
 
-Agents can be flat definitions or directory bundles with private skills and relative resources. Children also receive the parent's eager static context files, with source origins; their workspace remains a separate setting. They disable their own `AGENTS.md` and `CLAUDE.md` discovery, so workspace and ancestor files do not silently add instructions. See [Delegate work](../../docs/guides/delegation.md) for discovery, skill precedence, and context inheritance.
+Agents can be flat definitions or directory bundles with private skills and relative resources.
+Children use saved personal/project guidance plus their bundle, never temporary parent guidance
+selections. Omitted skills or `skills: "*"` includes saved skills and all bundle skills; a named list
+selects native/bundle matches, `[]` selects none, and missing names warn and are omitted. Children also receive the parent's eager static context files, with source origins; their workspace remains a separate setting. They disable their own `AGENTS.md` and `CLAUDE.md` discovery, so workspace and ancestor files do not silently add instructions. See [Delegate work](../../docs/guides/delegation.md) for discovery, skill precedence, and context inheritance.
 
 - [Delegate work](../../docs/guides/delegation.md): definitions, trust, conversation, messaging, and retained files.
 - [Tool reference](../../docs/reference/tools.md#delegation-tools) and [events](../../docs/reference/events.md): exact calls and delivery contracts.
@@ -21,7 +24,8 @@ precedence over personal defaults, including an empty selection. Existing sessio
 recorded choices on resume. `inherit` resets only that category to saved defaults; it does not
 remove project settings. Selection does not reload Pi or stop children. The optional
 [`pi-resources`](../pi-resources/README.md) extension owns `/skills`, `/packages` and parent skill
-filtering. Without it, native Pi skills remain available to children as usual. See
+filtering. Child skill defaults use saved personal/project choices, independently of the parent
+session selection, whether or not the picker extension is loaded. See
 [Browse project resources](../../docs/guides/delegation.md#browse-project-resources).
 
 Source entrypoint: [extensions/subagent.ts](extensions/subagent.ts). From the repository root, run `npm run test --workspace=pi-delegation` and `npm run typecheck --workspace=pi-delegation`. See [testing](../../docs/testing.md) for Pi 1.2.0 integration.

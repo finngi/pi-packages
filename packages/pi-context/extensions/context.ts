@@ -15,6 +15,8 @@ import {
   resourcePackageKeywords,
   readResourceFile,
   SESSION_SETUP_CONTRIBUTIONS,
+  SAVED_INSTRUCTION_CONTEXT,
+  type SavedInstructionContextRequest,
   type SessionSetupContributionRequest,
   sessionSetupService,
   installSessionSetup,
@@ -37,6 +39,7 @@ import {
   selectedPackInstructions,
   unreadableLocalFiles,
   withLocalFiles,
+  type ContextFile,
 } from "../lib/local-context.ts";
 import { autoGitIgnoreEnabled, ignoreLocalFiles } from "../lib/local-ignore.ts";
 import { compactPiDocumentation, renderInstructions } from "../lib/prompt.ts";
@@ -49,11 +52,45 @@ export default function (pi: ExtensionAPI) {
     problems: [],
   };
   let globalInstructionSnapshot: InstructionSettings | undefined;
+  let staticContextFiles: ContextFile[] = [];
   const refreshInstructionSnapshot = (cwd: string) => {
     globalInstructionSnapshot = SettingsManager.create(
       cwd,
       getAgentDir(),
     ).getGlobalSettings() as InstructionSettings;
+  };
+  const instructionFiles = () =>
+    packageResources.packs.flatMap((pack) => pack.instructions.map((file) => ({ ...file, pack })));
+  const selectedInstructionText = (
+    cwd: string,
+    trusted: boolean,
+    selected: string[] | undefined,
+    files: ContextFile[],
+  ) => {
+    if (!enabled()) return "";
+    const localInstructions = trusted
+      ? selectedLocalInstructions(
+          cwd,
+          selected,
+          files.map((file) => resolve(cwd, file.path)),
+        )
+      : [];
+    const packFiles = instructionFiles();
+    const selectedPacks = selectedPackInstructions(
+      packFiles,
+      selected,
+      [...files, ...localInstructions].map((file) => resolve(cwd, file.path)),
+    );
+    for (const file of selectedPacks) {
+      const pack = packFiles.find((member) => member.path === file.path)?.pack;
+      if (pack) file.content = readResourceFile(pack.root, file.path);
+    }
+    return renderInstructions(
+      [...localInstructions, ...selectedPacks].map((file) => ({
+        ...file,
+        content: stripFrontmatter(file.content),
+      })),
+    );
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -93,6 +130,39 @@ export default function (pi: ExtensionAPI) {
       selected: found.selected,
     });
     if (ctx.hasUI && found.problems.length) ctx.ui.notify(found.problems.join("\n"), "warning");
+  });
+
+  pi.events.on(SAVED_INSTRUCTION_CONTEXT, (value) => {
+    const request = value as SavedInstructionContextRequest;
+    if (request?.version !== 1 || typeof request.contribute !== "function") return;
+    try {
+      if (!enabled()) {
+        request.contribute("");
+        return;
+      }
+      const { ctx } = request;
+      const trusted = ctx.isProjectTrusted();
+      const manager = SettingsManager.create(ctx.cwd, getAgentDir(), {
+        projectTrusted: trusted,
+      });
+      const localNames = (trusted ? localInstructionChoices(ctx.cwd) : []).map(
+        (file) => `local:${relative(ctx.cwd, file.path)}`,
+      );
+      const selected = effectiveInstructions(
+        manager.getGlobalSettings() as InstructionSettings,
+        trusted ? (manager.getProjectSettings() as InstructionSettings) : {},
+        [
+          ...localNames,
+          ...instructionFiles().map((file) =>
+            catalogueInstructionId(file.catalogue, basename(file.path)),
+          ),
+        ],
+        localNames,
+      );
+      request.contribute(selectedInstructionText(ctx.cwd, trusted, selected, staticContextFiles));
+    } catch (error) {
+      request.reject(`Saved child instructions could not be loaded: ${String(error)}`);
+    }
   });
 
   pi.registerCommand("instructions", {
@@ -324,35 +394,16 @@ export default function (pi: ExtensionAPI) {
       enabled() && ctx.isProjectTrusted() && typeof options.cwd === "string"
         ? withLocalFiles(options.contextFiles, options.cwd)
         : options.contextFiles;
-    const localInstructions =
-      enabled() && ctx.isProjectTrusted()
-        ? selectedLocalInstructions(
-            options.cwd,
-            selected,
-            files.map((file) => resolve(options.cwd, file.path)),
-            localChoices,
-          )
-        : [];
+    staticContextFiles = files;
     options.contextFiles = files.map((file) => ({
       ...file,
       content: stripFrontmatter(file.content),
     }));
-    const selectedPacks = enabled()
-      ? selectedPackInstructions(
-          packFiles,
-          selected,
-          [...files, ...localInstructions].map((file) => resolve(options.cwd, file.path)),
-        )
-      : [];
-    for (const file of selectedPacks) {
-      const pack = packFiles.find((member) => member.path === file.path)?.pack;
-      if (pack) file.content = readResourceFile(pack.root, file.path);
-    }
-    const instructions = renderInstructions(
-      [...localInstructions, ...selectedPacks].map((file) => ({
-        ...file,
-        content: stripFrontmatter(file.content),
-      })),
+    const instructions = selectedInstructionText(
+      options.cwd,
+      ctx.isProjectTrusted(),
+      selected,
+      files,
     );
     if (instructions) {
       options.sections ??= {};
