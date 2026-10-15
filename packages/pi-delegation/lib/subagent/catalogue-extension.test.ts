@@ -27,7 +27,8 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
   );
   const savedAgent = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  const handlers = new Map<string, Function>(),
+  const handlers = new Map<string, Function[]>(),
+    events = new Map<string, Function[]>(),
     tools = new Map<string, any>();
   let modelAvailabilityCalls = 0;
   let failOnAvailabilityCall = -1;
@@ -35,7 +36,11 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
   let activeTools = ["read", "session_setup"];
   let availableModels = [{ provider: "fixture", id: "fixture", reasoning: false }];
   const pi = {
-    on: (name: string, fn: Function) => handlers.set(name, fn),
+    on: (name: string, fn: Function) => {
+      const registered = handlers.get(name) ?? [];
+      registered.push(fn);
+      handlers.set(name, registered);
+    },
     registerCommand: () => {},
     registerFlag() {},
     getFlag() {},
@@ -52,13 +57,28 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     setActiveTools() {},
     getThinkingLevel: () => "off",
     getCommands: () => [],
-    events: { on() {}, emit() {} },
+    events: {
+      on(name: string, fn: Function) {
+        const registered = events.get(name) ?? [];
+        registered.push(fn);
+        events.set(name, registered);
+      },
+      emit(name: string, value: unknown) {
+        for (const handler of events.get(name) ?? []) handler(value);
+      },
+    },
   };
   const ctx = {
     cwd: project,
+    mode: "tui",
+    ui: { setStatus() {} },
     isProjectTrusted: () => false,
     isIdle: () => true,
-    sessionManager: { getBranch: () => [], getSessionId: () => "catalogue-fixture" },
+    sessionManager: {
+      getBranch: () => [],
+      getEntries: () => [],
+      getSessionId: () => "catalogue-fixture",
+    },
     model: { provider: "fixture", id: "fixture" },
     modelRegistry: {
       async getAvailableOfType() {
@@ -78,8 +98,16 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
   };
   try {
     extension(pi as any);
-    const hook = handlers.get("before_agent_start")!;
-    await handlers.get("session_start")!({}, ctx);
+    const emit = async (name: string, input: unknown) => {
+      for (const handler of handlers.get(name) ?? []) await handler(input, ctx);
+    };
+    const hook = (input: unknown, _ctx: unknown) => emit("before_agent_start", input);
+    const start = async () => {
+      await emit("session_start", {});
+      // Native Pi finalizes loaded resources after all session-start hooks.
+      await emit("resources_discover", {});
+    };
+    await start();
     let input = {
       systemPrompt: "base",
       systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
@@ -98,7 +126,7 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     prompt = (input.systemPromptOptions.sections as any).agents;
     assert.ok(!prompt.includes("newly_added description"));
     assert.ok(!prompt.includes("not_selected description"));
-    await handlers.get("session_start")!({}, ctx);
+    await start();
     await assert.rejects(
       tools
         .get("subagent")
@@ -149,7 +177,7 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     assert.ok(
       !(input.systemPromptOptions.sections as any).agents.includes("not_selected description"),
     );
-    await handlers.get("session_start")!({}, ctx);
+    await start();
     input = {
       systemPrompt: "base",
       systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
@@ -172,7 +200,7 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       join(agentDir, "settings.json"),
       JSON.stringify({ subagents: { agents: { not_selected: true, "private-worker": true } } }),
     );
-    await handlers.get("session_start")!({}, ctx);
+    await start();
     input = {
       systemPrompt: "base",
       systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },

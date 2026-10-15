@@ -48,6 +48,10 @@
     "./instructions": {
       "types": "./lib/saved-instruction-context.ts",
       "default": "./lib/saved-instruction-context.ts"
+    },
+    "./picker": {
+      "types": "./lib/picker.ts",
+      "default": "./lib/picker.ts"
     }
   },
   "publishConfig": {

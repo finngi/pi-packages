@@ -17,7 +17,8 @@ files are also available, and package names, descriptions and keywords help sear
 saved selection and session setup come from `pi-resources` library subpaths; importing them does
 not load the resources extension or turn on `/skills` and `/packages`. Picker changes apply to this session; Ctrl+S saves project defaults in
 `.pi/settings.json` and Ctrl+Shift+S saves personal defaults for new sessions, without project-only
-snippets. Resume and branch navigation restore the session's choices.
+snippets. Resume and `/refresh` retain explicit session choices and update inherited defaults;
+branch navigation restores the choices recorded on that branch.
 
 Saved choices (`localContext.instructions`) map snippet IDs to `true` or `false`. A missing project
 ID follows the personal choice; a missing personal ID uses the default. IDs that are no longer
@@ -26,6 +27,7 @@ leading YAML front-matter block is removed before text reaches the prompt.
 
 Children get saved personal and project choices and the static project context at launch, plus
 their own agent body. Choices made only for the parent's session stay with the parent.
+Choose **Interactive only** in a scope control to keep a snippet out of RPC, print mode and children.
 
 ## Which files are read
 

@@ -111,7 +111,8 @@ Saving never reloads code or changes running children.
 | Change | How | Takes effect |
 |---|---|---|
 | Turn package guidance on or off | `/packages` | Lookups now; prompt sections at the next parent run |
-| Reuse the current selection in new project sessions | Ctrl+S in `/packages` | Saved project defaults; this session is unchanged |
+| Reuse the current selection in new project sessions | Ctrl+S in `/packages` | Saved project defaults; explicit session choices stay intact |
+| Refresh saved defaults without reloading code | `/refresh`, or leave and resume | Inherited choices refresh; explicit session choices and running children stay intact |
 | Select or remove loaded guidance from the model | `session_setup` apply or reset | Lookups now; prompt sections at the next parent run |
 | Try a package once | `pi -e SOURCE` | That invocation only; nothing saved |
 | Install or remove a package | `pi install SOURCE` / `pi remove SOURCE`, `--local` for the project | Next start or idle `/reload` |

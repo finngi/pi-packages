@@ -380,7 +380,7 @@ test(
       await run("apply");
       assert.ok(results.every((result) => !result.isError));
       const receipt = JSON.parse(last("session_setup").content[0].text);
-      assert.deepEqual(receipt.selected.skills, ["pack-public", "native"]);
+      assert.deepEqual([...receipt.selected.skills].sort(), ["native", "pack-public"]);
       assert.equal(receipt.effectivePreviews[0].id, "worker");
       assert.equal(receipt.effectivePreviews[0].locked, false);
       assert.ok(receipt.effectivePreviews[0].tools.includes("read"));

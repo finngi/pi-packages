@@ -1,7 +1,7 @@
 /** Personal overlays and selected instructions, followed by eager context metadata cleanup. */
 
 import { basename, relative, resolve } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   getAgentDir,
   ProjectTrustStore,
@@ -25,11 +25,8 @@ import {
   SAVED_INSTRUCTION_CONTEXT,
   type SavedInstructionContextRequest,
 } from "pi-resources/instructions";
-import {
-  resolveResourceSelection,
-  writeResourceDefault,
-  writeResourceDefaults,
-} from "pi-resources/selection";
+import { SESSION_SETUP_REFRESH, type SessionSetupRefreshRequest } from "pi-contracts";
+import { resourcePickerControls } from "pi-resources/picker";
 import { stripFrontmatter } from "../lib/frontmatter.ts";
 import { instructionCatalogue } from "../lib/instruction-catalogue.ts";
 import {
@@ -57,14 +54,7 @@ export default function (pi: ExtensionAPI) {
     packs: [],
     problems: [],
   };
-  let globalInstructionSnapshot: InstructionSettings | undefined;
   let staticContextFiles: ContextFile[] = [];
-  const refreshInstructionSnapshot = (cwd: string) => {
-    globalInstructionSnapshot = SettingsManager.create(
-      cwd,
-      getAgentDir(),
-    ).getGlobalSettings() as InstructionSettings;
-  };
   const instructionFiles = () =>
     packageResources.packs.flatMap((pack) => pack.instructions.map((file) => ({ ...file, pack })));
   const selectedInstructionText = (
@@ -99,8 +89,7 @@ export default function (pi: ExtensionAPI) {
     );
   };
 
-  pi.on("session_start", async (_event, ctx) => {
-    refreshInstructionSnapshot(ctx.cwd);
+  const refreshResources = async (ctx: ExtensionContext) => {
     packageResources = await discoverResourcePackages(
       SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() }),
       ctx.cwd,
@@ -110,6 +99,12 @@ export default function (pi: ExtensionAPI) {
         .filter((command) => command.source === "skill")
         .map((command) => command.sourceInfo),
     );
+  };
+  pi.on("session_start", async (_event, ctx) => refreshResources(ctx));
+  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
+    const request = value as SessionSetupRefreshRequest;
+    if (request?.version === 1 && typeof request.waitUntil === "function")
+      request.waitUntil(refreshResources(request.ctx));
   });
 
   pi.events.on(SESSION_SETUP_CONTRIBUTIONS, (value) => {
@@ -119,7 +114,7 @@ export default function (pi: ExtensionAPI) {
     const trusted = ctx.isProjectTrusted();
     const manager = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: trusted });
     const found = instructionCatalogue(
-      globalInstructionSnapshot ?? (manager.getGlobalSettings() as InstructionSettings),
+      manager.getGlobalSettings() as InstructionSettings,
       manager.getProjectSettings() as InstructionSettings,
       ctx.cwd,
       trusted,
@@ -163,6 +158,7 @@ export default function (pi: ExtensionAPI) {
           ),
         ],
         localNames,
+        false,
       );
       request.contribute(selectedInstructionText(ctx.cwd, trusted, selected, staticContextFiles));
     } catch (error) {
@@ -179,7 +175,7 @@ export default function (pi: ExtensionAPI) {
       const trusted = ctx.isProjectTrusted();
       const manager = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: trusted });
       const currentGlobal = manager.getGlobalSettings() as InstructionSettings;
-      const global = globalInstructionSnapshot ?? currentGlobal;
+      const global = currentGlobal;
       const project = manager.getProjectSettings() as InstructionSettings;
       const packs = packageResources;
       if (packs.problems.length) ctx.ui.notify(packs.problems.join("\n"), "warning");
@@ -199,29 +195,6 @@ export default function (pi: ExtensionAPI) {
       const nativeNames = new Set(
         discovered.candidates.filter((item) => item.nativeDefault).map((item) => item.id),
       );
-      const defaultFields = (
-        id: string,
-        global: InstructionSettings,
-        project: InstructionSettings,
-      ) => {
-        const resolved = resolveResourceSelection(
-          global.localContext?.instructions,
-          project.localContext?.instructions,
-          id,
-          nativeNames.has(id),
-        );
-        return {
-          projectState: resolved.projectState,
-          globalState: resolved.globalState,
-          defaultSelected: resolved.effective,
-          globalDefaultSelected: resolveResourceSelection(
-            global.localContext?.instructions,
-            undefined,
-            id,
-            nativeNames.has(id),
-          ).effective,
-        };
-      };
       const entries: ResourceEntry[] = packFiles
         .map((file) => {
           let parsed = {
@@ -253,7 +226,6 @@ export default function (pi: ExtensionAPI) {
             globalDefaultable: file.pack.globalDefaultable,
             keywords: `${resourcePackageKeywords(file.pack)} ${basename(file.path)} ${parsed.body.slice(0, 500)}`,
             selected: previous.includes(id),
-            ...defaultFields(id, currentGlobal, project),
             preview: async () => ({
               source: file.path,
               body: stripFrontmatter(file.content),
@@ -272,7 +244,6 @@ export default function (pi: ExtensionAPI) {
               globalDefaultable: false,
               keywords: file.content.slice(0, 500),
               selected: previous.includes(id),
-              ...defaultFields(id, currentGlobal, project),
               preview: async () => ({
                 source: file.path,
                 body: stripFrontmatter(file.content),
@@ -281,73 +252,25 @@ export default function (pi: ExtensionAPI) {
           }),
         )
         .filter((entry, index, all) => all.findIndex((item) => item.id === entry.id) === index);
-      const selected = new Set(previous);
-      const refreshDefaults = () => {
-        const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
-          projectTrusted: ctx.isProjectTrusted(),
-        });
-        const nextGlobal = latest.getGlobalSettings() as InstructionSettings;
-        const nextProject = latest.getProjectSettings() as InstructionSettings;
-        for (const entry of entries)
-          Object.assign(entry, defaultFields(entry.id, nextGlobal, nextProject));
-      };
-      const saveDefaults = async (scope: "project" | "global", choices: ResourceEntry[]) => {
-        if (scope === "project" && !ctx.isProjectTrusted())
-          throw Error("Saving instruction defaults requires a trusted project");
-        const eligible = choices.filter(
-          (entry) =>
-            entry.defaultable !== false &&
-            (scope === "project" || entry.globalDefaultable !== false),
-        );
-        await writeResourceDefaults({
-          scope,
-          cwd: ctx.cwd,
-          agentDir: getAgentDir(),
-          selections: {
-            instructions: {
-              values: Object.fromEntries(eligible.map((entry) => [entry.id, entry.selected])),
-              knownIds: entries.map((entry) => entry.id),
-              snapshot: true,
-            },
-          },
-        });
-        refreshDefaults();
-      };
       await showResourceBrowser(ctx, {
         title: "Instructions",
         ...resourceBrowserNavigation(pi, "instructions"),
         entries,
         selectionScope: "session",
         defaultsScope: "project",
-        setDefault: async (entry, state, scope) => {
-          if (
-            entry.defaultable === false ||
-            (scope === "global" && entry.globalDefaultable === false)
-          )
-            throw Error("This instruction cannot be saved at that scope");
-          if (scope === "project" && !ctx.isProjectTrusted())
-            throw Error("Saving instruction defaults requires a trusted project");
-          await writeResourceDefault({
-            scope,
-            kind: "instructions",
-            id: entry.id,
-            state,
-            knownIds: entries.map((item) => item.id),
-            cwd: ctx.cwd,
-            agentDir: getAgentDir(),
-          });
-          refreshDefaults();
-        },
-        saveDefaults: (entries) => saveDefaults("project", entries),
-        saveGlobalDefaults: (entries) => saveDefaults("global", entries),
-        toggle: async (entry, on) => {
-          const next = new Set(selected);
-          if (on) next.add(entry.id);
-          else next.delete(entry.id);
-          setup.execute({ op: "apply", instructions: [...next].sort() }, ctx);
-          selected.clear();
-          for (const id of next) selected.add(id);
-        },
+        ...resourcePickerControls({
+          ctx,
+          setup,
+          entries,
+          members: (entry) => [
+            {
+              kind: "instructions",
+              id: entry.id,
+              nativeDefault: nativeNames.has(entry.id),
+              globalDefaultable: entry.globalDefaultable,
+            },
+          ],
+        }),
       });
     },
   });
@@ -361,9 +284,7 @@ export default function (pi: ExtensionAPI) {
             projectTrusted: ctx.isProjectTrusted(),
           })
         : undefined;
-    const global =
-      globalInstructionSnapshot ??
-      (manager?.getGlobalSettings() as InstructionSettings | undefined);
+    const global = manager?.getGlobalSettings() as InstructionSettings | undefined;
     const project = ctx.isProjectTrusted()
       ? (manager?.getProjectSettings() as InstructionSettings | undefined)
       : undefined;
@@ -388,6 +309,7 @@ export default function (pi: ExtensionAPI) {
             ...packFiles.map((file) => catalogueInstructionId(file.catalogue, basename(file.path))),
           ],
           localNames,
+          ctx.mode === "tui",
         );
     } catch (error) {
       selected = [];

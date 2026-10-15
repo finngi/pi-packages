@@ -232,32 +232,60 @@ test("agent selection is session-only until explicitly saved to the project", as
   }
 });
 
-test("clearing a stale agent selection does not report the pre-repair error", async () => {
+test("session agent reset preserves saved project choices and ignores unavailable names", async () => {
   const f = fixture();
   const previousSubagent = process.env.PI_SUBAGENT;
   delete process.env.PI_SUBAGENT;
+  const bundle = join(f.agentDir, "agents", "reviewer");
+  mkdirSync(bundle, { recursive: true });
+  writeFileSync(
+    join(bundle, "reviewer.md"),
+    "---\nname: reviewer\ndescription: Review the work\n---\nReview independently.",
+  );
+  const savedAgents = { "missing-agent": true, reviewer: true };
   writeFileSync(
     join(f.project, ".pi/settings.json"),
-    JSON.stringify({ subagents: { agents: { "missing-agent": true } } }),
+    JSON.stringify({ subagents: { agents: savedAgents } }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
       const context = guardedContext(f.project);
       await f.handlers.get("session_start")!({}, context.context);
+      await f.handlers.get("resources_discover")!({}, context.context);
       await f.commands.get("agents")!.handler("none", context.context);
-
+      const inspect = async () => {
+        const result = await f.tools
+          .get("session_setup")!
+          .execute(
+            "selection-proof",
+            { op: "list", kinds: ["agents"] },
+            undefined,
+            undefined,
+            context.context,
+          );
+        return result.details.selected.agents;
+      };
+      assert.deepEqual(await inspect(), [], "None changes this session's effective selection");
+      await f.commands.get("agents")!.handler("inherit", context.context);
+      assert.deepEqual(
+        await inspect(),
+        ["reviewer"],
+        "Inherit restores the available project default",
+      );
       assert.ok(
         !context.notifications.some((message) =>
           message.includes("unknown or untrusted names: missing-agent"),
         ),
+        "Unavailable saved names do not leave a stale diagnostic",
       );
-      await f.commands
-        .get("agents")!
-        .handler("", guardedContext(f.project, ["Save project defaults", "Done"]).context);
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.equal(projectSettings.subagents, undefined);
+      assert.deepEqual(
+        projectSettings.subagents.agents,
+        savedAgents,
+        "Session commands never delete saved project choices",
+      );
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;

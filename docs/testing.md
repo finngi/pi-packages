@@ -20,7 +20,7 @@ tests for the package you changed. Run everything before merging a change that s
 | Tests | What they cover |
 |---|---|
 | Delegation | Real stock-Pi parent and child processes, selected tools, model and skills, messages, cancellation and collected files |
-| Resources and context | Pi's filters, session, project and personal selection, project trust, prompt sections and resume |
+| Resources and context | Independent session/project/global choices and session types, all four pickers' keyboard/mouse controls, frozen defaults, refresh/resume, missing resources, project trust and prompt sections |
 | Background | Real commands, output cursors, cancellation and process ownership |
 | Search | Pi registry login, scripted HTTP, citations, usage, cancellation and errors |
 | Permissions, plus `npm run test:stock --workspace=pi-permissions` | Rule matching, modes, session allows, classifier replies and timeouts, and that a denied write never happens on stock Pi |
@@ -32,6 +32,12 @@ Tests use temporary agent directories and scripted providers and HTTP. They chec
 visible effects without calling real providers, so they say nothing about how well a real
 classifier judges calls or how a real account behaves. Report any real-provider check separately,
 with its limits.
+
+`packages/pi-resources/test/scoped-picker-paths-stock.test.ts` drives the actual native pickers
+against temporary personal/project settings and persisted sessions. The child-resource stock test
+captures real RPC child prompts: interactive-only skill/instruction markers must appear in the TUI
+parent and be absent from children, including explicit public-skill requests. It also checks that
+refresh leaves live children running. Neither test uses the normal profile or existing sessions.
 
 CI runs on macOS and Linux with Node 24. It does not set up a sandbox. A CI job that did not run is
 not a pass.

@@ -12,11 +12,81 @@ const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
 export type ResourceKind = "skills" | "agents" | "instructions";
 export type ResourceDefaultState = "inherit" | "on" | "off";
 export type ResourceSelectionValue = Record<string, boolean> | undefined;
+export type ResourceMode = "any" | "interactive";
+export type ResourceModeState = "inherit" | ResourceMode;
+export type ResourceModes = Record<string, ResourceMode> | undefined;
 
 type ResourceSettings = {
   subagents?: { agents?: ResourceSelectionValue; skills?: ResourceSelectionValue };
   localContext?: { instructions?: ResourceSelectionValue };
+  resourceSessionTypes?: Partial<Record<ResourceKind, ResourceModes>>;
 };
+
+export function readResourceModes(
+  settings: SettingsManager,
+  scope: "project" | "global",
+  kind: ResourceKind,
+): ResourceModes {
+  const source = (
+    scope === "project" ? settings.getProjectSettings() : settings.getGlobalSettings()
+  ) as ResourceSettings;
+  const modes = source.resourceSessionTypes;
+  if (modes === undefined) return undefined;
+  if (!modes || typeof modes !== "object" || Array.isArray(modes))
+    throw Error("resourceSessionTypes must be an object");
+  return validateResourceModes(modes[kind]);
+}
+
+export function validateResourceModes(value: unknown): ResourceModes {
+  if (value === undefined) return undefined;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.entries(value).some(
+      ([id, mode]) => !id.trim() || (mode !== "any" && mode !== "interactive"),
+    )
+  )
+    throw Error("Resource session types must map non-empty IDs to any or interactive");
+  return value as ResourceModes;
+}
+
+export function resourceModeState(value: ResourceModes, id: string): ResourceModeState {
+  return value && Object.hasOwn(value, id) ? value[id]! : "inherit";
+}
+
+export function resolveResourceMode(
+  global: ResourceModes,
+  project: ResourceModes,
+  id: string,
+  session?: ResourceModes,
+): { mode: ResourceMode; source: "session" | "project" | "global" | "native" } {
+  for (const [source, values] of [
+    ["session", session],
+    ["project", project],
+    ["global", global],
+  ] as const) {
+    const mode = resourceModeState(values, id);
+    if (mode !== "inherit") return { mode, source };
+  }
+  return { mode: "any", source: "native" };
+}
+
+export function resourceApplies(
+  settings: SettingsManager,
+  kind: ResourceKind,
+  id: string,
+  interactive: boolean,
+): boolean {
+  return (
+    interactive ||
+    resolveResourceMode(
+      readResourceModes(settings, "global", kind),
+      readResourceModes(settings, "project", kind),
+      id,
+    ).mode === "any"
+  );
+}
 
 export interface SkillChoice {
   name: string;
@@ -103,14 +173,18 @@ export function resolveResourceSelection(
   project: ResourceSelectionValue,
   id: string,
   nativeDefault: boolean,
+  session?: ResourceSelectionValue,
 ): {
   globalState: ResourceDefaultState;
   projectState: ResourceDefaultState;
   effective: boolean;
-  source: "project" | "global" | "native";
+  source: "session" | "project" | "global" | "native";
 } {
   const globalState = resourceSelectionState(global, id);
   const projectState = resourceSelectionState(project, id);
+  const sessionState = resourceSelectionState(session, id);
+  if (sessionState !== "inherit")
+    return { globalState, projectState, effective: sessionState === "on", source: "session" };
   if (projectState !== "inherit")
     return { globalState, projectState, effective: projectState === "on", source: "project" };
   if (globalState !== "inherit")
@@ -167,6 +241,7 @@ export interface ResourceDefaultsWrite {
       ResourceKind,
       {
         values: Record<string, boolean | undefined>;
+        modes?: Record<string, ResourceMode | undefined>;
         knownIds: string[];
         /** Bulk save: discard saved IDs that are no longer known in this category. */
         snapshot?: boolean;
@@ -224,7 +299,52 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       }
       const value = Object.keys(next).length ? next : undefined;
       writeSelectionValue(settings, kind, value);
+      if (selection.modes)
+        writeModeValues(
+          settings,
+          kind,
+          selection.modes,
+          selection.snapshot ? selection.knownIds : undefined,
+        );
     }
+  });
+}
+
+/** Session type is independent of selection; editing it must preserve all saved ON/OFF values. */
+function writeModeValues(
+  settings: Record<string, unknown>,
+  kind: ResourceKind,
+  values: Record<string, ResourceMode | undefined>,
+  knownIds?: string[],
+) {
+  const raw = settings.resourceSessionTypes;
+  if (raw !== undefined && (!raw || typeof raw !== "object" || Array.isArray(raw)))
+    throw Error("resourceSessionTypes must be an object");
+  const modes = { ...(raw as Partial<Record<ResourceKind, ResourceModes>> | undefined) };
+  const next = { ...validateResourceModes(modes[kind]) };
+  if (knownIds) for (const id of Object.keys(next)) if (!knownIds.includes(id)) delete next[id];
+  for (const [id, mode] of Object.entries(values)) {
+    if (mode === undefined) delete next[id];
+    else next[id] = mode;
+  }
+  if (Object.keys(next).length) modes[kind] = next;
+  else delete modes[kind];
+  if (Object.keys(modes).length) settings.resourceSessionTypes = modes;
+  else delete settings.resourceSessionTypes;
+}
+
+export function writeResourceMode(options: {
+  scope: "project" | "global";
+  kind: ResourceKind;
+  id: string;
+  mode: ResourceModeState;
+  cwd?: string;
+  agentDir?: string;
+}): Promise<void> {
+  return settingsFileUpdate(options.scope, options, (settings) => {
+    writeModeValues(settings, options.kind, {
+      [options.id]: options.mode === "inherit" ? undefined : options.mode,
+    });
   });
 }
 
@@ -248,6 +368,7 @@ export function configuredSkillChoices(
     packs.flatMap((pack) => pack.skills.map((file) => [resolve(cwd, file), pack] as const)),
   );
   return loaded
+    .filter((skill) => metadata.has(resolve(cwd, skill.path)))
     .map((skill) => {
       const key = resolve(cwd, skill.path),
         details = metadata.get(key),
@@ -270,6 +391,7 @@ export function selectedSkills(
   choices: SkillChoice[],
   ignoreInvalidProjectSelection = false,
   globalSnapshot?: GlobalSelectionSnapshot,
+  interactive = true,
 ): SkillChoice[] {
   let projectRaw: ResourceSelectionValue;
   let currentGlobalRaw: ResourceSelectionValue;
@@ -287,6 +409,7 @@ export function selectedSkills(
     .filter(
       (choice) =>
         choice.toggleable &&
+        resourceApplies(settings, "skills", choice.name, interactive) &&
         resolveResourceSelection(globalRaw, projectRaw, choice.name, choice.defaultSelected)
           .effective,
     )
@@ -361,6 +484,7 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
   settings: SettingsManager,
   agents: T[],
   globalSnapshot?: GlobalSelectionSnapshot,
+  interactive = true,
 ): { agents: T[]; configured: boolean; error?: string } {
   const project = settings.getProjectSettings() as ResourceSettings;
   const global = settings.getGlobalSettings() as ResourceSettings;
@@ -394,6 +518,7 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
   return {
     agents: agents.filter(
       (agent) =>
+        resourceApplies(settings, "agents", agent.name, interactive) &&
         resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
     ),
     configured,

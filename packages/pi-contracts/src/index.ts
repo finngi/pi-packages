@@ -6,6 +6,28 @@ export const USAGE_EVENT = "pi-runtime:usage:v1";
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
+export const SESSION_SETUP_REFRESH = "pi-session-setup:refresh:v1";
+export type SessionSetupResourceKind = "skills" | "agents" | "instructions";
+export type SessionSetupSelectionState = "inherit" | "on" | "off";
+export type SessionSetupMode = "any" | "interactive";
+export type SessionSetupModeState = "inherit" | SessionSetupMode;
+export interface SessionSetupResourceState {
+  sessionState: SessionSetupSelectionState;
+  projectState: SessionSetupSelectionState;
+  globalState: SessionSetupSelectionState;
+  selected: boolean;
+  effectiveSource: "session" | "project" | "global" | "native";
+  sessionMode: SessionSetupModeState;
+  projectMode: SessionSetupModeState;
+  globalMode: SessionSetupModeState;
+  mode: SessionSetupMode;
+  modeSource: "session" | "project" | "global" | "native";
+}
+export interface SessionSetupRefreshRequest {
+  version: 1;
+  ctx: ExtensionContext;
+  waitUntil(work: Promise<unknown>): void;
+}
 /** Saved behavioral defaults for a child, independent of temporary parent selections. */
 export const SAVED_INSTRUCTION_CONTEXT = "pi-context:saved-instructions:v1";
 export interface SavedInstructionContextRequest {
@@ -46,10 +68,29 @@ export interface SessionSetupContributionRequest {
 }
 export interface SessionSetupService {
   version: 1;
-  /** Undefined inherits saved defaults; an empty array deliberately clears this subset. */
+  /** Undefined before discovery; afterwards the frozen effective selection for this session. */
   selection(kind: SessionSetupSelectionKind): string[] | undefined;
   inspect(ctx: ExtensionContext): SessionSetupContribution[];
   restore(ctx: ExtensionContext, refreshUniverse?: boolean): void;
+  state(
+    kind: SessionSetupResourceKind,
+    id: string,
+    nativeDefault?: boolean,
+  ): SessionSetupResourceState;
+  setState(
+    kind: SessionSetupResourceKind,
+    id: string,
+    state: SessionSetupSelectionState,
+    ctx: ExtensionContext,
+  ): void;
+  setMode(
+    kind: SessionSetupResourceKind,
+    id: string,
+    mode: SessionSetupModeState,
+    ctx: ExtensionContext,
+  ): void;
+  /** Refresh saved defaults and discovered metadata; never reload executable extensions. */
+  refresh(ctx: ExtensionContext): Promise<void>;
   execute(input: unknown, ctx: ExtensionContext): SessionSetupResult;
 }
 export interface SessionSetupResult {

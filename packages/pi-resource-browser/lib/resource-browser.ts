@@ -21,6 +21,9 @@ export interface ResourcePreview {
 }
 
 export type ResourceDefaultState = "inherit" | "on" | "off";
+export type ResourceSessionMode = "inherit" | "any" | "interactive";
+type ResourceScope = "session" | "project" | "global";
+type ResourceSource = ResourceScope | "native";
 
 export interface ResourceEntry {
   id: string;
@@ -32,6 +35,13 @@ export interface ResourceEntry {
   /** Resolved defaults; undefined can represent mixed package members. */
   defaultSelected?: boolean;
   globalDefaultSelected?: boolean;
+  sessionState?: ResourceDefaultState | "mixed";
+  effectiveSource?: ResourceSource;
+  sessionMode?: ResourceSessionMode | "mixed";
+  projectMode?: ResourceSessionMode | "mixed";
+  globalMode?: ResourceSessionMode | "mixed";
+  mode?: "any" | "interactive";
+  modeSource?: ResourceSource;
   projectState?: ResourceDefaultState | "mixed";
   globalState?: ResourceDefaultState | "mixed";
   /** Whether this resource may be saved as a default selection. */
@@ -61,6 +71,8 @@ interface BrowserOptions {
     state: ResourceDefaultState,
     scope: "project" | "global",
   ): Promise<void>;
+  setSession?(entry: ResourceEntry, state: ResourceDefaultState): Promise<void>;
+  setMode?(entry: ResourceEntry, mode: ResourceSessionMode, scope: ResourceScope): Promise<void>;
   saveDefaults?(entries: ResourceEntry[]): Promise<void>;
   saveGlobalDefaults?(entries: ResourceEntry[]): Promise<void>;
 }
@@ -126,7 +138,7 @@ export class ResourceBrowser implements Component {
   private changed = false;
   private saving = false;
   private savingDefaults = false;
-  private defaultMenu?: { scope: "project" | "global"; list: SelectList };
+  private defaultMenu?: { scope: ResourceScope; list: SelectList; rows: number };
   private closeRequested = false;
   private status = "Changes save to this project immediately.";
   private error = false;
@@ -141,7 +153,7 @@ export class ResourceBrowser implements Component {
       placeholder: "names, descriptions, tools…",
       placeholderStyle: (text) => options.theme.fg("dim", text),
     });
-    if (options.selectionScope === "session") this.status = "Changes apply only to this session.";
+    if (options.selectionScope === "session") this.status = "Enter/Space changes this session.";
     this.search = new ResourceSearch(options.entries);
     this.results = [...options.entries];
     this.refreshPreview();
@@ -230,6 +242,7 @@ export class ResourceBrowser implements Component {
       await this.options.toggle(entry, next);
       if (!this.alive) return;
       entry.selected = next;
+      entry.sessionState = next ? "on" : "off";
       this.changed = true;
       this.status = `${next ? "Added" : "Removed"} ${entry.name} ${next ? "to" : "from"} this ${this.options.selectionScope ?? "project"}.`;
     } catch (error) {
@@ -268,10 +281,10 @@ export class ResourceBrowser implements Component {
       else this.redraw();
     }
   }
-  async toggleScope(scope: "session" | "project" | "global"): Promise<void> {
-    if (scope === "session") return this.toggleCurrent();
+  async toggleScope(scope: ResourceScope): Promise<void> {
     const entry = this.results[this.index];
     if (!entry || this.saving || this.savingDefaults || !this.alive) return;
+    if (scope === "session" && !this.options.setSession) return this.toggleCurrent();
     const unavailable = this.defaultUnavailable(entry, scope);
     if (unavailable) {
       this.error = false;
@@ -280,18 +293,49 @@ export class ResourceBrowser implements Component {
       return;
     }
     const theme = this.options.theme;
-    const states = ["inherit", "on", "off"] as const;
+    const inherited =
+      scope === "session" ? "project/global" : scope === "project" ? "global" : "native";
+    const current = this.defaultState(entry, scope);
+    const mode = this.scopeMode(entry, scope);
+    const items = [
+      {
+        value: "inherit",
+        label: "Inherit",
+        description: `Selection: use ${inherited} default${current === "inherit" ? " · current" : ""}`,
+      },
+      {
+        value: "on",
+        label: "On",
+        description: `Selection: include${current === "on" ? " · current" : ""}`,
+      },
+      {
+        value: "off",
+        label: "Off",
+        description: `Selection: exclude${current === "off" ? " · current" : ""}`,
+      },
+      ...(this.options.setMode
+        ? [
+            {
+              value: "mode:inherit",
+              label: "Type: Inherit",
+              description: `Use ${inherited} session type${mode === "inherit" ? " · current" : ""}`,
+            },
+            {
+              value: "mode:any",
+              label: "Any session",
+              description: `TUI, RPC and print${mode === "any" ? " · current" : ""}`,
+            },
+            {
+              value: "mode:interactive",
+              label: "Interactive only",
+              description: `TUI only${mode === "interactive" ? " · current" : ""}`,
+            },
+          ]
+        : []),
+    ];
     const list = new SelectList(
-      [
-        {
-          value: "inherit",
-          label: "Inherit",
-          description: scope === "project" ? "Use global default" : "Use native default",
-        },
-        { value: "on", label: "On", description: "Always include by default" },
-        { value: "off", label: "Off", description: "Always exclude by default" },
-      ],
-      3,
+      items,
+      items.length,
       {
         selectedPrefix: (text) => theme.fg("accent", text),
         selectedText: (text) => theme.fg("accent", text),
@@ -299,39 +343,47 @@ export class ResourceBrowser implements Component {
         scrollInfo: (text) => theme.fg("dim", text),
         noMatch: (text) => theme.fg("warning", text),
       },
-      { minPrimaryColumnWidth: 10, maxPrimaryColumnWidth: 10 },
+      { minPrimaryColumnWidth: 18, maxPrimaryColumnWidth: 18 },
     );
-    list.setSelectedIndex(
-      Math.max(0, states.indexOf(this.defaultState(entry, scope) as ResourceDefaultState)),
-    );
+    list.setSelectedIndex(Math.max(0, ["inherit", "on", "off"].indexOf(current ?? "inherit")));
     list.onSelect = (item) => {
       this.defaultMenu = undefined;
-      void this.setScopeState(scope, item.value as ResourceDefaultState);
+      if (item.value.startsWith("mode:"))
+        void this.setScopeMode(scope, item.value.slice(5) as ResourceSessionMode);
+      else void this.setScopeState(scope, item.value as ResourceDefaultState);
     };
     list.onCancel = () => {
       this.defaultMenu = undefined;
       this.redraw();
     };
-    this.defaultMenu = { scope, list };
+    this.defaultMenu = { scope, list, rows: items.length };
     this.pane = "preview";
     this.redraw();
   }
-  private defaultState(entry: ResourceEntry, scope: "project" | "global") {
+  private defaultState(entry: ResourceEntry, scope: ResourceScope) {
+    if (scope === "session") return entry.sessionState ?? (entry.selected ? "on" : "off");
     const state = scope === "project" ? entry.projectState : entry.globalState;
     if (state !== undefined) return state;
-    // Older composing hosts may supply resolved booleans without explicit saved states.
+    // Composing hosts may supply resolved booleans without explicit saved states.
     if (scope === "project" && this.options.defaultsInherited) return "inherit";
     const value = scope === "project" ? entry.defaultSelected : entry.globalDefaultSelected;
     return value === undefined ? undefined : value ? "on" : "off";
   }
-  private canEditDefault(entry: ResourceEntry, scope: "project" | "global") {
+  private scopeMode(entry: ResourceEntry, scope: ResourceScope) {
+    return entry[`${scope}Mode`] ?? "inherit";
+  }
+  private canEditDefault(entry: ResourceEntry, scope: ResourceScope) {
     return Boolean(
       !this.saving && !this.savingDefaults && this.alive && !this.defaultUnavailable(entry, scope),
     );
   }
-  private defaultUnavailable(entry: ResourceEntry, scope: "project" | "global") {
-    const label = scope === "project" ? "Project" : "Global";
-    if (entry.toggleable === false) return `${label} default unavailable: supplied by the harness.`;
+  private defaultUnavailable(entry: ResourceEntry, scope: ResourceScope) {
+    const label = scope[0].toUpperCase() + scope.slice(1);
+    if (entry.toggleable === false) return `${label} unavailable: supplied by the harness.`;
+    if (scope === "session")
+      return this.options.setSession
+        ? undefined
+        : "Session inheritance cannot be edited by this browser.";
     if (entry.defaultable === false)
       return `${label} default unavailable: this resource cannot be defaulted.`;
     if (scope === "global" && entry.globalDefaultable === false)
@@ -342,34 +394,44 @@ export class ResourceBrowser implements Component {
       return `${label} default unavailable: saved state is unknown.`;
     return undefined;
   }
-  async setScopeState(scope: "project" | "global", state: ResourceDefaultState): Promise<void> {
+  async setScopeState(scope: ResourceScope, state: ResourceDefaultState): Promise<void> {
     const entry = this.results[this.index];
-    if (!entry || !this.options.setDefault || !this.canEditDefault(entry, scope)) return;
+    if (!entry || !this.canEditDefault(entry, scope)) return;
+    await this.saveScope(
+      scope,
+      async () => {
+        if (scope === "session") await this.options.setSession!(entry, state);
+        else await this.options.setDefault!(entry, state, scope);
+      },
+      `selection ${state.toUpperCase()}`,
+    );
+  }
+  async setScopeMode(scope: ResourceScope, mode: ResourceSessionMode): Promise<void> {
+    const entry = this.results[this.index];
+    if (!entry || !this.options.setMode || !this.canEditDefault(entry, scope)) return;
+    await this.saveScope(
+      scope,
+      () => this.options.setMode!(entry, mode, scope),
+      `session type ${mode === "interactive" ? "INTERACTIVE ONLY" : mode === "any" ? "ANY SESSION" : "INHERIT"}`,
+    );
+  }
+  private async saveScope(scope: ResourceScope, save: () => Promise<void>, description: string) {
+    const entry = this.results[this.index]!;
     this.defaultMenu = undefined;
     this.savingDefaults = true;
     this.error = false;
-    this.status = `Saving ${scope} default for ${entry.name}…`;
+    this.status = `Saving ${scope} choice for ${entry.name}…`;
     this.redraw();
-    let defaultSaved = false;
     try {
-      await this.options.setDefault(entry, state, scope);
+      await save();
       if (!this.alive) return;
-      defaultSaved = true;
-      if (scope === "project" && state === "on" && !entry.selected) {
-        await this.options.toggle(entry, true);
-        if (!this.alive) return;
-        entry.selected = true;
-        this.changed = true;
-      }
-      this.status = `${entry.name}: ${scope} default ${state.toUpperCase()}.${scope === "project" && state === "on" ? " Enabled in this session." : " Current session unchanged."}`;
+      this.changed = true;
+      this.status = `${entry.name}: ${scope} ${description}. Other scopes unchanged.`;
     } catch (error) {
       if (!this.alive) return;
       this.error = true;
       this.closeRequested = false;
-      const reason = clean(error instanceof Error ? error.message : String(error));
-      this.status = defaultSaved
-        ? `Project default ON saved; session could not be enabled: ${reason}`
-        : `Default not saved: ${reason}`;
+      this.status = `Choice not saved: ${clean(error instanceof Error ? error.message : String(error))}`;
     } finally {
       this.savingDefaults = false;
       if (this.alive && this.closeRequested) this.close();
@@ -494,7 +556,12 @@ export class ResourceBrowser implements Component {
     if (this.defaultMenu) {
       const x = event.x - 2 - this.layout.previewX - 2;
       const y = event.y - 1 - this.layout.previewY - 1;
-      if (x >= 0 && x < event.width - this.layout.previewX - 8 && y >= 0 && y < 3) {
+      if (
+        x >= 0 &&
+        x < event.width - this.layout.previewX - 8 &&
+        y >= 0 &&
+        y < this.defaultMenu.rows
+      ) {
         const result = this.defaultMenu.list.handleMouse({ ...event, x, y });
         this.redraw();
         return result;
@@ -614,7 +681,10 @@ export class ResourceBrowser implements Component {
       ),
     );
     const listRows = wide ? budget : Math.max(2, Math.floor(budget * 0.4));
-    const previewRows = Math.max(this.defaultMenu ? 5 : 2, wide ? budget : budget - listRows);
+    let previewRows = Math.max(
+      this.defaultMenu ? this.defaultMenu.rows + 2 : 7,
+      wide ? budget : budget - listRows,
+    );
     const left = wide ? Math.min(46, Math.floor((width - 1) * 0.38)) : width;
     const right = wide ? width - left - 1 : width;
     if (this.index < this.offset) this.offset = this.index;
@@ -693,47 +763,32 @@ export class ResourceBrowser implements Component {
     const state = entry
       ? (["session", "project", "global"] as const)
           .map((scope) => {
-            const value =
-              scope === "session"
-                ? entry.selected
-                : scope === "global"
-                  ? entry.globalDefaultSelected
-                  : entry.projectState === undefined && this.options.defaultsInherited
-                    ? entry.globalDefaultSelected
-                    : entry.defaultSelected;
-            const savedState = scope === "session" ? undefined : this.defaultState(entry!, scope);
-            const stateLabel =
-              scope === "session"
-                ? entry.badge === "partial"
-                  ? "PARTIAL"
-                  : value
-                    ? "ON "
-                    : "OFF"
-                : savedState === "on"
-                  ? "ON "
-                  : (savedState?.toUpperCase() ?? "—");
+            const savedState = this.defaultState(entry, scope);
+            const stateLabel = (savedState?.toUpperCase() ?? "—").padEnd(7);
             const label = `${scope[0].toUpperCase() + scope.slice(1)}: ${stateLabel}`;
-            const enabled =
-              entry.toggleable !== false &&
-              (scope === "session" ||
-                (this.options.setDefault &&
-                  entry.defaultable !== false &&
-                  savedState !== undefined &&
-                  (scope !== "global" || entry.globalDefaultable !== false)));
+            const enabled = this.canEditDefault(entry, scope);
             const shown = enabled ? `[${label}]` : label;
             if (scopeColumn && scopeColumn + shown.length > Math.max(1, right - 4)) {
               scopeLines.push("");
               scopeColumn = 0;
             }
-            if (enabled || scope !== "session")
-              this.scopeRanges.push({
-                scope,
-                row: scopeLines.length - 1,
-                start: scopeColumn,
-                end: scopeColumn + shown.length,
-              });
+            this.scopeRanges.push({
+              scope,
+              row: scopeLines.length - 1,
+              start: scopeColumn,
+              end: scopeColumn + shown.length,
+            });
             scopeColumn += shown.length + 2;
-            const styled = theme.fg(enabled ? (value ? "success" : "text") : "muted", shown);
+            const styled = theme.fg(
+              enabled
+                ? savedState === "on"
+                  ? "success"
+                  : savedState === "inherit"
+                    ? "muted"
+                    : "text"
+                : "muted",
+              shown,
+            );
             scopeLines[scopeLines.length - 1] += styled + "  ";
             return styled;
           })
@@ -742,7 +797,22 @@ export class ResourceBrowser implements Component {
     const stateLines = entry
       ? scopeLines.map((line) => truncateToWidth(line.trimEnd(), Math.max(1, right - 4)))
       : [state];
-    const pinned = [" " + tabLine, ...stateLines.map((line) => " " + line)];
+    const effective = entry
+      ? `Active here: ${entry.badge === "partial" ? "MIXED" : entry.selected ? "ON" : "OFF"}${entry.effectiveSource ? ` — ${entry.effectiveSource} choice` : ""}`
+      : "";
+    const applies = entry?.mode
+      ? `Applies in: ${entry.mode === "interactive" ? "Interactive only" : "Any session"}${entry.modeSource ? ` — ${entry.modeSource}` : ""}`
+      : "";
+    const pinned = [
+      " " + tabLine,
+      ...stateLines.map((line) => " " + line),
+      ...[effective, applies]
+        .filter(Boolean)
+        .flatMap((line) =>
+          new Text(line, 0, 0).render(Math.max(1, right - 4)).map((part) => " " + part),
+        ),
+    ];
+    if (!this.defaultMenu) previewRows = Math.max(previewRows, pinned.length + 1);
     const contentWidth = Math.max(1, right - 4);
     let detailLines: string[];
     if (this.detailTab === "body") {
@@ -789,9 +859,6 @@ export class ResourceBrowser implements Component {
           typeof this.details === "string" ? this.details : (entry?.description ?? ""),
           fields.length ? "" : undefined,
           ...fields,
-          entry?.projectState !== undefined || entry?.globalState !== undefined
-            ? `Effective defaults: project ${entry.defaultSelected === undefined ? "MIXED" : entry.defaultSelected ? "ON" : "OFF"} · global ${entry.globalDefaultable === false ? "UNAVAILABLE" : entry.globalDefaultSelected === undefined ? "MIXED" : entry.globalDefaultSelected ? "ON" : "OFF"}`
-            : undefined,
           this.options.notice ? `Diagnostics: ${clean(this.options.notice)}` : undefined,
         ]
           .filter((line) => line !== undefined)
@@ -804,7 +871,7 @@ export class ResourceBrowser implements Component {
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, detailLines.length - contentRows));
     const detailBody = this.defaultMenu
       ? [
-          ` ${this.defaultMenu.scope === "project" ? "Project" : "Global"} default${entry && this.defaultState(entry, this.defaultMenu.scope) === "mixed" ? " · MIXED" : ""}`,
+          ` ${this.defaultMenu.scope[0].toUpperCase() + this.defaultMenu.scope.slice(1)} choices${entry && this.defaultState(entry, this.defaultMenu.scope) === "mixed" ? " · MIXED" : ""}`,
           ...this.defaultMenu.list.render(contentWidth).map((line) => " " + line),
           " ↑/↓ choose · Enter save · Esc cancel",
         ]
@@ -848,12 +915,9 @@ export class ResourceBrowser implements Component {
         width,
       ),
     );
-    if (this.options.setDefault)
+    if (this.options.setDefault || this.options.setSession)
       lines.push(
-        truncateToWidth(
-          theme.fg("dim", "s toggles session · p/g choose saved state · click controls"),
-          width,
-        ),
+        truncateToWidth(theme.fg("dim", "s/p/g edit scope choices · click controls"), width),
       );
     const saveHints = [
       this.options.saveDefaults

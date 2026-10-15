@@ -104,12 +104,17 @@ text you had typed.
 `/agents`, `/skills` and `/instructions` each save only their own category. `/packages` saves the
 categories of every loaded extension, including individual choices, and keeps the defaults of
 extensions that are not loaded. An explicit project choice beats the personal one for that
-resource; Inherit follows the personal default. Resumed sessions keep their recorded choices.
+resource; Inherit follows the personal default. Resumed sessions keep explicit choices and refresh
+inherited defaults. `/refresh` updates defaults without leaving the session or closing children.
 `inherit` resets only that category of this session to the saved defaults.
 
 For example: project A saves instruction 1 with Ctrl+S. In project B you can turn instruction 1 on
 or off in your personal defaults, but new sessions in A still use A's list. A session already
 running in B keeps its own choices until you change them.
+
+Use s/p/g or click a scope to choose On, Off or Inherit independently. The same menu controls
+session type: Any session, Interactive only, or Type: Inherit. Interactive-only guidance stays out
+of RPC and delegated children. An explicit session Off remains Off when project defaults change.
 
 The left pane lists resources and session choices. The right pane shows the highlighted
 resource's description, source and instructions. For agents it also shows the model, thinking

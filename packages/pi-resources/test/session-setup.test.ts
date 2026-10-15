@@ -1,14 +1,29 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SessionSetupContribution } from "pi-contracts";
 import {
   installSessionSetup,
   planSessionSetup,
   SESSION_SETUP_CONTRIBUTIONS,
   SESSION_SETUP_STATE,
+  SESSION_SETUP_REFRESH,
   sessionSetupService,
   validateSessionSetupRequest,
 } from "../lib/session-setup.ts";
+
+const testRoot = mkdtempSync(join(tmpdir(), "pi-scope-engine-"));
+const agentDir = join(testRoot, "agent");
+mkdirSync(agentDir);
+const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+process.env.PI_CODING_AGENT_DIR = agentDir;
+after(() => {
+  if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+  rmSync(testRoot, { recursive: true, force: true });
+});
 
 const contributions: SessionSetupContribution[] = [
   {
@@ -67,6 +82,14 @@ const contributions: SessionSetupContribution[] = [
 ];
 
 function fixture() {
+  writeFileSync(join(agentDir, "settings.json"), "{}");
+  const cwd = mkdtempSync(join(testRoot, "project-"));
+  mkdirSync(join(cwd, ".pi"));
+  const save = (scope: "global" | "project", value: object) =>
+    writeFileSync(
+      scope === "global" ? join(agentDir, "settings.json") : join(cwd, ".pi", "settings.json"),
+      JSON.stringify(value),
+    );
   const listeners = new Map<string, Array<(value: any) => void>>();
   let active = ["read", "write", "session_setup"],
     failAppend = false;
@@ -93,6 +116,7 @@ function fixture() {
     },
     events,
     registerTool() {},
+    registerCommand() {},
     getAllTools: () => tools,
     getActiveTools: () => [...active],
     setActiveTools: (names: string[]) => {
@@ -107,12 +131,17 @@ function fixture() {
   };
   const ctx: any = {
     hasUI: false,
+    mode: "tui",
+    cwd,
+    isProjectTrusted: () => true,
     sessionManager: { getBranch: () => entries, getSessionId: () => "first" },
   };
   const setup = installSessionSetup(pi);
   setup.restore(ctx);
   return {
     setup,
+    save,
+    events,
     hooks,
     pi,
     ctx,
@@ -137,7 +166,7 @@ test("a CLI tool pool excluding session setup keeps native tools and resource de
   f.ctx.sessionManager.getBranch = () => [];
   f.setup.restore(f.ctx);
   assert.deepEqual(f.pi.getActiveTools(), ["read"]);
-  assert.equal(f.setup.selection("skills"), undefined);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
   assert.equal(f.setup.execute({ op: "list" }, f.ctx).error, undefined);
 });
 
@@ -234,10 +263,10 @@ test("native unactivatable tools and failed persistence rollback without a commi
   );
   assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
   assert.equal(f.entries.length, 0);
-  assert.equal(f.setup.selection("skills"), undefined);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
 });
 
-test("current branch restores latest entry, branch without entry resets and invalid IDs fail closed", () => {
+test("branch restore preserves explicit choices and ignores unavailable resources", () => {
   const f = fixture();
   f.setup.execute({ op: "apply", skills: ["lexical"], tools: [] }, f.ctx);
   f.setup.execute({ op: "apply", skills: [] }, f.ctx);
@@ -246,7 +275,7 @@ test("current branch restores latest entry, branch without entry resets and inva
   const saved = structuredClone(f.entries);
   f.entries.length = 0;
   f.setup.restore(f.ctx);
-  assert.equal(f.setup.selection("skills"), undefined);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
   assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
   f.entries.push(...saved, {
     type: "custom",
@@ -259,10 +288,10 @@ test("current branch restores latest entry, branch without entry resets and inva
   });
   f.setup.restore(f.ctx);
   assert.deepEqual(f.setup.selection("skills"), []);
-  assert.deepEqual(f.active(), ["session_setup"]);
-  assert.match(f.setup.execute({ op: "list" }, f.ctx).error!, /Unknown or unavailable/);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).error, undefined);
   f.setup.execute({ op: "reset" }, f.ctx);
-  assert.equal(f.setup.selection("skills"), undefined);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
   assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
 });
 
@@ -342,31 +371,34 @@ test("resetting one category preserves other overrides and active tools", () => 
   );
   const before = f.setup.execute({ op: "list" }, f.ctx).selected.tools;
   f.setup.execute({ op: "reset", kinds: ["agents"] }, f.ctx);
-  assert.equal(f.setup.selection("agents"), undefined);
+  assert.deepEqual(f.setup.selection("agents"), []);
   assert.deepEqual(f.setup.selection("skills"), ["lexical"]);
   assert.deepEqual(f.setup.selection("instructions"), ["evidence"]);
   assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected.tools, before);
 });
 
-test("starting defaults are recorded once and survive resume after personal defaults change", () => {
+test("startup and resume refresh defaults without recording them as explicit session choices", () => {
   const f = fixture();
   f.hooks.get("resources_discover")!({}, f.ctx);
   assert.deepEqual(f.setup.selection("skills"), ["native"]);
-  assert.equal(f.entries.length, 1);
-  f.resources.find((value) => value.kind === "skills")!.selected = ["lexical"];
-  f.hooks.get("resources_discover")!({}, f.ctx);
-  assert.deepEqual(f.setup.selection("skills"), ["native"]);
-  assert.equal(f.entries.length, 1, "Restoring must not append another baseline");
-  f.ctx.sessionManager.getSessionId = () => "new";
-  const oldBranch = [...f.entries];
-  f.entries.length = 0;
+  assert.equal(f.entries.length, 0);
+  f.save("global", { subagents: { skills: { native: false, lexical: true } } });
+  assert.deepEqual(
+    f.setup.selection("skills"),
+    ["native"],
+    "Active sessions keep their frozen defaults",
+  );
   f.hooks.get("resources_discover")!({}, f.ctx);
   assert.deepEqual(f.setup.selection("skills"), ["lexical"]);
-  f.entries.splice(0, f.entries.length, ...oldBranch);
-  f.ctx.sessionManager.getSessionId = () => "first";
+  assert.equal(f.entries.length, 0, "Refreshing defaults is not an explicit selection");
+  f.setup.setState("skills", "native", "on", f.ctx);
+  f.save("global", { subagents: { skills: { native: false, lexical: false } } });
   f.hooks.get("resources_discover")!({}, f.ctx);
-  assert.deepEqual(f.setup.selection("skills"), ["native"]);
-  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(
+    f.setup.selection("skills"),
+    ["native"],
+    "Explicit session overrides survive resume",
+  );
 });
 
 test("extensions reuse one explicit session setup owner", () => {
@@ -410,9 +442,9 @@ test("absent providers do not become explicit empty selections at session birth"
   });
   f.hooks.get("resources_discover")!({}, f.ctx);
   assert.deepEqual(f.setup.selection("agents"), ["worker"]);
-  assert.equal(f.setup.selection("skills"), undefined);
-  assert.equal(f.setup.selection("instructions"), undefined);
-  assert.deepEqual(f.entries[0].data.overrides, { agents: ["worker"] });
+  assert.deepEqual(f.setup.selection("skills"), []);
+  assert.deepEqual(f.setup.selection("instructions"), []);
+  assert.equal(f.entries.length, 0, "No resolved defaults are saved as overrides");
 });
 
 test("derived grouping preserves explicit package metadata and rejects duplicate providers", () => {
@@ -427,7 +459,7 @@ test("derived grouping preserves explicit package metadata and rejects duplicate
   assert.throws(() => f.setup.inspect(f.ctx), /Duplicate or invalid/);
 });
 
-test("resuming saved choices without their provider names the missing extension and reset remedy", () => {
+test("unloaded providers disappear without changing saved session overrides or other tools", () => {
   const f = fixture();
   f.setup.execute({ op: "apply", skills: ["lexical"] }, f.ctx);
   f.resources.splice(
@@ -435,12 +467,133 @@ test("resuming saved choices without their provider names the missing extension 
     1,
   );
   f.setup.restore(f.ctx, true);
-  assert.match(
-    f.setup.execute({ op: "list" }, f.ctx).error!,
-    /No skills provider is loaded.*Load pi-resources.*session_setup reset/,
-  );
-  assert.deepEqual(f.active(), ["session_setup"]);
-  f.setup.execute({ op: "reset" }, f.ctx);
   assert.equal(f.setup.execute({ op: "list" }, f.ctx).error, undefined);
+  assert.deepEqual(f.setup.selection("skills"), []);
   assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(f.entries.at(-1).data.overrides.skills, ["lexical"]);
+});
+
+for (const [kind, id] of [
+  ["skills", "native"],
+  ["agents", "analyst"],
+  ["instructions", "evidence"],
+] as const) {
+  test(`${kind}: session, project and global choices override independently and inherit restores broader choices`, async () => {
+    const f = fixture();
+    const settings = (selected: boolean) =>
+      kind === "instructions"
+        ? { localContext: { instructions: { [id]: selected } } }
+        : { subagents: { [kind]: { [id]: selected } } };
+    f.save("global", settings(true));
+    await f.setup.refresh(f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, true);
+    assert.equal(f.setup.state(kind, id).effectiveSource, "global");
+    f.save("project", settings(false));
+    await f.setup.refresh(f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, false);
+    assert.equal(f.setup.state(kind, id).globalState, "on");
+    f.setup.setState(kind, id, "on", f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, true);
+    assert.equal(f.setup.state(kind, id).projectState, "off");
+    assert.equal(f.setup.state(kind, id).effectiveSource, "session");
+    f.setup.setState(kind, id, "inherit", f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, false);
+    assert.equal(f.setup.state(kind, id).sessionState, "inherit");
+    f.save("project", {});
+    await f.setup.refresh(f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, true);
+    f.setup.setState(kind, id, "off", f.ctx);
+    assert.equal(f.setup.state(kind, id).selected, false);
+    assert.equal(f.setup.state(kind, id).globalState, "on");
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")),
+      settings(true),
+      "Session actions never rewrite global settings",
+    );
+  });
+}
+
+test("interactive-only uses native TUI mode, not RPC dialog availability; modes and selections remain independent", async () => {
+  const f = fixture();
+  f.save("global", {
+    subagents: { skills: { native: true } },
+    resourceSessionTypes: { skills: { native: "interactive" } },
+  });
+  await f.setup.refresh(f.ctx);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
+  assert.equal(f.setup.state("skills", "native").globalMode, "interactive");
+  for (const mode of ["rpc", "print", "json"]) {
+    f.ctx.mode = mode;
+    f.ctx.hasUI = mode === "rpc";
+    f.setup.restore(f.ctx, true);
+    assert.deepEqual(
+      f.setup.selection("skills"),
+      [],
+      `${mode} excludes interactive-only resources`,
+    );
+  }
+  f.ctx.mode = "rpc";
+  f.ctx.hasUI = true;
+  f.save("project", { resourceSessionTypes: { skills: { native: "any" } } });
+  await f.setup.refresh(f.ctx);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
+  assert.equal(f.setup.state("skills", "native").globalMode, "interactive");
+  f.save("project", {});
+  await f.setup.refresh(f.ctx);
+  assert.equal(f.setup.state("skills", "native").globalState, "on");
+  f.setup.setMode("skills", "native", "any", f.ctx);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
+  assert.equal(f.setup.state("skills", "native").globalMode, "interactive");
+  f.setup.setState("skills", "native", "off", f.ctx);
+  f.setup.setMode("skills", "native", "inherit", f.ctx);
+  assert.equal(f.setup.state("skills", "native").sessionState, "off");
+  f.ctx.mode = "tui";
+  f.setup.restore(f.ctx, true);
+  assert.deepEqual(f.setup.selection("skills"), []);
+});
+
+test("refresh waits for provider metadata then discovers new candidates without replacing explicit overrides", async () => {
+  const f = fixture();
+  f.setup.setState("skills", "native", "off", f.ctx);
+  let refreshed = false;
+  f.events.on(SESSION_SETUP_REFRESH, (request) =>
+    request.waitUntil(
+      Promise.resolve().then(() => {
+        refreshed = true;
+        f.resources
+          .find((value) => value.kind === "skills")!
+          .candidates.push({
+            kind: "skills",
+            id: "new",
+            name: "new",
+            description: "Newly discovered",
+            nativeDefault: true,
+          });
+      }),
+    ),
+  );
+  await f.setup.refresh(f.ctx);
+  assert.equal(refreshed, true);
+  assert.deepEqual(f.setup.selection("skills"), ["new"]);
+  assert.equal(f.setup.state("skills", "native").sessionState, "off");
+});
+
+test("refreshing one session does not change another session's frozen defaults", async () => {
+  const first = fixture();
+  first.save("global", { subagents: { agents: { analyst: true } } });
+  await first.setup.refresh(first.ctx);
+  const second = fixture();
+  second.save("global", { subagents: { agents: { analyst: false } } });
+  await second.setup.refresh(second.ctx);
+  assert.deepEqual(first.setup.selection("agents"), ["analyst"]);
+  assert.deepEqual(second.setup.selection("agents"), []);
+  await first.setup.refresh(first.ctx);
+  assert.deepEqual(first.setup.selection("agents"), []);
+});
+
+test("resource refresh preserves tools changed by the native session", async () => {
+  const f = fixture();
+  f.setActive(["read", "session_setup"]);
+  await f.setup.refresh(f.ctx);
+  assert.deepEqual(f.active(), ["read", "session_setup"]);
 });

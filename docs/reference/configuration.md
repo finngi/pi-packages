@@ -42,19 +42,34 @@ Use `"*"` on its own. A bundle skill wins a name clash; otherwise Pi's choice st
 
 `subagents.agents`, `subagents.skills` and `localContext.instructions` are maps from resource ID to
 `true` or `false`. A missing ID inherits; `true` and `false` are explicit. New sessions look at
-project settings, then personal settings, then Pi's default. Session choices are separate entries
-in the session history, so resume restores what the session recorded, not today's defaults.
+project settings, then personal settings, then Pi's default. Explicit session overrides are separate
+entries in the session history. Resume and `/refresh` retain those overrides and reread today's
+defaults for choices still set to Inherit. An active session does not poll for default changes.
 
 All four pickers work the same way:
 
 - Toggles change the session now.
-- Each resource's saved Project and Global controls can be Inherit, On or Off.
-- Ctrl+S copies eligible selections to project defaults; Ctrl+Shift+S copies them to personal
+- Each resource's Session, Project and Global controls can be Inherit, On or Off.
+- Ctrl+S copies eligible selections and session types to project defaults; Ctrl+Shift+S copies them to personal
   defaults.
-- Saving a project On also turns the resource on in this session. Other saved changes leave the
-  session alone.
-- Saving one resource does not change others. Personal defaults affect future sessions, and project
-  settings still win.
+- Editing a saved scope refreshes this session's defaults, preserving its explicit session choices.
+- Saving one resource does not change other rows or scopes. Other running sessions retain their
+  defaults until refreshed or resumed.
+
+Session type is independent of On/Off. Choose **Interactive only** to limit a resource to the TUI,
+**Any session** to include headless/RPC sessions, or **Type: Inherit** to use the broader scope.
+Saved types use `resourceSessionTypes.skills`, `.agents` and `.instructions`, with resource IDs
+mapped to `"any"` or `"interactive"`. For example, in personal settings:
+
+```json
+{
+  "subagents": { "skills": { "communication": true } },
+  "resourceSessionTypes": { "skills": { "communication": "interactive" } }
+}
+```
+
+This selects the skill globally for interactive sessions. Delegated children use saved guidance
+with the headless session-type filter; the parent's temporary overrides do not pass down.
 
 `session_setup` inspects, applies or resets guidance and active tools. It never installs or reloads
 packages. See [tools](tools.md#session-setup).

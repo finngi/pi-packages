@@ -13,14 +13,14 @@ import type { ResourceEntry } from "./resource-browser.ts";
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 async function chooseDefault(
   component: ResourceBrowser,
-  scope: "project" | "global",
+  scope: "session" | "project" | "global",
   state: "inherit" | "on" | "off",
 ) {
-  component.handleInput(scope === "project" ? "p" : "g");
+  component.handleInput(scope[0]);
   const label = state === "inherit" ? "Inherit" : state === "on" ? "On" : "Off";
   const selected = () =>
     component.render(160).map(stripTerminalSequences).join("\n").includes(`→ ${label} `);
-  for (let i = 0; i < 3 && !selected(); i++) component.handleInput("\x1b[B");
+  for (let i = 0; i < 6 && !selected(); i++) component.handleInput("\x1b[B");
   assert(selected(), `saved-state menu should select ${label}`);
   component.handleInput("\r");
   await flush();
@@ -40,9 +40,22 @@ function refreshDefault(
     if (entry.projectState === "inherit") entry.defaultSelected = entry.globalDefaultSelected;
   }
 }
+async function refreshSession(entry: ResourceEntry, state: "inherit" | "on" | "off") {
+  entry.sessionState = state;
+  entry.selected = state === "inherit" ? (entry.defaultSelected ?? false) : state === "on";
+  entry.effectiveSource = state === "inherit" ? "project" : "session";
+}
+async function refreshMode(
+  entry: ResourceEntry,
+  mode: "inherit" | "any" | "interactive",
+  scope: "session" | "project" | "global",
+) {
+  entry[`${scope}Mode`] = mode;
+}
 function fixture(
   overrides: {
     toggle?: (entry: ResourceEntry, selected: boolean) => Promise<void>;
+    setSession?: typeof refreshSession;
     saveDefaults?: (entries: ResourceEntry[]) => Promise<void>;
     saveGlobalDefaults?: (entries: ResourceEntry[]) => Promise<void>;
     defaultsScope?: "project" | "global";
@@ -78,6 +91,7 @@ function fixture(
     rows: () => 42,
     render() {},
     close: (changed) => closed.push(changed),
+    setSession: overrides.setSession,
     saveDefaults:
       overrides.saveDefaults &&
       (async (snapshot) => {
@@ -476,7 +490,28 @@ test("Vim navigation and explicit search keep query characters out of navigation
   f.component.dispose();
 });
 
-test("project activation enables the session while preserving unrelated saved selections", async () => {
+test("Session Inherit removes only its override and follows the project's resolved choice", async () => {
+  const f = fixture({ setSession: refreshSession });
+  Object.assign(f.entries[0], {
+    selected: false,
+    sessionState: "off",
+    projectState: "on",
+    globalState: "off",
+    defaultSelected: true,
+    globalDefaultSelected: false,
+  });
+  await chooseDefault(f.component, "session", "inherit");
+  assert.equal(f.entries[0].sessionState, "inherit");
+  assert.equal(f.entries[0].selected, true);
+  assert.equal(f.entries[0].projectState, "on");
+  assert.equal(f.entries[0].globalState, "off");
+  assert.match(f.text(160), /Session: INHERIT/);
+  assert.match(f.text(160), /Active here: ON — project choice/);
+  assert.deepEqual(f.saved, [], "Inherit is not an explicit On toggle");
+  f.component.dispose();
+});
+
+test("project choices preserve the explicit session and unrelated saved selections", async () => {
   const f = fixture();
   f.entries[0].defaultSelected = false;
   f.entries[0].globalDefaultSelected = false;
@@ -493,6 +528,8 @@ test("project activation enables the session while preserving unrelated saved se
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, value, scope) => {
       calls.push([entry.id, value, scope]);
       refreshDefault(entry, value, scope);
@@ -500,7 +537,7 @@ test("project activation enables the session while preserving unrelated saved se
   });
   await chooseDefault(component, "project", "on");
   assert.deepEqual(calls, [["adr", "on", "project"]]);
-  assert.equal(f.entries[0].selected, true);
+  assert.equal(f.entries[0].selected, false);
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].globalDefaultSelected, false);
   await chooseDefault(component, "global", "on");
@@ -529,12 +566,14 @@ test("clickable scope controls target the displayed resource at wide and narrow 
       render() {},
       close() {},
       toggle: async () => {},
+      setSession: refreshSession,
+      setMode: refreshMode,
       setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
     });
     await flush();
     const rows = component.render(width).map(stripTerminalSequences);
-    const y = rows.findIndex((row) => row.includes("[Project: OFF]"));
-    const x = rows[y].indexOf("[Project: OFF]") + 3;
+    const y = rows.findIndex((row) => /\[Project: OFF\s+\]/.test(row));
+    const x = rows[y].indexOf("[Project: OFF") + 3;
     const result = component.handleMouse({
       type: "click",
       button: "left",
@@ -556,7 +595,7 @@ test("clickable scope controls target the displayed resource at wide and narrow 
     component.handleInput("\r");
     await flush();
     assert.equal(f.entries[0].defaultSelected, true);
-    assert.equal(f.entries[0].selected, true);
+    assert.equal(f.entries[0].selected, false);
     component.dispose();
     f.component.dispose();
   }
@@ -574,6 +613,8 @@ test("failed default writes and ineligible resources never update displayed stat
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async () => {
       throw Error("Denied save");
     },
@@ -582,7 +623,7 @@ test("failed default writes and ineligible resources never update displayed stat
   assert.equal(f.entries[0].defaultSelected, false);
   assert.match(
     component.render(140).map(stripTerminalSequences).join("\n"),
-    /Default not saved: Denied save/,
+    /Choice not saved: Denied save/,
   );
   f.entries[0].globalDefaultable = false;
   component.handleInput("g");
@@ -663,6 +704,8 @@ test("scope controls hold their columns when ON and OFF change", async () => {
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   const state = () =>
@@ -673,7 +716,7 @@ test("scope controls hold their columns when ON and OFF change", async () => {
   const before = state();
   await component.toggleCurrent();
   const after = state();
-  assert.match(after, /\[Session: ON \]/);
+  assert.match(after, /\[Session: ON\s+\]/);
   assert.equal(after.indexOf("[Project:"), before.indexOf("[Project:"));
   assert.equal(after.indexOf("[Global:"), before.indexOf("[Global:"));
   await chooseDefault(component, "project", "on");
@@ -694,24 +737,23 @@ test("s/p/g operate from the list but remain literal inside search", async () =>
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   component.handleInput("p");
   assert.equal(f.entries[0].defaultSelected, false);
-  assert.match(component.render(140).map(stripTerminalSequences).join("\n"), /Project default/);
+  assert.match(component.render(140).map(stripTerminalSequences).join("\n"), /Project choices/);
   component.handleInput("\x1b[A");
   component.handleInput("\r");
   await flush();
   assert.equal(f.entries[0].defaultSelected, true);
+  assert.equal(f.entries[0].selected, false, "project edits do not write a session override");
+  await chooseDefault(component, "session", "on");
   assert.equal(f.entries[0].selected, true);
-  component.handleInput("s");
-  await flush();
+  await chooseDefault(component, "session", "off");
   assert.equal(f.entries[0].selected, false);
-  component.handleInput("g");
-  assert.equal(f.entries[0].globalDefaultSelected, false);
-  component.handleInput("\x1b[A");
-  component.handleInput("\r");
-  await flush();
+  await chooseDefault(component, "global", "on");
   assert.equal(f.entries[0].globalDefaultSelected, true);
   assert.equal(f.entries[0].selected, false);
   component.handleInput("/");
@@ -722,7 +764,7 @@ test("s/p/g operate from the list but remain literal inside search", async () =>
   f.component.dispose();
 });
 
-test("project activation reports a saved default separately if session activation fails", async () => {
+test("project saves do not attempt session activation even when its toggle would fail", async () => {
   const f = fixture();
   f.entries[0].defaultSelected = false;
   f.entries[0].globalDefaultSelected = false;
@@ -736,6 +778,8 @@ test("project activation reports a saved default separately if session activatio
     toggle: async () => {
       throw Error("Session unavailable");
     },
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   await chooseDefault(component, "project", "on");
@@ -743,7 +787,7 @@ test("project activation reports a saved default separately if session activatio
   assert.equal(f.entries[0].selected, false);
   assert.match(
     component.render(140).map(stripTerminalSequences).join("\n"),
-    /Project default ON saved; session could not be enabled: Session unavailable/,
+    /project selection ON\. Other scopes unchanged/,
   );
   component.dispose();
   f.component.dispose();
@@ -791,6 +835,8 @@ test("saved-state menus cancel without changing defaults or navigating categorie
     toggle: async () => {
       calls.push("toggle");
     },
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async () => {
       calls.push("save");
     },
@@ -811,7 +857,7 @@ test("saved-state menus cancel without changing defaults or navigating categorie
   f.component.dispose();
 });
 
-test("only explicit Project On enables the session; Off and Inherit preserve it", async () => {
+test("every Project and Global choice preserves an explicit session selection", async () => {
   const f = fixture();
   const toggles: boolean[] = [];
   Object.assign(f.entries[0], {
@@ -830,6 +876,8 @@ test("only explicit Project On enables the session; Off and Inherit preserve it"
     toggle: async (_entry, selected) => {
       toggles.push(selected);
     },
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   await chooseDefault(component, "project", "off");
@@ -842,11 +890,11 @@ test("only explicit Project On enables the session; Off and Inherit preserve it"
   assert.equal(f.entries[0].selected, false);
   assert.deepEqual(toggles, []);
   await chooseDefault(component, "project", "on");
-  assert.deepEqual(toggles, [true]);
+  assert.deepEqual(toggles, []);
   await chooseDefault(component, "project", "off");
   await chooseDefault(component, "project", "inherit");
-  assert.equal(f.entries[0].selected, true);
-  assert.deepEqual(toggles, [true]);
+  assert.equal(f.entries[0].selected, false);
+  assert.deepEqual(toggles, []);
   component.dispose();
   f.component.dispose();
 });
@@ -869,6 +917,8 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
     toggle: async () => {
       throw Error("Global defaults must not toggle the session");
     },
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => {
       assert.equal(scope, "global");
       assert.equal(state, "inherit");
@@ -881,16 +931,18 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
   const text = () => component.render(160).map(stripTerminalSequences).join("\n");
   assert.match(text(), /\[Project: INHERIT\]/);
   assert.match(text(), /\[Global: MIXED/);
-  assert.match(text(), /Effective defaults: project MIXED/);
+  assert.match(text(), /Active here: OFF/);
   component.handleInput("g");
-  assert.match(text(), /Global default · MIXED/);
+  assert.match(text(), /Global choices · MIXED/);
   component.handleInput("\r");
   await flush();
   assert.equal(f.entries[0].globalState, "inherit");
   assert.equal(f.entries[0].globalDefaultSelected, true);
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].selected, false);
-  assert.match(text(), /Effective defaults: project ON · global ON/);
+  assert.match(text(), /\[Project: INHERIT\]/);
+  assert.match(text(), /\[Global: INHERIT\]/);
+  assert.match(text(), /Active here: OFF/);
   component.dispose();
   f.component.dispose();
 });
@@ -907,6 +959,8 @@ test("native saved-state menu accepts mouse choices and fits wide and narrow ter
       render() {},
       close() {},
       toggle: async () => {},
+      setSession: refreshSession,
+      setMode: refreshMode,
       setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
     });
     component.handleInput("p");
@@ -972,14 +1026,16 @@ test("Project On uses its resolved value despite the initial inherited flag", as
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (entry, state, scope) => refreshDefault(entry, state, scope),
   });
   await chooseDefault(component, "project", "on");
   colors.length = 0;
   const text = component.render(140).map(stripTerminalSequences).join("\n");
-  assert.match(text, /\[Session: ON \].*\[Project: ON \].*\[Global: OFF\]/);
-  assert(colors.some(([color, text]) => color === "success" && text === "[Project: ON ]"));
-  assert(!colors.some(([, text]) => text.includes("ON     ")));
+  assert.match(text, /\[Session: OFF\s+\].*\[Project: ON\s+\].*\[Global: OFF\s+\]/);
+  assert(colors.some(([color, text]) => color === "success" && /\[Project: ON\s+\]/.test(text)));
+  assert.equal(f.entries[0].selected, false);
   component.dispose();
   f.component.dispose();
 });
@@ -1003,6 +1059,8 @@ test("unavailable saved controls explain the restriction in Overview, keyboard a
     render() {},
     close() {},
     toggle: async () => {},
+    setSession: refreshSession,
+    setMode: refreshMode,
     setDefault: async (...args) => {
       writes.push(args);
     },
@@ -1010,17 +1068,16 @@ test("unavailable saved controls explain the restriction in Overview, keyboard a
   await flush();
   const text = () => component.render(140).map(stripTerminalSequences).join("\n");
   assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
-  assert.match(text(), /Effective defaults: project ON · global UNAVAILABLE/);
+  assert.match(text(), /Active here: ON/);
+  assert.doesNotMatch(text(), /\[Global:/, "ineligible global choice is not an enabled control");
   component.handleInput("l");
   component.handleInput("l");
   assert.doesNotMatch(text(), /Global default unavailable/);
   component.handleInput("g");
   assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
   assert.doesNotMatch(text(), /Use native default/);
-  component.handleInput("s");
-  await flush();
-  component.handleInput("s");
-  await flush();
+  await component.toggleCurrent();
+  await component.toggleCurrent();
   assert.doesNotMatch(text(), /Global default unavailable/);
   const rows = component.render(140).map(stripTerminalSequences);
   const y = rows.findIndex((row) => row.includes("Global: OFF"));

@@ -341,7 +341,7 @@ test(
       await session.prompt("A new project inherits personal defaults.");
       assert.match(prompts.at(-1)!, /INSTRUCTION_BODY/);
       const cFile = session.sessionManager.getSessionFile()!;
-      // Turn off future defaults in B, retaining A's project selection and C's recorded session choices.
+      // Turn off global defaults in B, retaining A's project selection; C inherits again on resume.
       await close();
       cwd = join(root, "project-b");
       await open(sdk.SessionManager.create(cwd, join(agentDir, "sessions")));
@@ -365,8 +365,8 @@ test(
       await close();
       cwd = join(root, "project-c");
       await open(sdk.SessionManager.open(cFile));
-      await session.prompt("C resumes the original defaults, not today's defaults.");
-      assert.match(prompts.at(-1)!, /INSTRUCTION_BODY/);
+      await session.prompt("C refreshes inherited personal defaults on resume.");
+      assert.doesNotMatch(prompts.at(-1)!, /INSTRUCTION_BODY/);
       await close();
       await open(sdk.SessionManager.create(cwd, join(agentDir, "sessions")));
       await session.prompt("New C uses the changed personal defaults.");
@@ -442,8 +442,10 @@ test(
           browser.handleInput("\x1b[A");
           await browser.setScopeState("project", "on");
           const text = browser.render(120).map(stripTerminalSequences).join("\n");
-          assert.match(text, /Session: ON /);
+          assert.match(text, /Session: INHERIT/);
           assert.match(text, /Project: ON /);
+          assert.match(text, /Active here: ON — project choice/);
+          await browser.setScopeState("session", "on");
         };
         await session.prompt(`/${command}`);
       }

@@ -157,7 +157,7 @@ async function fixture(t: any, trusted = true, configure?: (contributions: any[]
 test("package toggle is session-only, preserves individual choices/tools and restores from history", async (t) => {
   const f = await fixture(t);
   await f.run(async (browser) => {
-    assert.match(browser.render(120).join("\n"), /Changes apply only to this session/);
+    assert.match(browser.render(120).join("\n"), /Enter\/Space changes this session/);
     await browser.toggleCurrent();
     const selected = f.setup.execute({ op: "list" }, f.ctx).selected;
     assert.deepEqual(selected.skills, ["standalone", "pack-skills"]);
@@ -165,6 +165,14 @@ test("package toggle is session-only, preserves individual choices/tools and res
     assert.deepEqual(selected.instructions, ["standalone", "pack-instructions"]);
     assert.deepEqual(f.active, ["read", "session_setup"]);
     assert.equal(await readFile(f.file, "utf8"), f.before);
+    const recorded = f.entries.at(-1).data;
+    assert.equal(recorded.version, 2);
+    assert.deepEqual(recorded.overrides, {});
+    assert.deepEqual(recorded.states, {
+      skills: { "pack-skills": true },
+      agents: { "pack-agents": true },
+      instructions: { "pack-instructions": true },
+    });
     f.setup.restore(f.ctx);
     assert.deepEqual(f.setup.selection("skills"), ["standalone", "pack-skills"]);
     await browser.toggleCurrent();
@@ -202,10 +210,7 @@ test("untrusted projects can make session choices but cannot save project defaul
   await f.run(async (browser) => {
     await browser.toggleCurrent();
     await browser.saveDefaults();
-    assert.match(
-      browser.render(140).join("\n"),
-      /Saving package defaults requires a trusted project/,
-    );
+    assert.match(browser.render(140).join("\n"), /Saving defaults requires a trusted project/);
     assert.equal(await readFile(f.file, "utf8"), f.before);
     assert.deepEqual(f.setup.selection("agents"), ["standalone", "pack-agents"]);
   });
@@ -244,8 +249,17 @@ test("saving package defaults preserves settings for absent resource providers",
     assert.deepEqual(saved.localContext.instructions, ["saved-instruction"]);
     assert.deepEqual(saved.subagents.skills, { standalone: true, "pack-skills": true });
     assert.deepEqual(saved.packages, ["native-source"]);
-    assert.equal(f.setup.selection("agents"), undefined);
-    assert.equal(f.setup.selection("instructions"), undefined);
+    assert.deepEqual(f.setup.selection("agents"), []);
+    assert.deepEqual(f.setup.selection("instructions"), []);
+    assert.equal(
+      f.setup.inspect(f.ctx).some((value) => value.kind === "agents"),
+      false,
+    );
+    assert.equal(
+      f.setup.inspect(f.ctx).some((value) => value.kind === "instructions"),
+      false,
+    );
+    assert.deepEqual(f.entries.at(-1).data.states, { skills: { "pack-skills": true } });
   });
 });
 
@@ -258,10 +272,14 @@ test("package scope edits isolate members and inherit without rewriting session 
       localContext: { instructions: { standalone: false } },
     }),
   );
+  await f.setup.refresh(f.ctx);
   await f.run(async (browser) => {
     assert.match(browser.render(160).join("\n"), /Project: INHERIT/);
-    await browser.setScopeState("project", "on");
+    await browser.setScopeState("session", "off");
     const sessionBefore = f.setup.execute({ op: "list" }, f.ctx).selected;
+    await browser.setScopeState("project", "on");
+    assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected, sessionBefore);
+    assert.match(browser.render(160).join("\n"), /Session: OFF/);
     for (const state of ["off", "inherit"] as const) {
       await browser.setScopeState("project", state);
       assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected, sessionBefore);
@@ -299,6 +317,17 @@ test("package scope edits isolate members and inherit without rewriting session 
     assert.match(browser.render(160).join("\n"), /Project: ON/);
     await browser.setScopeState("global", "inherit");
     assert.match(browser.render(160).join("\n"), /Global: INHERIT/);
+    await browser.setScopeState("session", "on");
+    const explicitOn = f.setup.execute({ op: "list" }, f.ctx).selected;
+    assert.deepEqual(explicitOn.skills, ["pack-skills"]);
+    await browser.setScopeState("project", "off");
+    await browser.setScopeState("global", "off");
+    assert.deepEqual(f.setup.execute({ op: "list" }, f.ctx).selected, explicitOn);
+    assert.match(browser.render(160).join("\n"), /Session: ON/);
+    const saved = JSON.parse(await readFile(f.file, "utf8"));
+    assert.equal(saved.subagents.skills.standalone, false);
+    assert.equal(saved.subagents.agents.standalone, false);
+    assert.equal(saved.localContext.instructions.standalone, false);
   });
 });
 

@@ -3,11 +3,7 @@ import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   getAgentDir,
   hasTrustRequiringProjectResources,
@@ -18,6 +14,8 @@ import {
 import type { ChildLaunchService, Communication } from "pi-contracts";
 import {
   SESSION_SETUP_CONTRIBUTIONS,
+  SESSION_SETUP_REFRESH,
+  type SessionSetupRefreshRequest,
   type SessionSetupContributionRequest,
   USAGE_EVENT,
 } from "pi-contracts";
@@ -28,7 +26,8 @@ import {
   type ResourcePackage,
   resourcePackageKeywords,
 } from "pi-resources/discovery";
-import { selectedSkills } from "pi-resources/selection";
+import { selectedSkills, resourceApplies, selectedAgents } from "pi-resources/selection";
+import { resourcePickerControls } from "pi-resources/picker";
 import { savedInstructionContext } from "pi-resources/instructions";
 import { installSessionSetup } from "pi-resources/session-setup";
 import { Type } from "typebox";
@@ -67,16 +66,6 @@ import {
   resourceBrowserNavigation,
 } from "../lib/subagent/resource-browser.ts";
 import type { ResourceEntry } from "../lib/subagent/resource-browser.ts";
-import {
-  assertSafeProjectSettingsLocation,
-  type GlobalSelectionSnapshot,
-  readResourceSelection,
-  resolveResourceSelection,
-  selectedAgents,
-  type ResourceDefaultState,
-  writeResourceDefault,
-  writeResourceDefaults,
-} from "pi-resources/selection";
 import { resolveSettings } from "../lib/subagent/settings.ts";
 import { createNativeLauncher } from "../lib/subagent/native-launcher.ts";
 
@@ -110,8 +99,6 @@ export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("agent-message", renderSubagentReply);
   let generation = 0,
     closed = true;
-  let agentDefaultsSnapshot: GlobalSelectionSnapshot = { present: false };
-  let defaultsSnapshotCaptured = false;
   type ChildWorker = Awaited<ReturnType<typeof launchChild>>;
   type ChildSnapshot = ReturnType<ChildWorker["dialogue"]["snapshot"]>;
   interface ArtifactView {
@@ -444,15 +431,6 @@ export default function (pi: ExtensionAPI) {
       }));
   const settingsManager = (ctx: ExtensionContext) =>
     SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
-  const refreshDefaultSnapshots = (ctx: ExtensionContext) => {
-    const manager = settingsManager(ctx);
-    const raw = readResourceSelection(manager, "global", "agents");
-    agentDefaultsSnapshot = {
-      present: raw !== undefined,
-      ...(raw ? { values: raw } : {}),
-    };
-    defaultsSnapshotCaptured = true;
-  };
   const discoverAgents = (ctx: ExtensionContext) => {
     const store = new ProjectTrustStore(getAgentDir());
     const found = discover(
@@ -490,13 +468,15 @@ export default function (pi: ExtensionAPI) {
     return found;
   };
   const refreshAgentSelection = (ctx: ExtensionContext) => {
-    if (!defaultsSnapshotCaptured) refreshDefaultSnapshots(ctx);
     const found = discoverAgents(ctx);
-    const selected = selectedAgents(settingsManager(ctx), found.agents, agentDefaultsSnapshot);
+    const selected = selectedAgents(
+      settingsManager(ctx),
+      found.agents,
+      undefined,
+      ctx.mode === "tui",
+    );
     agentSelectionSnapshot = {
-      ...(selected.configured
-        ? { names: new Set(selected.agents.map((agent) => agent.name)) }
-        : {}),
+      names: new Set(selected.agents.map((agent) => agent.name)),
       ...(selected.error ? { error: selected.error } : {}),
     };
   };
@@ -536,9 +516,13 @@ export default function (pi: ExtensionAPI) {
         toggleable: true,
         defaultSelected: true,
       }));
-      const inheritedSkills = selectedSkills(settingsManager(ctx), choices).map(
-        (skill) => skill.name,
-      );
+      const inheritedSkills = selectedSkills(
+        settingsManager(ctx),
+        choices,
+        false,
+        undefined,
+        false,
+      ).map((skill) => skill.name);
       const resolved = resolveSettings(
         agent,
         {
@@ -547,7 +531,9 @@ export default function (pi: ExtensionAPI) {
           available: [...available],
           tools: pi.getActiveTools(),
           skills: inheritedSkills,
-          availableSkills: choices.map((skill) => skill.name),
+          availableSkills: choices
+            .filter((skill) => resourceApplies(settingsManager(ctx), "skills", skill.name, false))
+            .map((skill) => skill.name),
         },
         model,
       );
@@ -659,13 +645,7 @@ export default function (pi: ExtensionAPI) {
     previews.clear();
     sessionTrust.clear();
   };
-  pi.on("session_start", async (_input, ctx) => {
-    await cleanup("session_start");
-    agentSelectionSnapshot = undefined;
-    previewDiagnostics.clear();
-    parentId = "";
-    identify(ctx);
-    closed = false;
+  const refreshResources = async (ctx: ExtensionContext) => {
     packageResources = await discoverResourcePackages(
       settingsManager(ctx),
       ctx.cwd,
@@ -676,8 +656,21 @@ export default function (pi: ExtensionAPI) {
     agentPathsSnapshot = new Map(
       discoverAgents(ctx).agents.map((agent) => [agent.name, agent.filePath]),
     );
-    refreshDefaultSnapshots(ctx);
     refreshAgentSelection(ctx);
+  };
+  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
+    const request = value as SessionSetupRefreshRequest;
+    if (request?.version === 1 && typeof request.waitUntil === "function")
+      request.waitUntil(refreshResources(request.ctx));
+  });
+  pi.on("session_start", async (_input, ctx) => {
+    await cleanup("session_start");
+    agentSelectionSnapshot = undefined;
+    previewDiagnostics.clear();
+    parentId = "";
+    identify(ctx);
+    closed = false;
+    await refreshResources(ctx);
   });
   pi.on("session_shutdown", () => cleanup("session_shutdown"));
   pi.on("resources_discover", (_input, ctx) => {
@@ -693,7 +686,7 @@ export default function (pi: ExtensionAPI) {
     const ctx = request.ctx,
       manager = settingsManager(ctx);
     const found = discoverAgents(ctx),
-      selected = selectedAgents(manager, found.agents, agentDefaultsSnapshot);
+      selected = selectedAgents(manager, found.agents, undefined, ctx.mode === "tui");
     request.contribute({
       kind: "agents",
       candidates: found.agents
@@ -734,52 +727,6 @@ export default function (pi: ExtensionAPI) {
     };
     return { content: [{ type: "text", text: JSON.stringify(receipt) }], details: receipt };
   });
-  const refreshAgentEntries = (
-    manager: ReturnType<typeof settingsManager>,
-    entries: ResourceEntry[],
-    agents: Array<{ name: string; catalogueOnly?: boolean }>,
-  ) => {
-    const global = readResourceSelection(manager, "global", "agents");
-    const project = readResourceSelection(manager, "project", "agents");
-    for (const entry of entries) {
-      const agent = agents.find((candidate) => candidate.name === entry.id);
-      if (!agent) continue;
-      const resolved = resolveResourceSelection(global, project, agent.name, !agent.catalogueOnly);
-      const globalResolved = resolveResourceSelection(
-        global,
-        undefined,
-        agent.name,
-        !agent.catalogueOnly,
-      );
-      entry.projectState = resolved.projectState;
-      entry.globalState = resolved.globalState;
-      entry.defaultSelected = resolved.effective;
-      entry.globalDefaultSelected = globalResolved.effective;
-    }
-  };
-
-  const changeSavedDefault = async (
-    ctx: ExtensionCommandContext,
-    kind: "agents",
-    id: string,
-    state: ResourceDefaultState,
-    scope: "project" | "global",
-    entries: ResourceEntry[],
-    agents: Array<{ name: string; catalogueOnly?: boolean }>,
-  ) => {
-    if (scope === "project" && !ctx.isProjectTrusted())
-      throw Error("Saving agent defaults requires a trusted project");
-    await writeResourceDefault({
-      scope,
-      kind,
-      id,
-      state,
-      knownIds: agents.map((agent) => agent.name),
-      cwd: ctx.cwd,
-      agentDir: getAgentDir(),
-    });
-    refreshAgentEntries(settingsManager(ctx), entries, agents);
-  };
   const selectionArgs = (args: string) => {
     const match = /^(enable|disable|none|all|inherit|inspect)(?:\s+(.+))?$/.exec(args.trim());
     return match ? { action: match[1], name: match[2]?.trim() } : undefined;
@@ -810,7 +757,7 @@ export default function (pi: ExtensionAPI) {
       }
       const full = discoverAgents(ctx);
       const manager = settingsManager(ctx);
-      let current = selectedAgents(manager, full.agents, agentDefaultsSnapshot);
+      let current = selectedAgents(manager, full.agents, undefined, ctx.mode === "tui");
       const sessionNames = setup.selection("agents");
       if (sessionNames)
         current = {
@@ -842,7 +789,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
       if (selectionChanged) current = { agents: findAgents(ctx).agents, configured: true };
-      let found = findAgents(ctx);
+      const found = findAgents(ctx);
       const diagnostics = [
         ...new Set([
           ...full.problems,
@@ -869,145 +816,90 @@ export default function (pi: ExtensionAPI) {
       let selected = action?.action === "inspect" ? (action.name ?? "") : "";
       if (!action && !/^trust(?:\s|$)/.test(command)) selected = command;
       if (!selected && !action && ctx.hasUI) {
-        const selection = new Set(found.agents.map((agent) => agent.name));
-        let browserEntries: ResourceEntry[] = [];
+        const browserEntries: ResourceEntry[] = full.agents.map((agent) => {
+          return {
+            id: agent.name,
+            name: agent.name,
+            description: agent.description,
+            keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
+              .filter(Boolean)
+              .join(" "),
+            selected: found.agents.some((item) => item.name === agent.name),
+            globalDefaultable:
+              agent.source !== "project" &&
+              packageResources.packs.find((pack) => pack.name === agent.packName)
+                ?.globalDefaultable !== false,
+            badge: agent.packName ?? agent.source,
+            preview: async () => {
+              let fields: Array<{ label: string; value: string }>;
+              try {
+                const resolved = await settings(agent, ctx);
+                const spec = {
+                  ...restrictionSpec(agent, "Preview capabilities", resolved),
+                  communication: {
+                    id: "pending-agent-workspace",
+                    name: agent.name,
+                    parentId,
+                    parentName: "main",
+                  },
+                };
+                const capabilities = publicAgentPreview(await launcher().describeChild(spec));
+                const scope = capabilities.scope;
+                fields = [
+                  {
+                    label: "Model",
+                    value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
+                  },
+                  { label: "Tools", value: capabilities.tools.join(", ") || "none" },
+                  { label: "Child skills", value: resolved.skills.join(", ") || "none" },
+                  ...(resolved.warnings?.length
+                    ? [{ label: "Warnings", value: resolved.warnings.join("\n") }]
+                    : []),
+                  { label: "History", value: String(agent.context ?? "none") },
+                  ...Object.entries(scope).map(([key, value]) => ({
+                    label:
+                      key === "workspaceModes" ? "Workspaces" : key[0].toUpperCase() + key.slice(1),
+                    value: Array.isArray(value) ? value.join(", ") : String(value),
+                  })),
+                ];
+              } catch (error) {
+                fields = [
+                  { label: "Capabilities unavailable", value: errorText(error) },
+                  { label: "Requested model", value: agent.model ?? "inherit parent model" },
+                  {
+                    label: "Requested tools",
+                    value: agent.tools?.join(", ") ?? "inherit available tools",
+                  },
+                ];
+              }
+              return {
+                fields,
+                source: agent.filePath,
+                body: agent.body,
+              };
+            },
+          };
+        });
         await showResourceBrowser(ctx, {
           title: "Agents",
           ...resourceBrowserNavigation(pi, "agents"),
           selectionScope: "session",
           defaultsScope: "project",
-          defaultsInherited: !Object.hasOwn(
-            (manager.getProjectSettings() as { subagents?: { agents?: string[] } }).subagents ?? {},
-            "agents",
-          ),
           notice: diagnostics.join("\n\n"),
-          entries: (browserEntries = full.agents.map((agent) => {
-            const nativeDefault = !agent.catalogueOnly;
-            const resolved = resolveResourceSelection(
-              readResourceSelection(manager, "global", "agents"),
-              readResourceSelection(manager, "project", "agents"),
-              agent.name,
-              nativeDefault,
-            );
-            const globalResolved = resolveResourceSelection(
-              readResourceSelection(manager, "global", "agents"),
-              undefined,
-              agent.name,
-              nativeDefault,
-            );
-            return {
-              id: agent.name,
-              name: agent.name,
-              description: agent.description,
-              keywords: [agent.model, ...(agent.tools ?? []), agent.source, agent.packKeywords]
-                .filter(Boolean)
-                .join(" "),
-              selected: selection.has(agent.name),
-              defaultSelected: resolved.effective,
-              globalDefaultSelected: globalResolved.effective,
-              projectState: resolved.projectState,
-              globalState: resolved.globalState,
-              nativeDefault,
-              globalDefaultable:
-                agent.source !== "project" &&
-                packageResources.packs.find((pack) => pack.name === agent.packName)
-                  ?.globalDefaultable !== false,
-              badge: agent.packName ?? agent.source,
-              preview: async () => {
-                let fields: Array<{ label: string; value: string }>;
-                try {
-                  const resolved = await settings(agent, ctx);
-                  const spec = {
-                    ...restrictionSpec(agent, "Preview capabilities", resolved),
-                    communication: {
-                      id: "pending-agent-workspace",
-                      name: agent.name,
-                      parentId,
-                      parentName: "main",
-                    },
-                  };
-                  const capabilities = publicAgentPreview(await launcher().describeChild(spec));
-                  const scope = capabilities.scope;
-                  fields = [
-                    {
-                      label: "Model",
-                      value: `${resolved.model.provider}/${resolved.model.id} · ${resolved.thinking ?? "inherited"}${agent.model && agent.model !== "inherit" ? " · fixed" : " · choose per launch"}`,
-                    },
-                    { label: "Tools", value: capabilities.tools.join(", ") || "none" },
-                    { label: "Child skills", value: resolved.skills.join(", ") || "none" },
-                    ...(resolved.warnings?.length
-                      ? [{ label: "Warnings", value: resolved.warnings.join("\n") }]
-                      : []),
-                    { label: "History", value: String(agent.context ?? "none") },
-                    ...Object.entries(scope).map(([key, value]) => ({
-                      label:
-                        key === "workspaceModes"
-                          ? "Workspaces"
-                          : key[0].toUpperCase() + key.slice(1),
-                      value: Array.isArray(value) ? value.join(", ") : String(value),
-                    })),
-                  ];
-                } catch (error) {
-                  fields = [
-                    { label: "Capabilities unavailable", value: errorText(error) },
-                    { label: "Requested model", value: agent.model ?? "inherit parent model" },
-                    {
-                      label: "Requested tools",
-                      value: agent.tools?.join(", ") ?? "inherit available tools",
-                    },
-                  ];
-                }
-                return {
-                  fields,
-                  source: agent.filePath,
-                  body: agent.body,
-                };
+          entries: browserEntries,
+          ...resourcePickerControls({
+            ctx,
+            setup,
+            entries: browserEntries,
+            members: (entry) => [
+              {
+                kind: "agents",
+                id: entry.id,
+                nativeDefault: !full.agents.find((agent) => agent.name === entry.id)?.catalogueOnly,
+                globalDefaultable: entry.globalDefaultable,
               },
-            };
-          })),
-          toggle: async (entry, enabled) => {
-            const next = new Set(selection);
-            if (enabled) next.add(entry.id);
-            else next.delete(entry.id);
-            setup.execute({ op: "apply", agents: [...next].sort() }, ctx);
-            selection.clear();
-            for (const name of next) selection.add(name);
-            found = findAgents(ctx);
-          },
-          setDefault: (entry, state, scope) =>
-            changeSavedDefault(ctx, "agents", entry.id, state, scope, browserEntries, full.agents),
-          saveGlobalDefaults: async (saved) => {
-            await writeResourceDefaults({
-              scope: "global",
-              agentDir: getAgentDir(),
-              selections: {
-                agents: {
-                  snapshot: true,
-                  knownIds: full.agents.map((agent) => agent.name),
-                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
-                },
-              },
-            });
-            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
-          },
-          saveDefaults: async (saved) => {
-            if (!ctx.isProjectTrusted())
-              throw Error("Saving agent defaults requires a trusted project");
-            await assertSafeProjectSettingsLocation(ctx.cwd);
-            await writeResourceDefaults({
-              scope: "project",
-              cwd: ctx.cwd,
-              agentDir: getAgentDir(),
-              selections: {
-                agents: {
-                  snapshot: true,
-                  knownIds: full.agents.map((agent) => agent.name),
-                  values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
-                },
-              },
-            });
-            refreshAgentEntries(settingsManager(ctx), browserEntries, full.agents);
-          },
+            ],
+          }),
         });
         return;
       }

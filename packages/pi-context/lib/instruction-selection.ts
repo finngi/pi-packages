@@ -4,12 +4,16 @@ import { realpathSync } from "node:fs";
 
 import {
   resolveResourceSelection,
+  resolveResourceMode,
+  validateResourceModes,
+  type ResourceModes,
   validateResourceSelection,
   type ResourceSelectionValue,
 } from "pi-resources/selection";
 
 export type InstructionSettings = {
   localContext?: { instructions?: ResourceSelectionValue };
+  resourceSessionTypes?: { instructions?: ResourceModes };
 };
 
 export function catalogueInstructionId(root: string, file: string): string {
@@ -28,6 +32,7 @@ export function effectiveInstructions(
   project: InstructionSettings,
   knownNames?: string[],
   nativeNames: string[] = [],
+  interactive = true,
 ): string[] | undefined {
   for (const settings of [global, project]) {
     if (
@@ -56,8 +61,11 @@ export function effectiveInstructions(
     ]),
   ];
   const native = new Set(nativeNames);
+  const globalModes = validateResourceModes(global.resourceSessionTypes?.instructions);
+  const projectModes = validateResourceModes(project.resourceSessionTypes?.instructions);
   return known.filter(
     (id) =>
+      (interactive || resolveResourceMode(globalModes, projectModes, id).mode === "any") &&
       resolveResourceSelection(globalSelection, projectSelection, id, native.has(id)).effective,
   );
 }
