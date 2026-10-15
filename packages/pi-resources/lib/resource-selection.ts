@@ -489,12 +489,17 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
   )
     return { agents: [], configured: true, error: "subagents must be an object" };
   let projectRaw: ResourceSelectionValue, globalRaw: ResourceSelectionValue;
+  let applies: (id: string) => boolean;
   try {
     projectRaw = readResourceSelection(settings, "project", "agents");
     const currentGlobalRaw = readResourceSelection(settings, "global", "agents");
     globalRaw = globalSnapshot
       ? validateResourceSelection(snapshotValue(globalSnapshot), "agents")
       : currentGlobalRaw;
+    const globalModes = readResourceModes(settings, "global", "agents");
+    const projectModes = readResourceModes(settings, "project", "agents");
+    applies = (id) =>
+      interactive || resolveResourceMode(globalModes, projectModes, id).mode === "any";
   } catch (error) {
     return {
       agents: [],
@@ -506,7 +511,7 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
   return {
     agents: agents.filter(
       (agent) =>
-        resourceApplies(settings, "agents", agent.name, interactive) &&
+        applies(agent.name) &&
         resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
     ),
     configured,

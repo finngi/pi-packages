@@ -615,3 +615,38 @@ test("bulk saves write ON/OFF only, so a later global session type still applies
   assert.equal(state.mode, "interactive");
   assert.equal(state.modeSource, "global");
 });
+
+test("malformed or old-format defaults fall back per kind and never remove tools", async () => {
+  const f = fixture();
+  f.save("global", {
+    subagents: { agents: ["x"] },
+    resourceSessionTypes: { instructions: { evidence: "tui" } },
+  });
+  f.setup.restore(f.ctx, true);
+  const listed = f.setup.execute({ op: "list" }, f.ctx);
+  assert.equal(listed.error, undefined);
+  assert.equal(listed.warnings?.length, 2);
+  assert.match(listed.warnings![0]!, /agents defaults were ignored.*old list format/);
+  assert.match(listed.warnings![1]!, /instructions defaults were ignored.*any or interactive/);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
+  f.setup.setState("skills", "lexical", "on", f.ctx);
+  f.setup.refresh(f.ctx);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(f.setup.selection("skills"), ["native", "lexical"]);
+  f.save("global", {});
+  f.setup.refresh(f.ctx);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+});
+
+test("settings for an unloaded provider are not read", () => {
+  const f = fixture();
+  f.resources.splice(
+    f.resources.findIndex((value) => value.kind === "agents"),
+    1,
+  );
+  f.save("global", { subagents: { agents: ["x"] } });
+  f.setup.restore(f.ctx, true);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+});

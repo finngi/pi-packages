@@ -178,7 +178,8 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
   let overrides: SessionSetupOverrides = {},
     baseTools: string[] = [],
     sessionId = "",
-    restoreError: string | undefined;
+    restoreError: string | undefined,
+    defaultErrors: string[] = [];
   let resourceUniverse: SessionSetupCandidate[] | undefined;
   let states: ResourceStates = {};
   let initialized = false,
@@ -198,16 +199,32 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     if (kind === "tools") return overrides.tools === undefined ? undefined : [...overrides.tools];
     return !initialized ? undefined : [...(resolved[kind] ?? [])];
   };
-  const snapshotDefaults = (ctx: ExtensionContext) => {
-    const manager = SettingsManager.create(ctx.cwd, getAgentDir(), {
-      projectTrusted: ctx.isProjectTrusted(),
-    });
+  // Only loaded providers read their saved defaults. An invalid value affects its own kind,
+  // which falls back to native defaults; it never clears other kinds or active tools.
+  const snapshotDefaults = (ctx: ExtensionContext, loaded: SessionSetupResourceKind[]) => {
     defaults = { global: {}, project: {} };
     defaultModes = { global: {}, project: {} };
-    for (const scope of ["global", "project"] as const)
-      for (const kind of resources) {
-        defaults[scope][kind] = structuredClone(readResourceSelection(manager, scope, kind));
-        defaultModes[scope][kind] = structuredClone(readResourceModes(manager, scope, kind));
+    defaultErrors = [];
+    for (const kind of loaded)
+      try {
+        const manager = SettingsManager.create(ctx.cwd, getAgentDir(), {
+          projectTrusted: ctx.isProjectTrusted(),
+        });
+        const values = (["global", "project"] as const).map((scope) => ({
+          scope,
+          selection: structuredClone(readResourceSelection(manager, scope, kind)),
+          modes: structuredClone(readResourceModes(manager, scope, kind)),
+        }));
+        for (const { scope, selection, modes } of values) {
+          defaults[scope][kind] = selection;
+          defaultModes[scope][kind] = modes;
+        }
+      } catch (error) {
+        defaultErrors.push(
+          `Saved ${kind} defaults were ignored; using native defaults until settings are fixed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     interactive = ctx.mode === "tui";
   };
@@ -377,8 +394,14 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       .reverse()
       .find((entry) => entry.type === "custom" && entry.customType === SESSION_SETUP_STATE);
     try {
-      if (!initialized) snapshotDefaults(ctx);
       const contributions = collect(ctx);
+      if (!initialized) {
+        snapshotDefaults(
+          ctx,
+          resources.filter((kind) => contributions.some((value) => value.kind === kind)),
+        );
+        if (ctx.hasUI) for (const warning of defaultErrors) ctx.ui.notify(warning, "warning");
+      }
       let next: SessionSetupOverrides = {};
       let nextStates: ResourceStates = {};
       let restoredBase = baseTools;
@@ -451,7 +474,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       states = {};
       initialized = true;
       resolveSelections();
-      pi.setActiveTools(["session_setup"]);
+      if (restoreTools) pi.setActiveTools(["session_setup"]);
       restoreError = error instanceof Error ? error.message : String(error);
       if (ctx.hasUI)
         ctx.ui.notify(
@@ -574,6 +597,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         selected: selected as Record<(typeof selections)[number], string[]>,
         overrides: structuredClone(overrides),
         ...(restoreError ? { error: restoreError } : {}),
+        ...(defaultErrors.length ? { warnings: [...defaultErrors] } : {}),
         candidates: candidates.slice(0, request.limit ?? 20),
         total: candidates.length,
         effects: {
