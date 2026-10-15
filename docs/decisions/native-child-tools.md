@@ -1,8 +1,5 @@
 # Native package tools in children
 
-Status: candidate, verified on stock Pi 1.2 with security off. Secured-launcher changes are a
-separate review-only patch pending approval. Existing sessions and installed runtimes are unchanged.
-
 The previous launcher rebuilt a seven-tool subset and copied only worker authentication. This
 made a selected package tool unavailable to children, and a search tool loaded manually could
 still lack its independent Codex OAuth login. Those are launch-model mismatches.
@@ -22,8 +19,10 @@ metadata, including a custom endpoint or context limit, remains authoritative fo
 other native model types remain available. Using the identical auth path preserves Pi's file lock
 and OAuth refresh. A symlink under each child directory was
 rejected because the native lock is based on the path, so different links can race token rotation.
-The existing resolved-model snapshot remains a fallback for supported SDK-only worker providers;
-it does not replace working native provider authentication.
+Resolved credential snapshots and fallback streaming adapters are removed. Native providers use
+native configuration and auth; custom callback providers require their trusted extension entrypoint.
+The optional permission gate contributes its entrypoint, policy and genuine user messages through
+the trusted child-launch event, independently of selected tool provenance.
 
 Each child owns its managed jobs. Reuse Bash's existing managed-process path for `background:true`
 in headless sessions. Keep native tool usage and the existing RPC statistics reconciliation; do not

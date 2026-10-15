@@ -24,9 +24,9 @@ const { launchChild } = (await import(
 const { MESSAGE_BRIDGE } = (await import(
   pathToFileURL(packageFile("pi-delegation", "lib/subagent/messages.ts")).href
 )) as typeof import("./messages.ts");
-const { createUnrestrictedLauncher } = (await import(
-  pathToFileURL(packageFile("pi-delegation", "lib/subagent/unrestricted-launcher.ts")).href
-)) as typeof import("./unrestricted-launcher.ts");
+const { createNativeLauncher } = (await import(
+  pathToFileURL(packageFile("pi-delegation", "lib/subagent/native-launcher.ts")).href
+)) as typeof import("./native-launcher.ts");
 const providerApi = packagedRoot
   ? pathToFileURL(join(packagedRoot, "@earendil-works/pi-ai/dist/compat.js")).href
   : import.meta.resolve("@earendil-works/pi-ai/compat");
@@ -147,10 +147,11 @@ export default function(pi) {
 `,
         );
         process.env.PI_CODING_AGENT_DIR = agentDir;
-        process.env.PI_SUBAGENT_FIXTURE_EXTENSION = provider;
+        process.env.PI_SUBAGENT_PROVIDER_EXTENSION = provider;
         delete process.env.PI_SECURITY_TRANSPORT;
         delete process.env.PI_SUBAGENT;
         const pi = {
+          events: { emit() {} },
           getActiveTools: () => ["bash", "background_process", "codex_search"],
           getAllTools: () => [
             { name: "bash", sourceInfo: { path: background, scope: "user" } },
@@ -173,7 +174,7 @@ export default function(pi) {
           }),
           getAvailableOfType: async () => [model],
         };
-        const launcher = createUnrestrictedLauncher(
+        const launcher = createNativeLauncher(
           pi,
           () => ({ cwd: project, model, modelRegistry }) as unknown as ExtensionContext,
           messaging,

@@ -8,10 +8,6 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./child-auth": {
-      "types": "./src/child-auth.ts",
-      "default": "./src/child-auth.ts"
-    },
     "./child-rpc": {
       "types": "./src/child-rpc.ts",
       "default": "./src/child-rpc.ts"

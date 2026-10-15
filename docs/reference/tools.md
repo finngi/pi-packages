@@ -1,27 +1,6 @@
 # Tools and commands
 
-These are model-facing tools registered by the extensions. JSON examples are tool inputs, not shell commands. Tools require their owning extension in the current Pi process; security policy can additionally admit or refuse them.
-
-## Secured shell writes
-
-In active macOS host placement, the secured `bash` tool accepts optional `permissions.write: string[]` to request write
-destinations outside the policy's default writable roots. Relative paths resolve from the
-execution working directory. An existing directory requests its subtree; an existing or new file
-path requests that file. Missing parent directories may be created without granting their contents.
-Use an existing directory for tree-writing work, or supply exact file paths; glob paths are refused. Security does not infer shell destinations from the command.
-
-```json
-{
-  "command": "printf '%s\\n' Passed > /workspace/service-b/notes/qa-summary.md",
-  "permissions": { "write": ["/workspace/service-b/notes/qa-summary.md"] }
-}
-```
-
-The resolver reviews the command and requested scope together. Approval binds the grant to that
-call or its background job, within hard denials and resource limits; it does not change the saved policy.
-A denied command bypasses review even when extra paths are supplied. The `write` and `edit` tools
-infer a requested destination from `path` and need no extra path parameter. See
-[per-call write scope](security-policy.md#requested-resources).
+These are model-facing tools registered by the extensions. JSON examples are tool inputs, not shell commands. Tools require their owning extension in the current Pi process; an optional permission gate can additionally admit or refuse them.
 
 ## Session setup
 
@@ -58,8 +37,7 @@ native package filters or CLI loading flags cannot be recovered by selecting the
 Selecting `packages` changes only the public skill, agent and instruction sets, not executable
 package loading. New packages use native `pi install` or a new invocation with `-e`; ordinary
 extension changes require idle `/reload`. Configured and temporary `-e` packages
-are discoverable through Pi's native resolver, including custom-only packages without skills. Replacing security/runtime code or restarting processes
-with children requires staged activation after those processes exit. Unknown package IDs return
+are discoverable through Pi's native resolver, including custom-only packages without skills. Restarting with active children requires preserving their artifacts first. Unknown package IDs return
 these next actions without applying a partial selection. See [package decisions](../package-design.md).
 
 The complete plan is validated before changes. Unknown, untrusted or unavailable IDs reject the
@@ -103,7 +81,7 @@ sessions. Neither action loads extension code or changes MCP connections.
 Setup selects existing resources; it installs no extension, hook or MCP server and changes no
 permission policy. A tool must be registered and available in the current Pi session. Native
 deferred/codemode tools can remain callable while hidden from the active list, so this controls
-presentation, not security. The normal security rules and permission resolver still check calls.
+presentation, not security. An optional permission gate still checks calls.
 Custom policies can allow the registered `session_setup` tool explicitly; an unmatched call uses
 their normal review path.
 
@@ -130,7 +108,7 @@ flowchart LR
 | `subagent_cancel` | Parent | `id: string`; optional `discard: boolean` | Stops process, collects files, returns a compact state/artifact summary |
 | `subagent_close` | Parent | `id: string`; optional `discard: boolean` | Stops process, collects files, returns a compact state/artifact summary |
 
-`workspace` defaults to `scratch`; `project` requires security disabled. `conversation` accepts `"none"`, `"all"`, or a positive integer string, subject to the definition ceiling. Routine `kind: "progress"` can target only the parent and never starts an idle parent turn. `question` and default `message` are actionable and can wake recipients. A receipt does not prove reading or revised-task acceptance. The inactive compatibility alias `subagent_message({id,message,mode?})` addresses a child; new prompts use `agent_message`.
+`workspace` defaults to `scratch`; `project` uses the shared project directory. `conversation` accepts `"none"`, `"all"`, or a positive integer string, subject to the definition ceiling. Routine `kind: "progress"` can target only the parent and never starts an idle parent turn. `question` and default `message` are actionable and can wake recipients. A receipt does not prove reading or revised-task acceptance.
 
 Launch text uses `agent_id`, `name`, `status: "started"`, `workspace`, `workspace_mode`, `tools`, `scope`, and `request_id`. An accepted goal wait adds `wait_id`; launch details include `id`, `requestId`, `waitId`, `effective`, and `goalWait`. A message receipt uses `accepted`, `message_id`, `to`, and either `mode`, `kind`, and `trigger_turn` for the parent or `request_id` for a child, with `wait_id` if accepted by a goal. Main-message receipts do not wait for an answer.
 
@@ -152,20 +130,11 @@ Sources: [tool registration](../../packages/pi-delegation/extensions/subagent.ts
 
 ## Codemode
 
-Pi's `codemode` tool evaluates JavaScript in QuickJS and lets the model compose callable `tools.*`
-operations. In a secured host session, load `builtin:codemode` and pass `--security-codemode`.
-Security checks that the activated definition is the host's owned Pi built-in. A missing or
-substituted definition refuses initialization.
-
-Nested `tools.*` operations pass through the regular tool pipeline, with their own exact call IDs,
-permission decisions, and confined effect helpers. MCP operations retain their owned-connection
-and one-use ticket checks. Codemode `models.*` calls run through Pi's model client outside Seatbelt
-and without individual permission-classifier decisions. Its QuickJS environment and the kernel
-confinement of file/shell helpers are separate boundaries.
-
-Use Pi's installed [documentation discovery](../guides/prompts.md#select-optional-skills) for the
-codemode argument schema and JavaScript API. The pinned Linux/container artifact does not enable
-codemode. See [security launch and limits](../guides/security.md#launch-from-the-checkout).
+Pi's native `codemode` evaluates JavaScript in QuickJS and composes callable tools. Nested tool
+calls use Pi's ordinary tool pipeline. Our packages do not replace this executor or implement
+another MCP transport. Load native built-ins through the normal Pi loader; use Pi's installed
+documentation for their current schema and API. Model calls made directly through native
+`models.*` are not individual tool calls reviewed by the optional permission gate.
 
 ## Background process tool
 
@@ -185,9 +154,12 @@ codemode. See [security launch and limits](../guides/security.md#launch-from-the
 | Kill grace / stream drain | 1 second each |
 | Protocol write timeout | 30 seconds |
 
-The `/jobs` command supports `list`, `read ID [CURSOR]`, and `cancel ID` for `pi-background` jobs. `/background` hands off foreground shell waits owned by `pi-background` and yields foreground goal waits; this does not stop their jobs or discard pending goal results. With `PI_SECURITY_TRANSPORT=extensions`, `pi-security` sends every secured shell call through this process manager. In that transport, foreground calls normally return output and exit details on completion; a steering message or `/background` ends the foreground wait and returns a job ID while the process continues. An explicit shell `background: true` also returns an ID immediately. The model tool lists secured shell jobs in this transport.
+The `/jobs` command lists, reads and cancels session jobs. `/background` hands off a foreground
+shell wait or yields a foreground goal wait without killing its job or discarding results.
+`bash` accepts `background: true` to return a managed job ID immediately. Tool calls use ordinary
+host permissions, with optional before-tool review when `pi-permissions` is loaded.
 
-An explicit cancel, configured timeout, session shutdown, or natural completion ends a job. Timeout values are positive and capped at 2,147,483,647 ms (2,147,483.647 seconds), Node.js's maximum single timer delay. Session shutdown and cancellation terminate the process group; natural leader exit drains output for up to the configured drain limit before stopping remaining descendants. The security capability lease remains held until manager finalization. Shell commands and subagents have separate capacity pools, so long-lived agents do not consume shell slots. The class constructor accepts trusted limit overrides. Generic shell stdin is closed; protocol clients may request a pipe. Process groups do not contain deliberate daemon/session escapes. See the [process guide](../guides/background-processes.md). Sources: [tool](../../packages/pi-background/extensions/background-process.ts), [process manager](../../packages/pi-background/lib/background/processes.ts), and [output buffer](../../packages/pi-background/lib/background/output-buffer.ts).
+An explicit cancel, configured timeout, session shutdown, or natural completion ends a job. Timeout values are positive and capped at 2,147,483,647 ms (2,147,483.647 seconds), Node.js's maximum single timer delay. Session shutdown and cancellation terminate the process group; natural leader exit drains output for up to the configured drain limit before stopping remaining descendants. Shell commands and subagents have separate capacity pools, so long-lived agents do not consume shell slots. The class constructor accepts trusted limit overrides. Generic shell stdin is closed; protocol clients may request a pipe. Process groups do not contain deliberate daemon/session escapes. See the [process guide](../guides/background-processes.md). Sources: [tool](../../packages/pi-background/extensions/background-process.ts), [process manager](../../packages/pi-runtime/src/processes/processes.ts), and [output buffer](../../packages/pi-runtime/src/processes/output-buffer.ts).
 
 ## Goal tools
 
@@ -227,7 +199,9 @@ An explicit budget covers parent-provider usage on main-model calls, checked bef
 
 It resolves OpenAI Codex OAuth through Pi's `modelRegistry.getProviderAuth("openai-codex")` and derives account identity from that token. Missing account claims fail with sign-in guidance. It does not use an ambient credential file or fork-only metadata API.
 
-Without security selection/presence, it uses its fixed backend protocol directly. With security, it requires exactly one valid `prepareSearch` capability before resolving auth or dispatching HTTP. The capability binds exact input, network permissions, `chatgpt.com` authority, fixed origin, allowed model/Responses paths, lifetime, and cancellation. Missing/invalid/duplicate service or failed admission refuses; it cannot bypass a gate.
+The tool uses one fixed backend protocol. It resolves native authentication when executing the
+call, refuses redirects and validates backend origin directly. Optional before-tool permissions
+review happens through the normal hook, without a special search capability service.
 
 Output contains model, optional submitted reasoning effort, freshness, context size, query/failure counts, `successes`, `failures`, `partial`, and elapsed time. Each success has text, provider URL citations, search calls, and optional usage/response ID/truncation flag. Failures classify auth, rate-limit, transport, timeout, schema, or unknown errors. Cite URLs the provider actually returns; an empty citation list supplies no sources.
 
@@ -240,7 +214,7 @@ Output contains model, optional submitted reasoning effort, freshness, context s
 | Individual SSE frame | 1 Mi characters |
 | Returned answer text | 12,000 characters, with explicit truncation |
 
-Redirects are refused. The parser requires the terminal completion marker and validates optional primitive fields. This is a trusted HTTP adapter outside kernel effect-tool network confinement; cancellation/revocation aborts transport and rejects stale updates/results. Source and tests: [tool/auth/security adapter](../../packages/pi-codex-search/extensions/search.ts), [protocol](../../packages/pi-codex-search/lib/search.ts), and [tests](../../packages/pi-codex-search/tests/search.test.ts).
+Redirects are refused. The parser requires the terminal completion marker and validates optional primitive fields. Cancellation aborts transport and rejects stale updates/results. Source and tests: [tool and auth adapter](../../packages/pi-codex-search/extensions/search.ts), [protocol](../../packages/pi-codex-search/lib/search.ts), and [tests](../../packages/pi-codex-search/tests/search.test.ts).
 
 ## Commands
 
@@ -258,14 +232,7 @@ Redirects are refused. The parser requires the terminal completion marker and va
 | `/jobs [list]` | `pi-background` | List session background jobs |
 | `/jobs read ID [CURSOR]` / `/jobs cancel ID` | `pi-background` | Read output or cancel a session background job |
 | `/background` | `pi-background` | Yield `pi-background` foreground shell waits and goal waits while preserving their pending work |
-| `/costs` | Shared accounting installed by subagents/security | Show combined total, parent/agent/classifier/evaluator breakdowns and missing-usage limitations |
-| `/mcp` | Pi built-in MCP integration under `pi-security` | Manage opted-in HTTP(S) MCP servers and Pi-owned authentication; requires `--security-mcp` for config admission |
+| `/costs` | Shared accounting installed by delegation/goals/permissions | Show combined total, parent/agent/classifier/evaluator breakdowns and missing-usage limitations |
+| `/mcp` | Pi native MCP | Manage native servers, connections and authentication |
 
 The `/goal` shorthand treats `start`, `edit`, `pause`, `resume`, `clear`, and `status` as controls when they are the first word. Put an objective beginning with one of those words after explicit `/goal start`.
-
-The standalone `pi-security explain "<command>"` CLI reports policy matching without execution or classification. See [configure security](../guides/security.md#inspect-decisions-and-failures).
-
-
-## Secured MCP
-
-`--security-mcp` explicitly enables Pi's built-in MCP integration in the host. The adapter retains Pi's `/mcp` manager, OAuth provider, server connections, and tool catalogue. Only admitted HTTP(S) endpoints can connect; each model tool/resource call is approved by the normal security decision flow and bound to the selected server, exact Pi tool-call ID, and MCP operation before SDK execution. Redirects and local stdio configs are refused. Default exposure is `deferred` and requires `builtin:tool-search`; configured codemode exposure is supported when the host explicitly activates codemode. MCP configuration does not activate it automatically. Explicit SDK OAuth helper fetches are host-scoped to `policy.resources.network`; the SDK's saved-token preflight may refresh against its saved issuer before the transport gate, so this is not full OAuth-network confinement. See [security guidance](../guides/security.md#launch-from-the-checkout).

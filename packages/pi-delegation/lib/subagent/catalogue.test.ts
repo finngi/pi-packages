@@ -33,7 +33,7 @@ test("model catalogue exposes names and descriptions without eager instructions 
 
 test("capability XML shows effective permissions without serializing policy deny arrays", () => {
   const scope = {
-    mode: "auto",
+    approval: "native tool-call hooks",
 
     capabilities: ["gpu"],
     write: "own workspace only; parent integrates returned artifacts",
@@ -45,7 +45,7 @@ test("capability XML shows effective permissions without serializing policy deny
   const before = structuredClone(scope);
   const result = scopeCatalogue(scope);
   assert.match(result, /<workspace>scratch<\/workspace>/);
-  assert.match(result, /<approval>auto<\/approval>/);
+  assert.match(result, /<approval>native tool-call hooks<\/approval>/);
 
   assert.match(result, /<capabilities>gpu<\/capabilities>/);
   assert.match(
@@ -60,7 +60,7 @@ test("capability XML shows effective permissions without serializing policy deny
 
 test("unrestricted scope includes project workspace and escapes policy text", () => {
   const result = scopeCatalogue({
-    mode: "off",
+    execution: "host permissions",
     workspaceModes: ["scratch", "project"],
     read: "host permissions <trusted>",
     network: "host permissions",
@@ -76,7 +76,7 @@ test("public preview strips private resources and full policy paths", () => {
     skills: ["private-review"],
     privateSkills: [{ name: "private-review", path: "/agent/skills/private-review/SKILL.md" }],
     scope: {
-      mode: "auto",
+      approval: "native tool-call hooks",
 
       read: "policy-permitted files",
       write: "own workspace",
@@ -92,7 +92,7 @@ test("public preview strips private resources and full policy paths", () => {
   assert.deepEqual(preview, {
     tools: ["read", "write"],
     scope: {
-      mode: "auto",
+      approval: "native tool-call hooks",
 
       read: "policy-permitted files",
       write: "own workspace",

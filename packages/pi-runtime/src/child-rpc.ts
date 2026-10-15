@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
 import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -12,7 +13,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import childAuth from "./child-auth.ts";
+import { installChildProvider, type ChildProvider } from "./child-provider.ts";
 
 /** Use Pi's loader and RPC host with only the resources prepared by the parent. */
 export async function createChildRuntime(argv: string[] = process.argv.slice(2)) {
@@ -35,6 +36,12 @@ export async function createChildRuntime(argv: string[] = process.argv.slice(2))
     modelsStorePath: join(nativeAgentDir, "models-store.json"),
     allowModelNetwork: false,
   });
+  const providerConfig = process.env.PI_CHILD_PROVIDER_CONFIG;
+  if (providerConfig && !isAbsolute(providerConfig))
+    throw Error("Child provider configuration must be a prepared absolute path");
+  const provider = providerConfig
+    ? (JSON.parse(await readFile(providerConfig, "utf8")) as ChildProvider | undefined)
+    : undefined;
   const cwd = process.cwd();
   return createAgentSessionRuntime(
     async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
@@ -57,8 +64,11 @@ export async function createChildRuntime(argv: string[] = process.argv.slice(2))
           extensionFactories: [
             { name: "codemode", builtin: true, factory: createCodemodeExtension() },
             { name: "tool-search", builtin: true, factory: createToolSearchExtension() },
-            ...(process.env.PI_CHILD_AUTH || process.env.PI_SECURITY_CHILD_AUTH
-              ? [(pi: Parameters<typeof childAuth>[0]) => childAuth(pi, modelRuntime)]
+            ...(provider
+              ? [
+                  (pi: Parameters<typeof installChildProvider>[0]) =>
+                    installChildProvider(pi, modelRuntime, provider),
+                ]
               : []),
           ],
         },

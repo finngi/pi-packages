@@ -10,7 +10,6 @@ import type { ResourceBrowser } from "./resource-browser.ts";
 initTheme("dark", false);
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SECURITY_PRESENCE } from "pi-contracts";
 import extension from "../../extensions/subagent.ts";
 
 function fixture() {
@@ -39,18 +38,6 @@ function fixture() {
         if (name === "session_start") started = true;
         await previous?.(...args);
         const result = await handler(...args);
-        if (name === "resources_discover" && result?.skillPaths)
-          for (const path of result.skillPaths) {
-            const text = readFileSync(path, "utf8"),
-              name = /^name: (.+)$/m.exec(text)?.[1];
-            if (name && !loadedSkills.some((skill) => skill.name === name))
-              loadedSkills.push({
-                name,
-                description: `${name} fixture skill`,
-                source: "skill",
-                sourceInfo: { path },
-              });
-          }
         return result;
       });
     },
@@ -83,7 +70,6 @@ function fixture() {
         eventListeners.set(name, [...(eventListeners.get(name) ?? []), handler]);
       },
       emit(name: string, value: { respond?: (present: boolean) => void }) {
-        if (name === SECURITY_PRESENCE) value.respond?.(false);
         for (const listener of eventListeners.get(name) ?? []) listener(value);
       },
     },
@@ -252,7 +238,7 @@ test("clearing a stale agent selection does not report the pre-repair error", as
   delete process.env.PI_SUBAGENT;
   writeFileSync(
     join(f.project, ".pi/settings.json"),
-    JSON.stringify({ subagents: { agents: ["missing-agent"] } }),
+    JSON.stringify({ subagents: { agents: { "missing-agent": true } } }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -326,7 +312,7 @@ test("re-trusting an ancestor restores a saved selection after session-start dis
   );
   writeFileSync(
     join(f.project, ".pi/settings.json"),
-    JSON.stringify({ subagents: { agents: ["reviewer"] } }),
+    JSON.stringify({ subagents: { agents: { reviewer: true } } }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -357,7 +343,7 @@ test("launch lookup repairs a cached missing-name selection and browse shows the
   delete process.env.PI_SUBAGENT;
   writeFileSync(
     join(f.project, ".pi/settings.json"),
-    JSON.stringify({ subagents: { agents: ["late-agent"] } }),
+    JSON.stringify({ subagents: { agents: { "late-agent": true } } }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -398,7 +384,7 @@ test("launch lookup repairs a cached missing-name selection and browse shows the
       const projectSettings = JSON.parse(
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
-      assert.deepEqual(projectSettings.subagents.agents, ["late-agent"]);
+      assert.deepEqual(projectSettings.subagents.agents, { "late-agent": true });
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -413,9 +399,16 @@ test("a direct public-skill change updates the session without a reload or setti
   delete process.env.PI_SUBAGENT;
   const catalogue = join(f.root, "catalogue");
   const skillPath = addSkill(catalogue, "one");
+  registerNativeSkill(f, skillPath);
   writeFileSync(
     join(f.agentDir, "settings.json"),
-    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+    JSON.stringify({
+      subagents: {
+        skills: Object.fromEntries(
+          f.loadedSkills.map((skill) => [skill.name.replace(/^skill:/, ""), false]),
+        ),
+      },
+    }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -430,7 +423,7 @@ test("a direct public-skill change updates the session without a reload or setti
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
       assert.deepEqual(projectSettings.subagents.skills, { one: true });
-      assert.deepEqual(projectSettings.subagents.skillPaths, [skillPath]);
+      assert.equal(projectSettings.subagents.skillPaths, undefined);
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -445,16 +438,23 @@ test("skill inheritance restores saved defaults without changing their files or 
   delete process.env.PI_SUBAGENT;
   const catalogue = join(f.root, "catalogue");
   const skillPath = addSkill(catalogue, "one");
+  registerNativeSkill(f, skillPath);
   writeFileSync(
     join(f.agentDir, "settings.json"),
-    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+    JSON.stringify({
+      subagents: {
+        skills: Object.fromEntries(
+          f.loadedSkills.map((skill) => [skill.name.replace(/^skill:/, ""), false]),
+        ),
+      },
+    }),
   );
   writeFileSync(
     join(f.project, ".pi/settings.json"),
     JSON.stringify({
       theme: "dark",
       skills: [skillPath],
-      subagents: { skills: ["one"], skillPaths: [skillPath], skillPathsCreatedSetting: true },
+      subagents: { skills: { one: true } },
     }),
   );
   try {
@@ -466,7 +466,7 @@ test("skill inheritance restores saved defaults without changing their files or 
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
       assert.equal(projectSettings.theme, "dark");
-      assert.deepEqual(projectSettings.subagents.skills, ["one"]);
+      assert.deepEqual(projectSettings.subagents.skills, { one: true });
       assert.deepEqual(projectSettings.skills, [skillPath]);
     });
   } finally {
@@ -482,10 +482,18 @@ test("interactive skill changes reuse one context and save only explicitly", asy
   delete process.env.PI_SUBAGENT;
   const catalogue = join(f.root, "catalogue");
   const alphaPath = addSkill(catalogue, "alpha");
+  registerNativeSkill(f, alphaPath);
   const betaPath = addSkill(catalogue, "beta");
+  registerNativeSkill(f, betaPath);
   writeFileSync(
     join(f.agentDir, "settings.json"),
-    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+    JSON.stringify({
+      subagents: {
+        skills: Object.fromEntries(
+          f.loadedSkills.map((skill) => [skill.name.replace(/^skill:/, ""), false]),
+        ),
+      },
+    }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -500,7 +508,7 @@ test("interactive skill changes reuse one context and save only explicitly", asy
         readFileSync(join(f.project, ".pi/settings.json"), "utf8"),
       );
       assert.deepEqual(projectSettings.subagents.skills, { alpha: true, beta: true });
-      assert.deepEqual(projectSettings.subagents.skillPaths, [alphaPath, betaPath]);
+      assert.equal(projectSettings.subagents.skillPaths, undefined);
     });
   } finally {
     if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
@@ -516,9 +524,17 @@ test("custom skill browser keeps toggles in the session and Ctrl+S saves without
   const catalogue = join(f.root, "catalogue");
   const alphaPath = addSkill(catalogue, "alpha"),
     betaPath = addSkill(catalogue, "beta");
+  registerNativeSkill(f, alphaPath);
+  registerNativeSkill(f, betaPath);
   writeFileSync(
     join(f.agentDir, "settings.json"),
-    JSON.stringify({ resources: { skillCatalogues: [catalogue] } }),
+    JSON.stringify({
+      subagents: {
+        skills: Object.fromEntries(
+          f.loadedSkills.map((skill) => [skill.name.replace(/^skill:/, ""), false]),
+        ),
+      },
+    }),
   );
   try {
     await withAgentDir(f.agentDir, async () => {
@@ -531,7 +547,7 @@ test("custom skill browser keeps toggles in the session and Ctrl+S saves without
         await browser.saveDefaults();
         const saved = JSON.parse(readFileSync(join(f.project, ".pi/settings.json"), "utf8"));
         assert.deepEqual(saved.subagents.skills, { alpha: true, beta: true });
-        assert.deepEqual(saved.skills, [alphaPath, betaPath]);
+        assert.equal(saved.skills, undefined);
         assert.equal(context.reloads, 0);
       });
       await f.commands.get("skills")!.handler("", context.context);
@@ -608,7 +624,7 @@ test("native temporary skills stay selected in this session but are excluded fro
   }
 });
 
-test("personal skill eligibility keeps native provenance after extension discovery relabels paths", async () => {
+test("personal skill eligibility uses native source provenance", async () => {
   const f = fixture();
   try {
     const personal = addSkill(f.root, "personal-skill");
@@ -649,3 +665,14 @@ test("personal skill eligibility keeps native provenance after extension discove
     f.dispose();
   }
 });
+
+function registerNativeSkill(f: ReturnType<typeof fixture>, file: string) {
+  const name = /^name: (.+)$/m.exec(readFileSync(file, "utf8"))![1];
+  if (!f.loadedSkills.some((skill) => skill.name === `skill:${name}`))
+    f.loadedSkills.push({
+      name: `skill:${name}`,
+      description: `${name} fixture skill`,
+      source: "skill",
+      sourceInfo: { path: file, scope: "user" },
+    });
+}

@@ -2,7 +2,10 @@
 
 Load `pi-context` for personal project context and selected agent instructions. `AGENTS.md`, `CLAUDE.md` and `AGENTS.local.md` remain in Pi's native `<project_context>` section. Selected snippets appear separately in `<instructions>` and can guide communication, delegation, coding or data handling. These labels identify the sources' roles; they do not establish a priority rule between them. Pi's project-trust state controls whether this extension reads project-local sources and whether `/instructions` can save project choices.
 
-Set `resources.instructionCatalogues` in user settings to instruction-library roots and `localContext.instructions` to selected resource IDs. A trusted project's `.pi/settings.json` can override the personal selection with its own list; `[]` selects none. `/instructions` changes this session's selection. Ctrl+S saves project defaults; Ctrl+Shift+S saves personal defaults for new sessions across projects. Project-only resources are excluded from personal saves. Session choices are recorded in Pi's history and retained on resume, so changing defaults does not rewrite existing sessions. Instruction bodies are still read again before each parent turn.
+Declare instruction directories in a native package's `pi.instructions` field and load that package
+through personal or trusted project settings. Select resource IDs through `/instructions` or
+`session_setup`. Sparse boolean maps save explicit personal/project choices; omitted IDs inherit.
+Session choices are recorded and retained on resume. Bodies refresh before each parent turn.
 
 When no selection is configured, `.agents/instructions/*.md` files in the trusted project are selected in filename order. Selecting a snippet loads its body eagerly as agent guidance; skills remain lazy. Leading closed YAML frontmatter is removed from eager prompt context, including team, local, and ancestor entries. Source files and raw read/grep/edit output are unchanged.
 

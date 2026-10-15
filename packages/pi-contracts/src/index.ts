@@ -1,9 +1,7 @@
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
-import type { ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const BACKGROUND_SERVICE = "background:service";
-export const SECURITY_SERVICE = "pi-security:service:v1";
-export const SECURITY_PRESENCE = "pi-security:presence:v1";
 export const CHILD_CONTEXT = "pi-subagents:context:v1";
 export const USAGE_EVENT = "pi-runtime:usage:v1";
 /** Trusted extensions forward human slash-command intent; model tool inputs must never emit this. */
@@ -75,14 +73,18 @@ export interface HumanInput {
   message: string;
 }
 
-/** A trusted, one-use prepared command; its owner validates currency immediately before spawn. */
-export interface PreparedShell {
-  execution?: "sandbox" | "host";
-  argv: string[];
-  env: NodeJS.ProcessEnv;
-  cwd: string;
-  assertCurrent(): void;
-  release(): Promise<void>;
+/** Trusted hook-only extensions may join an explicitly prepared child launch. */
+export const CHILD_LAUNCH_CONTRIBUTIONS = "pi-child-launch:contribute:v1";
+export interface ChildLaunchContribution {
+  extension: string;
+  /** Only PI_CHILD_EXTENSION_* names may be supplied. */
+  env?: Record<string, string>;
+}
+export interface ChildLaunchContributionRequest {
+  version: 1;
+  ctx: ExtensionContext;
+  contribute(value: ChildLaunchContribution): void;
+  reject(reason: string): void;
 }
 
 export interface Communication {
@@ -115,7 +117,6 @@ export interface ResourceSpec {
   skills?: string[];
   model?: SelectedModel;
   thinking?: ThinkingLevel | "off";
-  permissionMode?: string;
   communication?: Communication;
   agentBundle?: AgentBundle;
   staticContext?: { originalCwd: string; files: StaticContextFile[]; instructions?: string };
@@ -138,19 +139,9 @@ export interface ChildResources {
   skills: Skill[];
   model?: SelectedModel;
   thinking: ThinkingLevel | "off";
-  permissionMode?: string;
   requested: { tools: boolean; skills: boolean; model: boolean; thinking: boolean };
   agentBundle?: AgentBundle;
   staticContext?: { originalCwd: string; files: StaticContextFile[]; instructions?: string };
-}
-export interface ChildAuth {
-  model: Model<Api>;
-  auth: Extract<Awaited<ReturnType<ModelRegistry["getApiKeyAndHeaders"]>>, { ok: true }>;
-  providerHeaders?: Record<string, string>;
-  fixture?: boolean;
-}
-export interface ChildAuthOptions {
-  fixtureProviderExtension?: string;
 }
 export interface WorkspaceIdentity {
   path: string;
@@ -172,7 +163,6 @@ export interface PreparedChild {
     skills: readonly string[];
     model?: Readonly<SelectedModel>;
     thinking: string;
-    permissionMode?: string;
     permissions?: Readonly<{ write: boolean; network: boolean }>;
   }>;
   isCurrent?(): boolean;
@@ -183,7 +173,6 @@ export interface ChildLaunchService {
   version: 1;
   describeChild(spec: Record<string, unknown>): Promise<Record<string, unknown>>;
   prepareChildLaunch(spec: Record<string, unknown>): Promise<PreparedChild>;
-  handleChildAsk?(id: string, request: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export type Stream = "stdout" | "stderr";

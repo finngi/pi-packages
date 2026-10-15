@@ -1,6 +1,6 @@
 # Delegate work
 
-Load `pi-background` and `pi-delegation` in the parent process. The [getting-started walkthrough](../getting-started.md) shows a security-off launch; [configure security](security.md) shows a confined launch. Browse the effective tools and scope before assigning work, because a definition names resources but the live parent session decides which are available.
+Load `pi-delegation`; add `pi-background` for managed shell jobs. The [walkthrough](../getting-started.md) shows native loading. Browse effective resources before assigning work; a definition names choices within the live parent tool set.
 
 ## Define and discover an agent
 
@@ -106,7 +106,7 @@ Each child owns its jobs; `bash({command: "…", background: true})` returns a j
 `background_process` calls. Closing the child stops its remaining jobs.
 
 The separate secured launcher still restricts children to its existing tool set; equivalent native
-package support is prepared separately and requires security-boundary approval.
+selected native package tools load through Pi in the child.
 
 ### Use private skills and scripts
 
@@ -164,10 +164,11 @@ The selected definition body becomes child instructions. Task text is separate u
 
 | Choice | Use it for | Availability and consequence |
 | --- | --- | --- |
-| `scratch` — default | Preparing an artifact for parent review | Available with or without security; the child's own directory is retained until collection |
-| `project` | Editing the shared project directly | Requires security disabled; edits are immediately visible in the parent project |
+| `scratch` — default | Preparing an artifact for parent review | The child's own directory is retained until collection |
+| `project` | Editing the shared project directly | Edits are immediately visible in the parent project |
 
-Scratch placement without security gives ordinary host permissions. With security, child writes are narrowed to its own workspace or disabled for a read-only child. A secured child cannot select direct project mode. Git worktree and project-copy modes are not implemented.
+Both modes use ordinary host permissions. Scratch placement organizes artifacts; it is not a
+sandbox. Git worktree and project-copy modes are not implemented.
 
 ## Exchange messages and read responses
 
@@ -189,7 +190,7 @@ Automatic parent delivery is bounded to 64 replies or a combined 4 MiB budget fo
 
 Agent files and bundle-private skills are rescanned when `/agents` browses or a child launches, so changing either does not require Pi's `/reload`. The model-facing catalogue is built at the start of each parent turn, so an agent added during a turn may not appear until the next turn. If an agent is new or its effective tools or scope changed, inspect the displayed preview and retry the launch. A selected-agent list may require `/agents enable NAME`; this changes the session lookup immediately without stopping children. Public skills are loaded by Pi: run `/reload` after adding a public skill or changing its configured path. Selecting an already discovered public skill does not reload Pi. Reloading replaces the extension runtime and closes active child agents. `/agents trust` lasts only for the current Pi session and is cleared on reload or session replacement; saved Pi project trust persists across reloads, so only directories trusted solely with `/agents trust` need to be trusted again.
 
-A message or completed response is dialogue data, not new human authorization. Permission questions use the separate security channel. See the [event reference](../reference/events.md) for routing and delivery guarantees.
+A message or completed response is dialogue data, not new human authorization. The optional gate handles permission review before calls. See the [event reference](../reference/events.md) for routing and delivery guarantees.
 
 ## Retain and integrate artifacts
 
@@ -228,8 +229,12 @@ The store is under the parent agent directory's `subagent-results/<session-id>/`
 
 After closing a project child, `directory` references the parent project and `owned` is false, `scope` is `project-reference`, and `files` is empty; inspect project changes directly. `discard: true` deletes an owned collected copy; it never deletes or rolls back direct project edits. Re-read needed retained files using the returned directory, because the original scratch path no longer exists after successful cleanup.
 
-Implementation and checks: [agent discovery](../../packages/pi-delegation/lib/subagent/agents.ts), [launcher](../../packages/pi-delegation/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.2.0 security-off integration](../../packages/pi-delegation/lib/subagent/unrestricted-stock.test.ts), and [live message delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
+Implementation and checks: [agent discovery](../../packages/pi-delegation/lib/subagent/agents.ts), [launcher](../../packages/pi-delegation/lib/subagent/child-launch.ts), [artifacts](../../packages/pi-runtime/src/artifacts.ts), [Pi 1.2.0 native integration](../../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts), and [live message delivery](../../packages/pi-delegation/lib/subagent/live-delivery-stock.test.ts).
 
 ## Permission review in child sessions
 
-The child's task model and security classifier are separate choices. `subagent.model` selects the worker; it does not change `classifier.model` in the security policy. Denied actions stop without classification. Allowed actions run directly unless they request additional write or network resources. Unmatched actions and additional resources use the configured approver: the child's own classifier in `auto`, or the root user's UI in `manual`. The classifier receives genuine parent user instructions, the child's preceding explanation or exposed reasoning, the exact tool call and its requested resources. Child task text provides context rather than independent authorization. See [automatic classification](../reference/security-policy.md#automatic-classification).
+Children use the same native launcher and ordinary host permissions. When the parent loads the
+optional gate, its trusted policy and genuine root-user messages accompany child initialization.
+Worker-authored tasks remain distinct from user authorization. Allow rules skip classification;
+deny rules block; unmatched calls use the inherited review mode. Manual clients must be capable
+of answering approval requests. See [permissions](../../packages/pi-permissions/README.md).

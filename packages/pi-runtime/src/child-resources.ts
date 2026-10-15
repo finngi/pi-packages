@@ -107,7 +107,6 @@ function canonicalBundle(bundle: NonNullable<ResourceSpec["agentBundle"]>) {
 export function resolveChildResources(
   spec: ResourceSpec,
   parent?: ResourceAuthority,
-  options: { unrestricted?: boolean } = {},
 ): ChildResources {
   if (
     spec.instructions !== undefined &&
@@ -172,15 +171,6 @@ export function resolveChildResources(
   )
     fail("child thinking unavailable for selected model");
   if (
-    spec.permissionMode !== undefined &&
-    !(
-      options.unrestricted
-        ? ["auto", "manual", "full-access", "dangerously-unrestricted"]
-        : ["auto", "manual"]
-    ).includes(spec.permissionMode)
-  )
-    fail("unsupported child permissionMode");
-  if (
     spec.staticContext !== undefined &&
     (!spec.staticContext ||
       !path.isAbsolute(spec.staticContext.originalCwd) ||
@@ -228,7 +218,6 @@ export function resolveChildResources(
     },
     ...(agentBundle ? { agentBundle } : {}),
     ...(spec.staticContext ? { staticContext: spec.staticContext } : {}),
-    ...(spec.permissionMode === undefined ? {} : { permissionMode: spec.permissionMode }),
   };
 }
 const MAX_AGENT_BUNDLE_ENTRIES = 2048;

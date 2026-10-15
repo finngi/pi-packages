@@ -342,15 +342,14 @@ test(
   { timeout: 60000 },
   async (t) => {
     const f = await fixture(t);
-    // resources_discover republishes metadata under its CLI extension. That metadata must not
-    // demote a genuinely personal native skill to a temporary/project-only default.
+    // Browsing preserves native Pi source ownership; it never republishes skill resources.
     const skillSource = f.api
       .getCommands()
       .find((entry) => entry.name === "skill:global-check")?.sourceInfo;
     assert.equal(
       skillSource?.scope,
-      "temporary",
-      "exercise the sourceInfo rewrite that caused grey Global OFF",
+      "user",
+      "native personal skill ownership must remain unchanged",
     );
     const listed = f.setup.execute(
       { op: "list", kinds: ["skills"], limit: 50 },

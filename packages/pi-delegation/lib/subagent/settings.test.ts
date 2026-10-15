@@ -23,7 +23,6 @@ test("inherits and resolves explicit alias/pin with level while preserving empty
     thinking: "medium",
     tools: undefined,
     skills: ["selected"],
-    permissionMode: undefined,
   });
   assert.deepEqual(
     resolveSettings(
@@ -39,7 +38,6 @@ test("inherits and resolves explicit alias/pin with level while preserving empty
       thinking: "high",
       tools: [],
       skills: [],
-      permissionMode: undefined,
     },
   );
   assert.equal(
@@ -59,38 +57,30 @@ test("unavailable model, unselected skill and inactive tool refuse rather than s
     /is unavailable/,
   );
   assert.throws(() => resolveSettings({ ...agent, tools: ["write"] }, parent), /unavailable/);
-  assert.throws(
-    () => resolveSettings({ ...agent, permissions: "full-access" }, parent),
-    /unavailable/,
-  );
 });
 
 test("per-launch models select authenticated models unless the user fixed the agent model", () => {
-  assert.equal(resolveSettings(agent, parent, true, "sonnet").model.id, "sonnet-latest");
+  assert.equal(resolveSettings(agent, parent, "sonnet").model.id, "sonnet-latest");
   assert.equal(
-    resolveSettings({ ...agent, model: "inherit" }, parent, false, "fixture/sonnet-latest:high")
-      .thinking,
+    resolveSettings({ ...agent, model: "inherit" }, parent, "fixture/sonnet-latest:high").thinking,
     "high",
   );
   assert.throws(
-    () => resolveSettings({ ...agent, model: "sonnet" }, parent, true, "parent"),
+    () => resolveSettings({ ...agent, model: "sonnet" }, parent, "parent"),
     /user-configured model "fixture\/sonnet-latest".*requested "fixture\/parent" conflicts/,
   );
   assert.equal(
-    resolveSettings({ ...agent, model: "sonnet" }, parent, true, "fixture/sonnet-latest").model.id,
+    resolveSettings({ ...agent, model: "sonnet" }, parent, "fixture/sonnet-latest").model.id,
     "sonnet-latest",
   );
-  assert.throws(
-    () => resolveSettings(agent, parent, true, "missing"),
-    /unavailable or unauthenticated/,
-  );
-  assert.throws(() => resolveSettings(agent, parent, true, ""), /nonempty/);
+  assert.throws(() => resolveSettings(agent, parent, "missing"), /unavailable or unauthenticated/);
+  assert.throws(() => resolveSettings(agent, parent, ""), /nonempty/);
   assert.equal(
-    resolveSettings({ ...agent, model: "sonnet:high" }, parent, true, "sonnet:low").thinking,
+    resolveSettings({ ...agent, model: "sonnet:high" }, parent, "sonnet:low").thinking,
     "high",
   );
   assert.equal(
-    resolveSettings({ ...agent, thinking: "low" }, parent, false, "sonnet:high").thinking,
+    resolveSettings({ ...agent, thinking: "low" }, parent, "sonnet:high").thinking,
     "low",
   );
 });

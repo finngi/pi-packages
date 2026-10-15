@@ -1,18 +1,17 @@
 # pi-permissions
 
-A small, opt-in permission gate for stock Pi. It checks model tool calls before execution and leaves Pi's tools unchanged. It does **not** provide OS confinement: an approved command runs with the Pi process's ordinary filesystem, process, GPU and network access.
+Opt-in permission rules and model approval for native Pi tools. Approved tools run with Pi's
+ordinary host access. This package provides no OS confinement and registers no replacement tools.
 
-This package reuses pi-security's Bash parser and classifier adapter as library code. Installing a library dependency does not activate its Pi extension. Loading the full `pi-security` sandbox extension alongside this alternative gate blocks calls with an instruction to select one package.
-
-## Try it independently
-
-From this repository, with dependencies installed:
+## Use
 
 ```sh
 pi -e ./packages/pi-permissions --permissions-policy /absolute/path/permissions.json
 ```
 
-Use a policy such as:
+For persistent installation, use `pi install /absolute/path/to/package`. The trusted default policy
+is `permissions.json` in Pi's user agent directory (normally `~/.pi/agent`). A missing or invalid
+policy blocks calls. Policy changes take effect at session startup or native extension reload.
 
 ```json
 {
@@ -26,34 +25,49 @@ Use a policy such as:
 }
 ```
 
-The default policy location is `permissions.json` in Pi's user agent directory (normally `~/.pi/agent`). A missing or invalid policy blocks calls with a configuration error. A project file cannot silently replace this trusted user policy.
+`off` disables the gate. Otherwise deny rules take priority, then allow rules. Unmatched calls ask
+the human in `manual` mode or the classifier in `auto` mode. Manual approval requires Pi's native
+TUI or an RPC client handling approval requests; without a UI the action blocks. An unavailable
+model, failed request, malformed response or ambiguous verdict also blocks. No approval cache or
+lasting permission grant is created.
 
-For persistent native installation use `pi install /absolute/path/to/package`, with the normal project/user scope options. The package contains one executable extension; changing its policy takes effect at the next session startup or native extension reload. This change does not install or activate it in any existing runtime.
+Rules name a Pi `tool`, or `*`. An optional `id` labels blocked calls. Omitting `match` covers all
+inputs for that tool. Bash matches accept literal `program`, `subcommand`, `args-contain` and
+`wrappers` strings or lists (`wrappers` requires a list). Every parsed command must match an allow
+rule. A program allow does not include wrappers automatically. Allows check the first argument
+for `subcommand`; denies check every argument, including `git -C repo push` and quoted tokens.
 
-## Decisions
+Expansions, unsupported syntax and output redirects go to approval when using command allow rules.
+Known nested commands are inspected for denies. Opaque or oversized Bash also goes to approval
+when command-specific denies exist, even with a blanket allow. Otherwise a blanket Bash allow
+accepts opaque scripts. These checks inspect visible arguments; they cannot establish every
+program a script or interpreter will later start.
 
-1. `off` explicitly disables the gate.
-2. Otherwise any matching deny rule blocks the tool; no classifier can override it.
-3. A matching allow rule permits the tool without calling a model.
-4. An unmatched action asks the human in `manual` mode or the configured classifier in `auto` mode. Manual approval requires an approval-capable client (the native TUI or an RPC client handling approval requests); without one it blocks with an instruction to configure auto mode.
+The classifier receives genuine recorded user messages, the worker's preceding explanation and
+available reasoning, the working directory and the exact call. It uses Pi's model registry and
+authentication. Responses models receive a strict JSON schema with `reason` before `verdict`;
+native classifier models use Pi's choice API. Context over 64 KiB blocks before a model request;
+use manual approval or a fresh session with the current request. New user input invalidates an
+approval in progress.
 
-`tool` is a Pi tool name, or `*` for any tool. Optional `id` only labels an error. A rule without `match` covers that tool's entire input. Bash matches support `program`, `subcommand`, `args-contain` and `wrappers`, using literal strings or lists. For allows, `subcommand` is the first argument. Denies conservatively match that token anywhere in the arguments, so options such as `git -C repo push` cannot hide a denied `push`; a quoted argument with that exact token can also match. Every parsed command must match an allow rule; expansions, unsupported shell syntax and writes through shell redirection go to approval. Known nested commands are also inspected for denies. A program-specific allow rule does not automatically include wrappers such as `env`.
-
-These are checks on visible tool arguments, **not a promise to inspect every program a shell script or interpreter later starts**. If command-specific Bash denies exist, opaque/oversized Bash goes to approval even with a blanket allow; the gate cannot establish those denies from that syntax. With no command-specific denies, a blanket Bash allow permits opaque Bash too. Use the full sandbox package when OS enforcement is required; do not treat this gate as that boundary.
-
-The classifier receives the user's recorded messages, the worker's explanation and available reasoning before the exact call, the working directory and that call. The existing Responses adapter enforces JSON output with `reason` before `verdict`; native classifier models use Pi's structured choice API. Only an explicit `allow` permits execution. Missing models, authentication/transport failures, malformed output and ambiguity block with a reason. New user input invalidates an approval still in progress. No response cache or growing permission grant is introduced.
-
-Classification input is limited to 64 KiB, including recorded user messages. It is never silently truncated, since doing so could discard an earlier restriction. If a long session exceeds the limit, the error recommends manual approval or a new session with the current request. Preflight rejection makes no model call and records no billed request.
-
-The initial child-session boundary is deliberately narrow: when `PI_SUBAGENT=1`, recorded child tasks are labelled as untrusted worker text, not genuine user authorization. This thin package does not yet transport root-user authorization into child sessions. Allow rules still work; unmatched actions may need a parent-side approval workflow. Selecting this package for a parent does not itself install it in another Pi process. Approving a child launch permits that host process; it does not claim to review every subsequent child tool call.
+Children launched by `pi-delegation` inherit the loaded gate, validated policy and a snapshot of
+genuine root user messages through the trusted native launch hook. Their own tasks remain worker
+evidence. The same policy mode applies; manual child approval needs an RPC approval handler.
+Root user changes after launch are not pushed into already-running children. Loading this package
+does not install it into independently started Pi processes.
 
 ## Accounting and checks
 
-The existing shared accounting helper records classifier usage, supplies `/costs`, and restores receipts on session resume. It adds each receipt to native tool usage once. Stock Pi skips `tool_result` hooks for a blocked call: if classification is the final denied action, its receipt stays visible in `/costs` and reaches the normal native footer on the next executed tool result. Missing provider usage is reported as incomplete accounting, not zero cost.
+Classifier usage persists in Pi session receipts, appears in `/costs`, and is added to native tool
+usage once. Pi skips `tool_result` for blocked calls, so a final denial's usage reaches the native
+footer on the next executed tool result. Missing provider usage is reported as incomplete.
 
 ```sh
-npm run test:permissions --workspace=pi-security
-node packages/pi-security/test/permissions-stock.mjs
+npm test --workspace=pi-permissions
+npm run test:stock --workspace=pi-permissions
 ```
 
-The stock test uses an isolated agent directory and a scripted model, loads only this native package, executes stock read/Bash tools, and verifies blocking before a file write. It does not contact a provider or alter a running session. Rule/schema tests cover model output, approvals and accounting replay; they do not establish classifier judgment quality or kernel containment.
+Tests exercise literal rules, exact-call context, structured responses, cancellation, accounting
+replay and native loading. The stock test uses an isolated agent directory and scripted model;
+it verifies stock tools execute and blocked calls cannot write. It makes no provider request and
+does not establish classifier judgment quality.

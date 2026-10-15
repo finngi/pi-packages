@@ -19,7 +19,7 @@
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test:e2e": "node security-check.mjs",
+    "test:e2e": "node --test tests/native-sdk.test.ts",
     "build": "node ../../scripts/build.mjs --package pi-codex-search"
   },
   "files": [
@@ -36,9 +36,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "pi-contracts": "0.1.0"
   },
   "license": "MIT",
   "repository": {

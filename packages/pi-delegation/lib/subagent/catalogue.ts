@@ -8,12 +8,13 @@ export interface AgentPreview {
 
 const previewScopeFields = [
   "workspaceModes",
-  "mode",
-  "security",
+  "execution",
+  "approval",
   "read",
   "write",
   "network",
   "capabilities",
+  "unavailable",
 ] as const;
 
 function previewText(value: unknown): string | undefined {
@@ -65,11 +66,13 @@ export function publicAgentPreview(value: unknown): AgentPreview {
 export function scopeCatalogue(scope: AgentPreview["scope"]): string {
   const rows: Array<[string, unknown]> = [
     ["workspace", scope.workspaceModes ?? ["scratch"]],
-    ["approval", scope.mode],
+    ["execution", scope.execution],
+    ["approval", scope.approval],
     ["read", scope.read],
     ["write", scope.write],
     ["network", scope.network],
     ["capabilities", scope.capabilities],
+    ["unavailable", scope.unavailable],
   ];
   const text = (value: unknown): string | undefined => {
     if (typeof value === "string") return value;

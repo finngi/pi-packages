@@ -1,6 +1,5 @@
 /** Personal overlays and selected instructions, followed by eager context metadata cleanup. */
 
-import { readdirSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -29,14 +28,11 @@ import {
   catalogueInstructionId,
   effectiveInstructions,
   type InstructionSettings,
-  instructionCataloguePaths,
 } from "../lib/instruction-selection.ts";
 import {
   contextFilesDisabled,
   localFiles,
   localInstructionChoices,
-  readCatalogueInstruction,
-  selectedCatalogueInstructions,
   selectedLocalInstructions,
   selectedPackInstructions,
   unreadableLocalFiles,
@@ -115,12 +111,6 @@ export default function (pi: ExtensionAPI) {
       const packFiles = packs.packs.flatMap((pack) =>
         pack.instructions.map((file) => ({ ...file, pack })),
       );
-      let catalogues: string[] = [];
-      try {
-        catalogues = instructionCataloguePaths(global, getAgentDir());
-      } catch (error) {
-        ctx.ui.notify(`Instruction libraries were not loaded: ${String(error)}`, "warning");
-      }
       const discovered = instructionCatalogue(
         global,
         project,
@@ -158,85 +148,44 @@ export default function (pi: ExtensionAPI) {
           ).effective,
         };
       };
-      const entries: ResourceEntry[] = catalogues
-        .flatMap((catalogue) => {
+      const entries: ResourceEntry[] = packFiles
+        .map((file) => {
+          let parsed = {
+            frontmatter: {} as Record<string, unknown>,
+            body: stripFrontmatter(file.content),
+          };
           try {
-            return readdirSync(catalogue)
-              .filter((name) => name.endsWith(".md"))
-              .sort()
-              .flatMap((file) => {
-                const id = catalogueInstructionId(catalogue, file);
-                const source = readCatalogueInstruction(catalogue, file);
-                if (!source) return [];
-                const parsed = parseFrontmatter(source.content);
-                const description =
-                  typeof parsed.frontmatter.description === "string"
-                    ? parsed.frontmatter.description
-                    : "Instruction snippet";
-                const title =
-                  typeof parsed.frontmatter.title === "string"
-                    ? parsed.frontmatter.title
-                    : file.replace(/\.md$/i, "");
-                return [
-                  {
-                    id,
-                    name: title,
-                    description,
-                    keywords: `${file} ${parsed.body.slice(0, 500)}`,
-                    selected: previous.includes(id),
-                    globalDefaultable: discovered.candidates.find((item) => item.id === id)
-                      ?.globalDefaultable,
-                    ...defaultFields(id, currentGlobal, project),
-                    preview: async () => ({
-                      source: source.path,
-                      body: stripFrontmatter(source.content),
-                    }),
-                  },
-                ];
-              });
+            parsed = parseFrontmatter(file.content);
           } catch {
-            return [];
+            ctx.ui.notify(
+              `${file.path}: instruction metadata could not be read; showing the body.`,
+              "warning",
+            );
           }
-        })
-        .concat(
-          packFiles.map((file) => {
-            let parsed = {
-              frontmatter: {} as Record<string, unknown>,
+          const description =
+            typeof parsed.frontmatter.description === "string"
+              ? parsed.frontmatter.description
+              : "Agent/session guidance";
+          const title =
+            typeof parsed.frontmatter.title === "string"
+              ? parsed.frontmatter.title
+              : basename(file.path, ".md");
+          const id = catalogueInstructionId(file.catalogue, basename(file.path));
+          return {
+            id,
+            name: title,
+            description,
+            badge: file.pack.name,
+            globalDefaultable: file.pack.globalDefaultable,
+            keywords: `${resourcePackageKeywords(file.pack)} ${basename(file.path)} ${parsed.body.slice(0, 500)}`,
+            selected: previous.includes(id),
+            ...defaultFields(id, currentGlobal, project),
+            preview: async () => ({
+              source: file.path,
               body: stripFrontmatter(file.content),
-            };
-            try {
-              parsed = parseFrontmatter(file.content);
-            } catch {
-              ctx.ui.notify(
-                `${file.path}: instruction metadata could not be read; showing the body.`,
-                "warning",
-              );
-            }
-            const description =
-              typeof parsed.frontmatter.description === "string"
-                ? parsed.frontmatter.description
-                : "Agent/session guidance";
-            const title =
-              typeof parsed.frontmatter.title === "string"
-                ? parsed.frontmatter.title
-                : basename(file.path, ".md");
-            const id = catalogueInstructionId(file.catalogue, basename(file.path));
-            return {
-              id,
-              name: title,
-              description,
-              badge: file.pack.name,
-              globalDefaultable: file.pack.globalDefaultable,
-              keywords: `${resourcePackageKeywords(file.pack)} ${basename(file.path)} ${parsed.body.slice(0, 500)}`,
-              selected: previous.includes(id),
-              ...defaultFields(id, currentGlobal, project),
-              preview: async () => ({
-                source: file.path,
-                body: stripFrontmatter(file.content),
-              }),
-            };
-          }),
-        )
+            }),
+          };
+        })
         .concat(
           (trusted ? localInstructionChoices(ctx.cwd) : []).map((file) => {
             const id = `local:${relative(ctx.cwd, file.path)}`;
@@ -349,23 +298,6 @@ export default function (pi: ExtensionAPI) {
     const packFiles = packs.packs.flatMap((pack) =>
       pack.instructions.map((file) => ({ ...file, pack })),
     );
-    let catalogues: string[] = [];
-    try {
-      if (global) catalogues = instructionCataloguePaths(global, getAgentDir());
-    } catch (error) {
-      if (ctx.hasUI)
-        ctx.ui.notify(`Instruction libraries were not loaded: ${String(error)}`, "warning");
-    }
-    const names =
-      catalogues.flatMap((catalogue) => {
-        try {
-          return readdirSync(catalogue)
-            .filter((name) => name.endsWith(".md"))
-            .map((name) => catalogueInstructionId(catalogue, name));
-        } catch {
-          return [];
-        }
-      }) ?? [];
     const localChoices =
       typeof options.cwd === "string" ? localInstructionChoices(options.cwd) : [];
     const localNames = localChoices.map((file) => `local:${relative(options.cwd, file.path)}`);
@@ -378,7 +310,6 @@ export default function (pi: ExtensionAPI) {
           global,
           project ?? {},
           [
-            ...names,
             ...localNames,
             ...packFiles.map((file) => catalogueInstructionId(file.catalogue, basename(file.path))),
           ],
@@ -402,14 +333,6 @@ export default function (pi: ExtensionAPI) {
             localChoices,
           )
         : [];
-    const catalogueFiles =
-      enabled() && selected && global
-        ? selectedCatalogueInstructions(
-            catalogues,
-            selected,
-            [...files, ...localInstructions].map((file) => resolve(options.cwd, file.path)),
-          )
-        : [];
     options.contextFiles = files.map((file) => ({
       ...file,
       content: stripFrontmatter(file.content),
@@ -418,9 +341,7 @@ export default function (pi: ExtensionAPI) {
       ? selectedPackInstructions(
           packFiles,
           selected,
-          [...files, ...localInstructions, ...catalogueFiles].map((file) =>
-            resolve(options.cwd, file.path),
-          ),
+          [...files, ...localInstructions].map((file) => resolve(options.cwd, file.path)),
         )
       : [];
     for (const file of selectedPacks) {
@@ -428,7 +349,7 @@ export default function (pi: ExtensionAPI) {
       if (pack) file.content = readResourceFile(pack.root, file.path);
     }
     const instructions = renderInstructions(
-      [...localInstructions, ...catalogueFiles, ...selectedPacks].map((file) => ({
+      [...localInstructions, ...selectedPacks].map((file) => ({
         ...file,
         content: stripFrontmatter(file.content),
       })),

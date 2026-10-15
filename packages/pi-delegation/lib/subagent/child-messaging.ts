@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { securityService } from "../security-service.ts";
 import { MESSAGE_BRIDGE, validateMessage } from "./messages.ts";
 import type { Communication } from "pi-contracts";
 
@@ -25,9 +24,9 @@ export const messageDescription =
 
 export function registerChildMessaging(
   pi: ExtensionAPI,
-  boundContext?: Communication & { workspace: string },
+  boundContext: Communication & { workspace: string },
 ) {
-  const context = () => boundContext ?? securityService(pi.events).getAgentContext?.();
+  const context = () => boundContext;
   pi.registerTool({
     name: "agent_list",
     label: "Agent sessions",

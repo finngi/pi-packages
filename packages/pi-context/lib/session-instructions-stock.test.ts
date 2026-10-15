@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
-import { installSessionSetup, sessionSetupService } from "pi-runtime";
+import { type installSessionSetup, sessionSetupService } from "pi-runtime";
 import context from "../extensions/context.ts";
 import { catalogueInstructionId } from "./instruction-selection.ts";
 const {
@@ -37,7 +37,7 @@ test(
     const root = realpathSync(mkdtempSync(join(tmpdir(), "session-instruction-stock-"))),
       agentDir = join(root, "agent"),
       project = join(root, "project"),
-      catalogue = join(root, "instructions"),
+      catalogue = join(root, "packs/sample/resources/instructions"),
       pack = join(root, "packs/sample");
     const previous = process.env.PI_CODING_AGENT_DIR;
     const savedArgv = [...process.argv];
@@ -75,8 +75,13 @@ test(
       const settings = (id: string) =>
         JSON.stringify({
           packages: [pack],
-          resources: { instructionCatalogues: [catalogue] },
-          localContext: { instructions: [id] },
+          localContext: {
+            instructions: {
+              [oldId]: id === oldId,
+              [newId]: id === newId,
+              [selectedId]: id === selectedId,
+            },
+          },
           theme: "dark",
         });
       put(globalPath, settings(oldId));

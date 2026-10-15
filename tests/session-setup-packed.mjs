@@ -18,7 +18,7 @@ await mkdir(join(cwd, ".pi"));
 const settingsPath = join(agentDir, "settings.json"),
   projectPath = join(cwd, ".pi/settings.json");
 const global = JSON.stringify({ packages: [join(consumer, "packs/fixture")] });
-const project = JSON.stringify({ subagents: { skills: [], agents: [] } });
+const project = JSON.stringify({ subagents: { skills: { "pack-proof": false }, agents: {} } });
 await writeFile(settingsPath, global);
 await writeFile(projectPath, project);
 process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -47,6 +47,7 @@ let calls = [],
   index = 0,
   session;
 const results = [];
+const extensionErrors = [];
 runtime.registerProvider(model.provider, {
   api: model.api,
   apiKey: "fixture",
@@ -118,7 +119,7 @@ async function open(manager) {
   }));
   await session.bindExtensions({
     onError(error) {
-      throw error;
+      extensionErrors.push(error);
     },
   });
   session.subscribe((event) => {
@@ -132,6 +133,7 @@ async function run(next) {
   results.length = 0;
   await session.prompt("Exercise installed session setup.");
   assert(results.every((result) => !result.isError));
+  assert.deepEqual(extensionErrors, [], "installed extensions must not hide startup/prompt errors");
 }
 async function close() {
   await session.extensionRunner.emit({ type: "session_shutdown", reason: "exit" });

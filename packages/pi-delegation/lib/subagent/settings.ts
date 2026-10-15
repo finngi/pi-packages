@@ -47,12 +47,7 @@ function resolveModel(spec: string, parent: ParentResources) {
   if (!model) throw Error(`model "${spec}" is unavailable or unauthenticated`);
   return { model, level };
 }
-export function resolveSettings(
-  agent: AgentDef,
-  parent: ParentResources,
-  secured = true,
-  requestedModel?: string,
-) {
+export function resolveSettings(agent: AgentDef, parent: ParentResources, requestedModel?: string) {
   if (
     requestedModel !== undefined &&
     (typeof requestedModel !== "string" || !requestedModel.trim())
@@ -84,12 +79,6 @@ export function resolveSettings(
       throw Error(
         `skill "${name}" is unavailable; add it to the agent bundle or configure its path in Pi settings`,
       );
-  if (
-    secured &&
-    agent.permissions &&
-    ["full-access", "dangerously-unrestricted"].includes(agent.permissions)
-  )
-    throw Error(`permissionMode "${agent.permissions}" is unavailable for delegated agents`);
   return {
     model: { provider: model.provider, id: model.id },
     thinking: agent.thinking ?? level ?? parent.thinking,
@@ -98,6 +87,5 @@ export function resolveSettings(
       ...parent.skills,
       ...(agent.privateSkills ?? []).map((skill) => skill.name),
     ],
-    permissionMode: agent.permissions,
   };
 }

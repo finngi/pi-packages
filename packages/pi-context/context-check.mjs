@@ -229,7 +229,11 @@ try {
   const on = repo("on");
   put(join(on, ".git/info/exclude"), "# existing\nother");
   const built = await run(on);
-  const catalogue = join(root, "catalogue");
+  const catalogue = join(root, "native-guidance/instructions");
+  put(
+    join(dirname(catalogue), "package.json"),
+    JSON.stringify({ name: "context-guidance", pi: { instructions: ["./instructions"] } }),
+  );
   const selectedCatalogueId = catalogueInstructionId(catalogue, "selected.md");
   const unusedCatalogueId = catalogueInstructionId(catalogue, "unused.md");
   put(
@@ -239,25 +243,29 @@ try {
   put(join(catalogue, "unused.md"), "UNSELECTED_CATALOGUE_MARKER\n");
   const homeCatalogue = join(home, ".config/agents/instructions");
   put(join(homeCatalogue, "home.md"), "HOME_CATALOGUE_MARKER\n");
+  put(
+    join(dirname(homeCatalogue), "package.json"),
+    JSON.stringify({ name: "home-guidance", pi: { instructions: ["./instructions"] } }),
+  );
   const homeCatalogueId = catalogueInstructionId(homeCatalogue, "home.md");
   const tildeCatalogue = await run(repo("tilde-catalogue"), {
     agentSettings: {
-      resources: { instructionCatalogues: ["~/.config/agents/instructions"] },
-      localContext: { instructions: [homeCatalogueId] },
+      packages: [dirname(homeCatalogue)],
+      localContext: { instructions: { [homeCatalogueId]: true } },
     },
   });
   assert.equal(
     tildeCatalogue.instructions.includes("HOME_CATALOGUE_MARKER"),
     true,
-    "home-relative catalogue settings are expanded",
+    "native package instruction sources load from user settings",
   );
   const configured = repo("configured");
   const configuredResult = await run(configured, {
     agentSettings: {
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [selectedCatalogueId] },
+      packages: [dirname(catalogue)],
+      localContext: { instructions: { [selectedCatalogueId]: true } },
     },
-    projectSettings: { localContext: { instructions: [selectedCatalogueId] } },
+    projectSettings: { localContext: { instructions: { [selectedCatalogueId]: true } } },
   });
   assert.equal(configuredResult.instructions.includes("CATALOGUE_INSTRUCTION_MARKER"), true);
   assert.equal(configuredResult.instructions.includes("UNSELECTED_CATALOGUE_MARKER"), false);
@@ -273,10 +281,10 @@ try {
   const untrustedCatalogue = await run(configured, {
     trusted: false,
     agentSettings: {
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [selectedCatalogueId] },
+      packages: [dirname(catalogue)],
+      localContext: { instructions: { [selectedCatalogueId]: true } },
     },
-    projectSettings: { localContext: { instructions: [] } },
+    projectSettings: { localContext: { instructions: { [selectedCatalogueId]: false } } },
   });
   assert.equal(
     untrustedCatalogue.instructions.includes("CATALOGUE_INSTRUCTION_MARKER"),
@@ -290,23 +298,23 @@ try {
   );
   const disabledCatalogue = await run(configured, {
     agentSettings: {
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [selectedCatalogueId] },
+      packages: [dirname(catalogue)],
+      localContext: { instructions: { [selectedCatalogueId]: true } },
     },
-    projectSettings: { localContext: { instructions: [] } },
+    projectSettings: { localContext: { instructions: { [selectedCatalogueId]: false } } },
   });
   assert.equal(disabledCatalogue.instructions.includes("CATALOGUE_INSTRUCTION_MARKER"), false);
   const noContextCatalogue = await run(configured, {
     flag: "-nc",
     agentSettings: {
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [selectedCatalogueId] },
+      packages: [dirname(catalogue)],
+      localContext: { instructions: { [selectedCatalogueId]: true } },
     },
   });
   assert.equal(noContextCatalogue.files.length, 0, "-nc disables all custom context injection");
   const sectionSettings = {
-    resources: { instructionCatalogues: [catalogue] },
-    localContext: { instructions: [selectedCatalogueId] },
+    packages: [dirname(catalogue)],
+    localContext: { instructions: { [selectedCatalogueId]: true } },
   };
   const stable = await run(repo("stable-instructions"), {
     agentSettings: sectionSettings,
@@ -360,8 +368,8 @@ try {
   assert.equal(forced.prompt, "OPAQUE_FORCED_PROMPT");
   const defaultsRepo = repo("defaults-snapshot");
   const firstDefaults = {
-    resources: { instructionCatalogues: [catalogue] },
-    localContext: { instructions: [selectedCatalogueId] },
+    packages: [dirname(catalogue)],
+    localContext: { instructions: { [selectedCatalogueId]: true } },
   };
   const currentSession = await run(defaultsRepo, {
     agentSettings: firstDefaults,
@@ -369,8 +377,8 @@ try {
       put(
         join(agentDir, "settings.json"),
         JSON.stringify({
-          resources: { instructionCatalogues: [catalogue] },
-          localContext: { instructions: [unusedCatalogueId] },
+          packages: [dirname(catalogue)],
+          localContext: { instructions: { [unusedCatalogueId]: true } },
         }),
       ),
   });
@@ -378,8 +386,8 @@ try {
   assert.equal(currentSession.instructions.includes("UNSELECTED_CATALOGUE_MARKER"), false);
   const nextSession = await run(defaultsRepo, {
     agentSettings: {
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [unusedCatalogueId] },
+      packages: [dirname(catalogue)],
+      localContext: { instructions: { [unusedCatalogueId]: true } },
     },
   });
   assert.equal(nextSession.instructions.includes("CATALOGUE_INSTRUCTION_MARKER"), false);
@@ -392,11 +400,14 @@ try {
     "GLOBAL_MARKER",
     "TEAM_MARKER",
     "LOCAL_MARKER",
-    "HOME_SELECTED_MARKER",
     "SELECTED_A_MARKER",
     "SELECTED_Z_MARKER",
   ];
   for (const marker of markers) assert(built.prompt.includes(marker), marker);
+  assert(
+    !built.prompt.includes("HOME_SELECTED_MARKER"),
+    "home snippets require native package selection",
+  );
   for (let i = 1; i < markers.length; i++)
     assert(built.prompt.indexOf(markers[i - 1]) < built.prompt.indexOf(markers[i]));
   assert(built.prompt.indexOf("TEAM_MARKER") < built.prompt.indexOf("LOCAL_MARKER"));

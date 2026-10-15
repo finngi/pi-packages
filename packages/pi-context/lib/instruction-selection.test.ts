@@ -1,30 +1,29 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  catalogueInstructionId,
-  effectiveInstructions,
-  instructionCataloguePaths,
-  normalizeInstructionCataloguePath,
-} from "./instruction-selection.ts";
+import { catalogueInstructionId, effectiveInstructions } from "./instruction-selection.ts";
 import { writeResourceDefault, writeResourceDefaults } from "pi-runtime";
 
-test("project instructions inherit global defaults, while an empty override selects none", () => {
-  const global = { localContext: { instructions: ["core/a.md"] } };
+test("project instruction maps override global defaults by ID", () => {
+  const global = { localContext: { instructions: { "core/a.md": true } } };
   assert.deepEqual(effectiveInstructions(global, {}, ["core/a.md"]), ["core/a.md"]);
   assert.deepEqual(
-    effectiveInstructions(global, { localContext: { instructions: [] } }, ["core/a.md"]),
+    effectiveInstructions(global, { localContext: { instructions: { "core/a.md": false } } }, [
+      "core/a.md",
+    ]),
     [],
   );
+  assert.deepEqual(
+    effectiveInstructions(global, { localContext: { instructions: { "missing.md": true } } }, [
+      "core/a.md",
+    ]),
+    ["core/a.md"],
+  );
   assert.throws(
-    () =>
-      effectiveInstructions(global, { localContext: { instructions: ["missing.md"] } }, [
-        "core/a.md",
-      ]),
-    /unknown resource names/,
+    () => effectiveInstructions({ localContext: { instructions: [] } } as never, {}),
+    /ID-to-boolean map/,
   );
 });
 
@@ -44,25 +43,6 @@ test("same-named catalogue roots produce distinct stable resource IDs", async ()
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("instruction catalogue settings expand home paths and reject malformed shapes", () => {
-  assert.equal(normalizeInstructionCataloguePath("~/notes", "/agent"), join(homedir(), "notes"));
-  assert.deepEqual(
-    instructionCataloguePaths(
-      { resources: { instructionCatalogues: ["~/notes", "catalogue"] } },
-      "/agent",
-    ),
-    [join(homedir(), "notes"), join("/agent", "catalogue")],
-  );
-  assert.throws(
-    () =>
-      instructionCataloguePaths(
-        { resources: { instructionCatalogues: ["ok", 3] } as never },
-        "/agent",
-      ),
-    /list of paths/,
-  );
 });
 
 test("project and global default persistence preserve unrelated settings", async () => {
@@ -114,7 +94,11 @@ test("sparse instruction defaults inherit local baselines and opt in public snip
   );
   assert.deepEqual(
     effectiveInstructions(
-      { localContext: { instructions: ["library:public"] } },
+      {
+        localContext: {
+          instructions: { "library:public": true, "local:a": false, "local:b": false },
+        },
+      },
       { localContext: { instructions: { "local:a": true } } },
       known,
       native,
@@ -194,64 +178,6 @@ test("saving one instruction preserves inherited siblings, dormant provider choi
     assert.deepEqual(
       effectiveInstructions(global, JSON.parse(await readFile(projectPath, "utf8")), known, native),
       known,
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("global legacy instruction edits preserve local sibling states during conversion", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-instruction-global-legacy-"));
-  const path = join(root, "settings.json");
-  const known = ["local:a", "library:public"];
-  try {
-    for (const selected of [[], ["local:a"]]) {
-      await writeFile(path, JSON.stringify({ localContext: { instructions: selected } }));
-      await writeResourceDefault({
-        scope: "global",
-        agentDir: root,
-        kind: "instructions",
-        id: "library:public",
-        state: "on",
-        knownIds: known,
-      });
-      const saved = JSON.parse(await readFile(path, "utf8"));
-      assert.deepEqual(saved.localContext.instructions, {
-        "local:a": selected.includes("local:a"),
-        "library:public": true,
-      });
-      assert.deepEqual(effectiveInstructions(saved, {}, known, ["local:a"]), [
-        ...selected,
-        "library:public",
-      ]);
-      await writeFile(
-        path,
-        JSON.stringify({ localContext: { instructions: [...selected, "missing-instruction"] } }),
-      );
-      await writeResourceDefaults({
-        scope: "global",
-        agentDir: root,
-        selections: {
-          instructions: { knownIds: known, values: { "library:public": true }, snapshot: true },
-        },
-      });
-      assert.deepEqual(
-        JSON.parse(await readFile(path, "utf8")).localContext.instructions,
-        saved.localContext.instructions,
-      );
-    }
-    await writeFile(path, JSON.stringify({ localContext: { instructions: {} } }));
-    await writeResourceDefaults({
-      scope: "global",
-      agentDir: root,
-      selections: {
-        instructions: { knownIds: known, values: { "library:public": true }, snapshot: true },
-      },
-    });
-    assert.deepEqual(
-      JSON.parse(await readFile(path, "utf8")).localContext.instructions,
-      { "library:public": true },
-      "new sparse saves do not write project-only IDs",
     );
   } finally {
     await rm(root, { recursive: true, force: true });

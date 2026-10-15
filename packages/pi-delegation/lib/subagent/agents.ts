@@ -21,8 +21,6 @@ export interface AgentDef {
   tools?: string[];
   /** Skills shown to the agent; undefined keeps every discovered skill, an empty list means none. */
   skills?: string[];
-  /** A permission mode name; whether it is allowed is decided against the parent's live mode. */
-  permissions?: string;
   /** The default and ceiling for how much of the parent conversation a call may share. */
   context?: ContextSetting;
   targets?: string[];
@@ -107,12 +105,10 @@ export function parseAgent(source: string, filePath: string, parse: ParseFrontma
   const targets = names(frontmatter.targets, "targets");
   if (targets?.some((t) => !["pi", "claude"].includes(t)))
     throw new Error("targets must contain only pi or claude");
-  const permissions = text(frontmatter.permissionMode, "permissionMode");
-  if (
-    permissions &&
-    !["auto", "manual", "full-access", "dangerously-unrestricted"].includes(permissions)
-  )
-    throw new Error("permissionMode is not a supported authored mode");
+  if (frontmatter.permissionMode !== undefined)
+    throw new Error(
+      "permissionMode is no longer an agent setting; configure the optional pi-permissions package",
+    );
   const tools = names(frontmatter.tools, "tools");
   const thinking = text(frontmatter.thinking, "thinking");
   if (thinking && !THINKING_LEVELS.includes(thinking))
@@ -126,7 +122,6 @@ export function parseAgent(source: string, filePath: string, parse: ParseFrontma
     thinking,
     tools,
     skills: names(frontmatter.skills, "skills"),
-    permissions,
     context: parseContext(frontmatter.conversation),
     targets,
   };

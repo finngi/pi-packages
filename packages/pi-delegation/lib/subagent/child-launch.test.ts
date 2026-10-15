@@ -10,24 +10,16 @@ const agent = {
   filePath: "/fixture",
 };
 test("instructions and task stay separate and explicit empty resources are preserved", () => {
-  assert.deepEqual(
-    restrictionSpec({ ...agent, permissions: "manual", tools: [], skills: [] }, "untrusted-task"),
-    {
-      task: "untrusted-task",
-      instructions: "trusted-body",
-      permissionMode: "manual",
-      tools: [],
-      skills: [],
-    },
-  );
+  assert.deepEqual(restrictionSpec({ ...agent, tools: [], skills: [] }, "untrusted-task"), {
+    task: "untrusted-task",
+    instructions: "trusted-body",
+    tools: [],
+    skills: [],
+  });
   assert.deepEqual(restrictionSpec(agent, "task"), {
     task: "task",
     instructions: "trusted-body",
   });
-  assert.throws(
-    () => restrictionSpec({ ...agent, permissions: "full-access" }, "task"),
-    /unsupported/,
-  );
 });
 
 test("omitted agent skills are made explicit from the selected parent skills", () => {
@@ -46,7 +38,7 @@ test("selected behavioral instructions pass separately from project context and 
     files: [],
     instructions: '<instruction path="/rules/careful.md">Check assumptions.</instruction>',
   };
-  assert.deepEqual(restrictionSpec(agent, "task", undefined, true, staticContext), {
+  assert.deepEqual(restrictionSpec(agent, "task", undefined, staticContext), {
     task: "task",
     instructions: agent.body,
     staticContext,
@@ -71,7 +63,7 @@ test("session expiry during async preparation refuses before transport spawn and
         },
       };
     },
-  } as unknown as import("../security-service.ts").SecurityService;
+  } as unknown as import("pi-contracts").ChildLaunchService;
   const transport = {
     launch() {
       launches++;
@@ -118,7 +110,7 @@ test("completed child cleanup tolerates an evicted private background-process re
         await cleanupCallback?.();
       },
     }),
-  } as unknown as import("../security-service.ts").SecurityService;
+  } as unknown as import("pi-contracts").ChildLaunchService;
   const transport = {
     launch: () => ({ id: snapshot.id, done: Promise.resolve(snapshot) }),
     cancel(id: string) {
@@ -164,7 +156,7 @@ test("artifact collection failure still invokes child cleanup", async () => {
         await cleanupCallback?.();
       },
     }),
-  } as unknown as import("../security-service.ts").SecurityService;
+  } as unknown as import("pi-contracts").ChildLaunchService;
   const transport = {
     launch: () => ({ id: snapshot.id, done: Promise.resolve(snapshot) }),
     cancel() {},
@@ -192,7 +184,7 @@ for (const lifecycle of ["session_shutdown", "session_start"]) {
     const { default: background } = await import(
       "../../../pi-background/extensions/background-process.ts"
     );
-    const { cleanupUnrestrictedLaunch } = await import("./unrestricted-launcher.ts");
+    const { cleanupNativeLaunch } = await import("./native-launcher.ts");
     const { launchChild } = await import("./child-launch.ts");
     const root = await realpath(await mkdtemp(join(tmpdir(), "pi-child-shared-shutdown-")));
     const scratch = join(root, "child"),
@@ -247,7 +239,7 @@ for (const lifecycle of ["session_shutdown", "session_start"]) {
               beforeCleanup = callback;
             },
             cleanup() {
-              return cleanupUnrestrictedLaunch({
+              return cleanupNativeLaunch({
                 root: scratch,
                 privateTmp: workspace,
                 configuration,
@@ -279,3 +271,151 @@ for (const lifecycle of ["session_shutdown", "session_start"]) {
     }
   });
 }
+
+async function uiBridgeFixture(
+  onSelect?: Parameters<typeof import("./child-launch.ts").launchChild>[0]["onSelect"],
+) {
+  let current = true,
+    receive: (stream: "stdout", data: Buffer) => void = () => {},
+    finish: (value: any) => void = () => {};
+  const writes: any[] = [];
+  let cancelled = false;
+  const transport = {
+    launch(spec: any) {
+      receive = spec.onData;
+      return {
+        id: "native-ui-child",
+        done: new Promise((resolve) => {
+          finish = resolve;
+        }),
+      };
+    },
+    async write(_id: string, data: Buffer) {
+      const value = JSON.parse(data.toString());
+      writes.push(value);
+      if (value.type !== "extension_ui_response")
+        receive(
+          "stdout",
+          Buffer.from(
+            JSON.stringify({ type: "response", id: value.id, success: true, data: {} }) + "\n",
+          ),
+        );
+    },
+    cancel() {
+      cancelled = true;
+      finish({ id: "native-ui-child", status: "cancelled", exitCode: 0 });
+    },
+  };
+  const { launchChild } = await import("./child-launch.ts");
+  const child = await launchChild({
+    launcher: {
+      version: 1,
+      describeChild: async () => ({}),
+      prepareChildLaunch: async () => ({
+        id: "native-ui-child",
+        argv: ["pi"],
+        env: {},
+        cwd: "/fixture",
+        tmp: "/fixture",
+        cleanup: async () => {},
+      }),
+    },
+    transport: transport as any,
+    spec: {},
+    isCurrent: () => current,
+    onSelect,
+  });
+  const tick = async () => {
+    for (let index = 0; index < 10; index++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  return {
+    child,
+    writes,
+    tick,
+    get cancelled() {
+      return cancelled;
+    },
+    expire() {
+      current = false;
+    },
+    request() {
+      receive(
+        "stdout",
+        Buffer.from(
+          JSON.stringify({
+            type: "extension_ui_request",
+            method: "select",
+            id: "permission",
+            title: "Allow write?",
+            options: ["Allow once", "Deny"],
+          }) + "\n",
+        ),
+      );
+    },
+  };
+}
+
+for (const answer of ["Allow once", "Deny", undefined])
+  test(`native child select forwards ${answer ?? "cancellation"} without a security service`, async () => {
+    const f = await uiBridgeFixture(async ({ title, options, signal }) => {
+      assert.equal(title, "Allow write?");
+      assert.deepEqual(options, ["Allow once", "Deny"]);
+      assert.equal(signal.aborted, false);
+      return answer;
+    });
+    try {
+      f.request();
+      await f.tick();
+      assert.deepEqual(
+        f.writes.find((value) => value.id === "permission"),
+        {
+          type: "extension_ui_response",
+          id: "permission",
+          ...(answer === undefined ? {} : { value: answer }),
+        },
+      );
+    } finally {
+      await f.child.close();
+    }
+  });
+
+test("a headless parent cancels a native child selection explicitly", async () => {
+  const f = await uiBridgeFixture();
+  try {
+    f.request();
+    await f.tick();
+    assert.deepEqual(
+      f.writes.find((value) => value.id === "permission"),
+      { type: "extension_ui_response", id: "permission" },
+    );
+  } finally {
+    await f.child.close();
+  }
+});
+
+test("a stale native child selection cannot send approval and cancels pending UI", async () => {
+  let resolve!: (value: string) => void;
+  let selectionSignal: AbortSignal | undefined;
+  const pending = new Promise<string>((answer) => {
+    resolve = answer;
+  });
+  const f = await uiBridgeFixture(async ({ signal }) => {
+    selectionSignal = signal;
+    return pending;
+  });
+  try {
+    f.request();
+    await f.tick();
+    f.expire();
+    resolve("Allow once");
+    await f.tick();
+    assert.equal(
+      f.writes.some((value) => value.id === "permission"),
+      false,
+    );
+    assert.equal(f.cancelled, true);
+    assert.equal(selectionSignal?.aborted, true);
+  } finally {
+    await f.child.close();
+  }
+});

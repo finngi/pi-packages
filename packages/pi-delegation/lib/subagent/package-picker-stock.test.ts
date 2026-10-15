@@ -31,7 +31,7 @@ test(
     };
     const global = JSON.stringify({
         packages: [pack],
-        subagents: { skills: ["standalone"], agents: [] },
+        subagents: { skills: { standalone: true, "check-evidence": false }, agents: {} },
       }),
       local = JSON.stringify({ keep: "untouched" });
     await put(join(agentDir, "settings.json"), global);
@@ -426,8 +426,8 @@ test(
         join(cwd, ".pi/settings.json"),
         JSON.stringify({
           keep: "untouched",
-          subagents: { agents: [], skills: [] },
-          localContext: { instructions: [] },
+          subagents: { agents: {}, skills: {} },
+          localContext: { instructions: {} },
         }),
       );
       await open(sdk.SessionManager.create(cwd, join(agentDir, "sessions")));
@@ -489,7 +489,7 @@ test(
       assert.match(prompts.at(-1)!, /INSTRUCTION_BODY/);
       const savedPerItem = JSON.parse(await readFile(join(cwd, ".pi/settings.json"), "utf8"));
       assert.deepEqual(savedPerItem.subagents?.agents, undefined);
-      assert.deepEqual(savedPerItem.subagents.skills, { "check-evidence": false });
+      assert.deepEqual(savedPerItem.subagents?.skills, undefined);
       assert.equal(savedPerItem.localContext?.instructions, undefined);
       assert.equal(savedPerItem.keep, "untouched");
       const out = process.env.PI_PICKER_CAPTURE;

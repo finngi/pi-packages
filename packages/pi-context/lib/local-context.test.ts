@@ -20,7 +20,6 @@ import {
   chain,
   chosenInstructions,
   contextFilesDisabled,
-  readCatalogueInstruction,
   selectedLocalInstructions,
   unreadableLocalFiles,
   withLocalFiles,
@@ -227,7 +226,7 @@ test("external symlinks are skipped while internal Git-root symlinks remain read
   assert.deepEqual(chosenInstructions(redirected), []);
 });
 
-test("non-Git ancestor context still loads from its owning directory when cwd is nested", () => {
+test("non-Git ancestor context loads independently of current-directory instructions", () => {
   const parent = join(root, "non-git-ancestor");
   const cwd = join(parent, "nested/project");
   const outside = put(join(root, "non-git-outside.md"), "outside instruction");
@@ -243,7 +242,7 @@ test("non-Git ancestor context still loads from its owning directory when cwd is
   );
   assert.deepEqual(
     selectedLocalInstructions(cwd, undefined).map((file) => file.content),
-    ["ancestor instruction"],
+    [],
   );
 });
 
@@ -379,6 +378,7 @@ test("FIFO worktree metadata cannot block context loading", () => {
 
 test("selected behavioral instructions follow walk and filename order separately from project context", () => {
   const repo = join(root, "selected");
+  initGit(repo);
   const files = [
     put(join(repo, "AGENTS.md"), "team"),
     put(join(repo, "svc/AGENTS.md"), "child team"),
@@ -418,6 +418,7 @@ test("an explicit instruction selection filters snippets but keeps team and loca
 
 test("selected symlinks deduplicate against native, local and other selected files", () => {
   const repo = join(root, "selected-aliases");
+  initGit(repo);
   const team = put(join(repo, "AGENTS.md"), "team");
   put(join(repo, "AGENTS.local.md"), "personal");
   const chosen = put(join(repo, ".agents/instructions/a.md"), "selected");
@@ -471,18 +472,6 @@ test("selected directories, dangling links and pipes are skipped without blockin
   );
 });
 
-test("catalogue previews share bounded safe reads and reject external links and pipes", () => {
-  const catalogue = join(root, "preview-catalogue");
-  const outside = put(join(root, "preview-outside.md"), "outside");
-  put(join(catalogue, "safe.md"), "safe");
-  symlinkSync(outside.path, join(catalogue, "linked.md"));
-  execFileSync("mkfifo", [join(catalogue, "pipe.md")]);
-  assert.equal(readCatalogueInstruction(catalogue, "safe.md")?.content, "safe");
-  assert.equal(readCatalogueInstruction(catalogue, "linked.md"), undefined);
-  assert.equal(readCatalogueInstruction(catalogue, "pipe.md"), undefined);
-  assert.equal(readCatalogueInstruction(catalogue, "../preview-outside.md"), undefined);
-});
-
 test("nested worktree selected instructions follow native context shadowing", () => {
   const main = join(root, "selected-worktree");
   const git = (...args: string[]) =>
@@ -530,7 +519,7 @@ test("nested worktree selected instructions follow native context shadowing", ()
   );
   assert.deepEqual(
     selectedLocalInstructions(wt, undefined).map((file) => file.content),
-    ["main rule", "worktree rule"],
+    ["worktree rule"],
   );
 });
 
@@ -545,10 +534,12 @@ test("the hook strips native and selected eager context without mutating input e
     join(repo, ".agents/instructions/rule.md"),
     "---\nnotes: rule secret\n---\nRULE\n<!-- rule comment -->",
   );
-  put(join(root, "agent/settings.json"), JSON.stringify({ localContext: { instructions: [] } }));
+  put(join(root, "agent/settings.json"), JSON.stringify({ localContext: { instructions: {} } }));
   put(
     join(repo, ".pi/settings.json"),
-    JSON.stringify({ localContext: { instructions: ["local:.agents/instructions/rule.md"] } }),
+    JSON.stringify({
+      localContext: { instructions: { "local:.agents/instructions/rule.md": true } },
+    }),
   );
   const options = {
     cwd: repo,
@@ -573,7 +564,7 @@ test("untrusted projects load neither project overrides nor project-local instru
   const repo = join(root, "untrusted-instruction-selection");
   initGit(repo);
   put(join(repo, ".agents/instructions/rule.md"), "---\nnotes: hidden\n---\nRULE");
-  put(join(repo, ".pi/settings.json"), JSON.stringify({ localContext: { instructions: [] } }));
+  put(join(repo, ".pi/settings.json"), JSON.stringify({ localContext: { instructions: {} } }));
   const options = { cwd: repo, contextFiles: [] as { path: string; content: string }[] };
   await register().before_agent_start(
     { systemPromptOptions: options },
@@ -605,6 +596,13 @@ test("the prompt hook keeps native, local and snippet sources before catalogue a
   const distinct = put(join(first, "e-distinct.md"), "SAME BODY");
   symlinkSync(catalogueFile.path, join(second, "a-repeat.md"));
   symlinkSync(catalogueFile.path, join(second, "b-repeat.md"));
+  put(
+    join(repo, "package.json"),
+    JSON.stringify({
+      name: "combined-guidance",
+      pi: { instructions: ["./catalogue-one", "./catalogue-two", "./catalogue-alias"] },
+    }),
+  );
   const selected = [
     "local:.agents/instructions/a.md",
     ...["a-team.md", "b-personal.md", "c-snippet.md", "d-first.md", "e-distinct.md"].map((name) =>
@@ -612,13 +610,12 @@ test("the prompt hook keeps native, local and snippet sources before catalogue a
     ),
     ...["a-repeat.md", "b-repeat.md"].map((name) => catalogueInstructionId(second, name)),
   ];
-  put(
-    join(agentDir, "settings.json"),
-    JSON.stringify({ resources: { instructionCatalogues: [first, second, aliasRoot] } }),
-  );
+  put(join(agentDir, "settings.json"), JSON.stringify({ packages: [repo] }));
   put(
     join(repo, ".pi/settings.json"),
-    JSON.stringify({ localContext: { instructions: selected } }),
+    JSON.stringify({
+      localContext: { instructions: Object.fromEntries(selected.map((id) => [id, true])) },
+    }),
   );
   const loader = new DefaultResourceLoader({
     cwd: repo,
@@ -637,10 +634,10 @@ test("the prompt hook keeps native, local and snippet sources before catalogue a
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
-    await register().before_agent_start(
-      { systemPromptOptions: options },
-      { isProjectTrusted: () => true },
-    );
+    const handlers = register();
+    const ctx = { cwd: repo, hasUI: false, isProjectTrusted: () => true };
+    await handlers.session_start({}, ctx);
+    await handlers.before_agent_start({ systemPromptOptions: options }, ctx);
     assert.deepEqual(options.contextFiles, [hostEntry, personal]);
     assert.equal(
       options.sections.instructions,
@@ -666,19 +663,23 @@ test("catalogue merging preserves existing host entries that intentionally share
   put(
     join(agentDir, "settings.json"),
     JSON.stringify({
-      resources: { instructionCatalogues: [catalogue] },
-      localContext: { instructions: [catalogueInstructionId(catalogue, "team.md")] },
+      packages: [repo],
+      localContext: { instructions: { [catalogueInstructionId(catalogue, "team.md")]: true } },
     }),
+  );
+  put(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "host-guidance", pi: { instructions: ["./catalogue"] } }),
   );
   const hostEntries = [team, { path: team.path, content: "OTHER HOST CONTEXT" }];
   const options = { cwd: repo, contextFiles: hostEntries };
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   try {
-    await register().before_agent_start(
-      { systemPromptOptions: options },
-      { isProjectTrusted: () => true },
-    );
+    const handlers = register();
+    const ctx = { cwd: repo, hasUI: false, isProjectTrusted: () => true };
+    await handlers.session_start({}, ctx);
+    await handlers.before_agent_start({ systemPromptOptions: options }, ctx);
     assert.deepEqual(options.contextFiles, hostEntries);
   } finally {
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -726,7 +727,10 @@ test("registered pack instructions are opt-in, preserve caller guidance, reread 
   const before = await turn();
   assert.doesNotMatch(before.prompt, /PACK_RULE_ONE/);
   assert.match(before.prompt, /CALLER_GUIDANCE/);
-  put(join(repo, ".pi/settings.json"), JSON.stringify({ localContext: { instructions: [id] } }));
+  put(
+    join(repo, ".pi/settings.json"),
+    JSON.stringify({ localContext: { instructions: { [id]: true } } }),
+  );
   const selected = await turn();
   assert.match(selected.prompt, /<instructions>[\s\S]*CALLER_GUIDANCE[\s\S]*PACK_RULE_ONE/);
   assert.doesNotMatch(selected.prompt, /HUMAN_ONLY/);
@@ -746,7 +750,7 @@ test("registered pack instructions are opt-in, preserve caller guidance, reread 
     /PACK_RULE_TWO/,
     "untrusted project selection is ignored",
   );
-  put(join(repo, ".pi/settings.json"), JSON.stringify({ localContext: { instructions: [] } }));
+  put(join(repo, ".pi/settings.json"), JSON.stringify({ localContext: { instructions: {} } }));
   const disabled = await turn();
   assert.doesNotMatch(disabled.prompt, /PACK_RULE_TWO/);
   assert.match(disabled.prompt, /CALLER_GUIDANCE/);
@@ -776,4 +780,38 @@ test("the prompt hook resolves sparse instruction maps against implicit local de
   await handlers.before_agent_start({ systemPromptOptions: options }, ctx);
   assert.match(options.sections.instructions, /LOCAL_B/);
   assert.doesNotMatch(options.sections.instructions, /LOCAL_A|DORMANT_RULE/);
+});
+
+test("project instruction discovery excludes home and ancestor snippets outside its Git root", () => {
+  const home = join(root, "instruction-home");
+  const project = join(home, "projects/repo");
+  const cwd = join(project, "src");
+  const previousHome = process.env.HOME;
+  initGit(project);
+  put(join(home, ".agents/instructions/home.md"), "HOME_GUIDANCE");
+  put(join(home, "projects/.agents/instructions/ancestor.md"), "ANCESTOR_GUIDANCE");
+  put(join(project, ".agents/instructions/project.md"), "PROJECT_GUIDANCE");
+  put(join(cwd, ".agents/instructions/child.md"), "CHILD_GUIDANCE");
+  process.env.HOME = home;
+  try {
+    assert.deepEqual(
+      selectedLocalInstructions(cwd, undefined).map((file) => file.content),
+      ["PROJECT_GUIDANCE", "CHILD_GUIDANCE"],
+    );
+    assert.deepEqual(selectedLocalInstructions(home, undefined), []);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
+});
+
+test("without Git, instruction discovery is limited to the current directory", () => {
+  const project = join(root, "standalone-instructions");
+  const cwd = join(project, "nested");
+  put(join(project, ".agents/instructions/ancestor.md"), "ANCESTOR_GUIDANCE");
+  put(join(cwd, ".agents/instructions/current.md"), "CURRENT_GUIDANCE");
+  assert.deepEqual(
+    selectedLocalInstructions(cwd, undefined).map((file) => file.content),
+    ["CURRENT_GUIDANCE"],
+  );
 });

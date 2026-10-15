@@ -11,10 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { discoverResourcePackages } from "pi-runtime";
-import * as sdk from "@earendil-works/pi-coding-agent";
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "./agents.ts";
+import { SettingsManager, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import {
   assertSafeProjectSettingsLocation,
   configuredSkillChoices,
@@ -23,8 +20,9 @@ import {
   selectedSkills,
   writeResourceDefaults,
 } from "pi-runtime";
-
-const saveProjectSkills = (cwd: string, paths: string[], ids: string[], knownIds = ids) =>
+import { discoverAgents } from "./agents.ts";
+const parse = parseFrontmatter;
+const saveProjectSkills = (cwd: string, _paths: string[], ids: string[], knownIds = ids) =>
   writeResourceDefaults({
     scope: "project",
     cwd,
@@ -32,52 +30,22 @@ const saveProjectSkills = (cwd: string, paths: string[], ids: string[], knownIds
       skills: {
         knownIds,
         values: Object.fromEntries(knownIds.map((id) => [id, ids.includes(id)])),
-        skillPaths: Object.fromEntries(
-          knownIds.flatMap((id) => (paths[ids.indexOf(id)] ? [[id, paths[ids.indexOf(id)]]] : [])),
-        ),
-        nativeDefaults: Object.fromEntries(knownIds.map((id) => [id, false])),
-        fallbackValues: Object.fromEntries(knownIds.map((id) => [id, false])),
         snapshot: true,
       },
     },
   });
-const saveProjectAgents = (cwd: string, names: string[], knownIds: string[] = names) =>
+const saveProjectAgents = (cwd: string, ids: string[], knownIds = ids) =>
   writeResourceDefaults({
     scope: "project",
     cwd,
     selections: {
       agents: {
         knownIds,
-        values: Object.fromEntries(knownIds.map((id) => [id, names.includes(id)])),
+        values: Object.fromEntries(knownIds.map((id) => [id, ids.includes(id)])),
         snapshot: true,
       },
     },
   });
-const saveGlobalResources = (
-  agentDir: string,
-  kind: "skills" | "agents",
-  names: string[],
-  knownIds = names,
-) =>
-  writeResourceDefaults({
-    scope: "global",
-    agentDir,
-    selections: {
-      [kind]: {
-        knownIds,
-        values: Object.fromEntries(knownIds.map((id) => [id, names.includes(id)])),
-        snapshot: true,
-      },
-    },
-  });
-
-const parse = (text: string) => {
-  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
-  const name = /^name:\s*(.+)$/m.exec(match?.[1] ?? "")?.[1];
-  const description = /^description:\s*(.+)$/m.exec(match?.[1] ?? "")?.[1];
-  return { frontmatter: { name, description }, body: match?.[2] ?? text };
-};
-
 function skill(root: string, name: string) {
   const directory = join(root, name);
   mkdirSync(directory, { recursive: true });
@@ -88,292 +56,82 @@ function skill(root: string, name: string) {
   return join(directory, "SKILL.md");
 }
 
-test("project skill selection narrows loaded and catalogue skills", async () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-resource-selection-"));
-  const agentDir = join(root, "agent"),
-    project = join(root, "project"),
-    catalogue = join(root, "catalogue");
-  mkdirSync(agentDir, { recursive: true });
-  mkdirSync(project, { recursive: true });
-  mkdirSync(join(project, ".pi"), { recursive: true });
-  const one = skill(catalogue, "one"),
-    two = skill(catalogue, "two"),
-    packageSkill = skill(join(root, "package"), "pi-help"),
-    privateSkill = skill(join(project, ".pi/agents/private/skills"), "private");
-  writeFileSync(
-    join(agentDir, "settings.json"),
-    JSON.stringify({ skills: ["!two"], resources: { skillCatalogues: [catalogue] } }),
-  );
-  writeFileSync(
-    join(project, ".pi/settings.json"),
-    JSON.stringify({ theme: "dark", retry: { enabled: false }, skills: [two] }),
-  );
-  const settings = SettingsManager.create(project, agentDir, { projectTrusted: true });
+test("only native loaded skill identities become choices; package metadata does not load excluded skills", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-native-skill-pool-"));
   try {
-    const choices = configuredSkillChoices(settings, project, agentDir, [
-      { name: "pi-help", path: packageSkill },
-      { name: "two", path: two },
-    ]);
+    const one = skill(root, "one"),
+      excluded = skill(root, "excluded");
+    const pack = {
+      name: "sample",
+      root,
+      description: "sample",
+      keywords: [],
+      skills: [one, excluded],
+      agents: [],
+      instructions: [],
+    };
+    assert.deepEqual(configuredSkillChoices(root, root, [], [pack]), []);
+    const choices = configuredSkillChoices(root, root, [{ name: "one", path: one }], [pack]);
     assert.deepEqual(
-      choices.map((choice) => choice.name),
-      ["one", "pi-help", "two"],
+      choices.map((choice) => [choice.name, choice.path, choice.packName, choice.defaultSelected]),
+      [["one", one, "sample", true]],
     );
-    assert.equal(choices.find((choice) => choice.name === "pi-help")?.toggleable, true);
-    assert.deepEqual(
-      selectedSkills(settings, choices).map((x) => x.name),
-      ["pi-help", "two"],
-    );
-    assert.ok(!choices.some((choice) => choice.path === privateSkill));
-
-    await saveProjectSkills(project, [one], ["one"], ["one", "pi-help", "two"]);
-    await settings.reload();
-    const selected = selectedSkills(settings, choices);
-    assert.deepEqual(
-      selected.map((choice) => choice.name),
-      ["one"],
-    );
-    const projectConfig = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.deepEqual(projectConfig.skills, [two, one]);
-    assert.deepEqual(projectConfig.subagents.skills, { one: true, "pi-help": false, two: false });
-    assert.deepEqual(projectConfig.subagents.skillPaths, [one]);
-    assert.equal(projectConfig.theme, "dark");
-    assert.deepEqual(projectConfig.retry, { enabled: false });
-
-    await saveProjectSkills(project, [], [], ["one", "pi-help", "two"]);
-    let updatedConfig = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.deepEqual(updatedConfig.skills, [two]);
-    assert.deepEqual(updatedConfig.subagents.skills, { one: false, "pi-help": false, two: false });
-    assert.deepEqual(updatedConfig.subagents.skillPaths, []);
-
-    await saveProjectSkills(project, [], [], ["one", "pi-help", "two"]);
-    updatedConfig = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.deepEqual(updatedConfig.skills, [two]);
-    assert.deepEqual(updatedConfig.subagents.skillPaths, []);
-    assert.equal(updatedConfig.theme, "dark");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("skills inherit global defaults, an empty project override disables them, and saving defaults preserves settings", async () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-skill-defaults-"));
-  const agentDir = join(root, "agent");
-  const project = join(root, "project");
-  const catalogue = join(root, "catalogue");
-  mkdirSync(agentDir, { recursive: true });
-  mkdirSync(project, { recursive: true });
-  mkdirSync(catalogue, { recursive: true });
-  const one = skill(catalogue, "one");
-  skill(catalogue, "two");
-  writeFileSync(
-    join(agentDir, "settings.json"),
-    JSON.stringify({
-      theme: "dark",
-      resources: { skillCatalogues: [catalogue] },
-      subagents: { skills: ["one"] },
-    }),
-  );
-  const settings = SettingsManager.create(project, agentDir, { projectTrusted: true });
-  try {
-    const choices = configuredSkillChoices(settings, project, agentDir, []);
-    assert.deepEqual(
-      selectedSkills(settings, choices).map((item) => item.name),
-      ["one"],
-    );
-    writeFileSync(
-      join(agentDir, "settings.json"),
-      JSON.stringify({
-        theme: "dark",
-        resources: { skillCatalogues: [catalogue] },
-        subagents: { skills: ["two"] },
-      }),
-    );
-    const nextSessionSettings = SettingsManager.create(project, agentDir, { projectTrusted: true });
-    const nextChoices = configuredSkillChoices(nextSessionSettings, project, agentDir, []);
-    assert.deepEqual(
-      selectedSkills(nextSessionSettings, nextChoices).map((item) => item.name),
-      ["two"],
-    );
-    assert.deepEqual(
-      selectedSkills(settings, choices, false, { present: true, names: ["one"] }).map(
-        (item) => item.name,
-      ),
-      ["one"],
-    );
-    mkdirSync(join(project, ".pi"), { recursive: true });
-    writeFileSync(
-      join(project, ".pi/settings.json"),
-      JSON.stringify({ subagents: { skills: [] } }),
-    );
-    await settings.reload();
+    const settings = SettingsManager.inMemory({
+      subagents: { skills: { one: false, excluded: true } },
+    } as any);
     assert.deepEqual(selectedSkills(settings, choices), []);
-    await Promise.all([
-      saveGlobalResources(agentDir, "skills", ["one"]),
-      saveGlobalResources(agentDir, "agents", ["reviewer"]),
+    assert.deepEqual(filterPromptSkills([{ name: "one" }, { name: "excluded" }], choices), [
+      { name: "one" },
     ]);
-    const persisted = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(persisted.theme, "dark");
-    assert.deepEqual(persisted.subagents.skills, { one: true });
-    assert.deepEqual(persisted.subagents.agents, { reviewer: true });
-    assert.equal(one.endsWith("SKILL.md"), true);
-    writeFileSync(
-      join(agentDir, "settings.json"),
-      JSON.stringify({
-        resources: { skillCatalogues: [catalogue] },
-        subagents: { skills: ["missing"] },
-      }),
-    );
-    writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({}));
-    const invalidSettings = SettingsManager.create(project, agentDir, { projectTrusted: true });
-    assert.throws(
-      () =>
-        selectedSkills(
-          invalidSettings,
-          configuredSkillChoices(invalidSettings, project, agentDir, []),
-        ),
-      /unknown skill names: missing/,
-    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("project skill selection filters Pi auto-discovered skills from prompts and children", async () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-stock-skills-"));
-  const agentDir = join(root, "agent"),
-    project = join(root, "project");
-  mkdirSync(agentDir, { recursive: true });
-  mkdirSync(project, { recursive: true });
-  mkdirSync(join(project, ".pi"), { recursive: true });
-  const one = skill(join(project, ".agents/skills"), "one"),
-    two = skill(join(project, ".agents/skills"), "two");
-  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ skills: [] }));
-  writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({ skills: [one] }));
-  const settings = SettingsManager.create(project, agentDir, { projectTrusted: true });
-  const loader = new sdk.DefaultResourceLoader({
-    cwd: project,
-    agentDir,
-    settingsManager: settings,
-    noExtensions: true,
-    noPromptTemplates: true,
-    noContextFiles: true,
-  });
+test("saving skill choices changes selection maps without registering or removing native sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-native-selection-save-"));
   try {
-    await loader.reload();
-    const nativeSkills = loader.getSkills().skills;
-    assert.ok(nativeSkills.some((loaded) => loaded.filePath === one));
-    assert.ok(nativeSkills.some((loaded) => loaded.filePath === two));
-    const loaded = nativeSkills.map((skill) => ({ name: skill.name, path: skill.filePath }));
-    const choices = configuredSkillChoices(settings, project, agentDir, loaded);
-    const inherited = selectedSkills(settings, choices).map((x) => x.name);
-    assert.ok(inherited.includes("one"));
-    assert.ok(inherited.includes("two"));
-
-    await saveProjectSkills(project, [one], ["one"], ["one", "two"]);
-    await settings.reload();
-    await loader.reload();
-    const selected = selectedSkills(
-      settings,
-      configuredSkillChoices(
-        settings,
-        project,
-        agentDir,
-        loader.getSkills().skills.map((skill) => ({ name: skill.name, path: skill.filePath })),
-      ),
-    );
-    assert.deepEqual(
-      selected.map((x) => x.name),
-      ["one"],
-    );
-    assert.deepEqual(
-      filterPromptSkills(loader.getSkills().skills, selected).map((x) => x.name),
-      ["one"],
-    );
-    assert.ok(loader.getSkills().skills.some((loaded) => loaded.filePath === two));
+    mkdirSync(join(root, ".pi"));
+    const before = { packages: ["native-package"], skills: ["native-path"], theme: "dark" };
+    writeFileSync(join(root, ".pi/settings.json"), JSON.stringify(before));
+    await saveProjectSkills(root, [], ["one"], ["one", "two"]);
+    assert.deepEqual(JSON.parse(readFileSync(join(root, ".pi/settings.json"), "utf8")), {
+      ...before,
+      subagents: { skills: { one: true, two: false } },
+    });
+    await saveProjectSkills(root, [], [], ["one", "two"]);
+    assert.deepEqual(JSON.parse(readFileSync(join(root, ".pi/settings.json"), "utf8")), {
+      ...before,
+      subagents: { skills: { one: false, two: false } },
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("catalogue skill reset removes only the native paths the extension added", async () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-managed-skill-paths-"));
-  const project = join(root, "project");
-  mkdirSync(join(project, ".pi"), { recursive: true });
-  writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({ theme: "dark" }));
-  try {
-    const cataloguePath = skill(join(root, "catalogue"), "catalogue-only");
-    await saveProjectSkills(project, [cataloguePath], ["catalogue-only"]);
-    let settings = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.deepEqual(settings.skills, [cataloguePath]);
-    assert.deepEqual(settings.subagents.skillPaths, [cataloguePath]);
-    assert.equal(settings.subagents.skillPathsCreatedSetting, true);
-
-    await saveProjectSkills(project, [], [], ["catalogue-only"]);
-    settings = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.equal(Object.hasOwn(settings, "skills"), false);
-    assert.deepEqual(settings.subagents.skillPaths, []);
-    assert.equal(settings.theme, "dark");
-
-    await saveProjectSkills(project, [], ["global-skill"]);
-    settings = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.equal(Object.hasOwn(settings, "skills"), false);
-    assert.deepEqual(settings.subagents.skills, { "global-skill": true });
-    await saveProjectSkills(project, [], [], ["global-skill"]);
-    settings = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
-    assert.equal(Object.hasOwn(settings, "skills"), false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("selection cannot authorize untrusted agents and map defaults keep native inheritance", () => {
+  const agents = [{ name: "native" }, { name: "pack", catalogueOnly: true }];
+  const manager = SettingsManager.inMemory({
+    subagents: { agents: { pack: true, untrusted: true, native: false } },
+  } as any);
+  assert.deepEqual(selectedAgents(manager, agents).agents, [agents[1]]);
+  assert.deepEqual(selectedAgents(SettingsManager.inMemory({}), agents).agents, [agents[0]]);
+  assert.deepEqual(
+    selectedAgents(manager, agents, { present: true, values: { native: true, pack: false } })
+      .agents,
+    [agents[0]],
+  );
 });
 
-test("agent project selection filters the same trusted catalogue used by the launch guard", () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-agent-selection-"));
-  const globalAgents = join(root, "global/agents"),
-    projectAgents = join(root, "project/.pi/agents");
-  mkdirSync(globalAgents, { recursive: true });
-  mkdirSync(projectAgents, { recursive: true });
-  for (const name of ["general-purpose", "reviewer"])
-    writeFileSync(
-      join(globalAgents, `${name}.md`),
-      `---\nname: ${name}\ndescription: ${name}\n---\nbody`,
-    );
-  const found = discoverAgents(globalAgents, parse as any);
-  const settings = SettingsManager.inMemory({ subagents: { agents: ["general-purpose"] } } as any);
+test("project default writes refuse symlinked settings directories", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-defaults-symlink-"));
   try {
-    const result = selectedAgents(settings, found.agents);
-    assert.equal(result.error, undefined);
-    assert.deepEqual(
-      result.agents.map((agent) => agent.name),
-      ["general-purpose"],
-    );
-    const newerDefaults = SettingsManager.inMemory({ subagents: { agents: ["reviewer"] } } as any);
-    assert.deepEqual(
-      selectedAgents(newerDefaults, found.agents).agents.map((agent) => agent.name),
-      ["reviewer"],
-    );
-    assert.deepEqual(
-      selectedAgents(newerDefaults, found.agents, {
-        present: true,
-        names: ["general-purpose"],
-      }).agents.map((agent) => agent.name),
-      ["general-purpose"],
-    );
-    const invalid = SettingsManager.inMemory({ subagents: { agents: ["missing"] } } as any);
-    const denied = selectedAgents(invalid, found.agents);
-    assert.deepEqual(denied.agents, []);
-    assert.match(denied.error ?? "", /unknown or untrusted names/);
-    for (const malformed of [
-      { subagents: null },
-      { subagents: { agents: null } },
-      { subagents: { agents: [" general-purpose"] } },
-      { subagents: { agents: ["general-purpose", "general-purpose"] } },
-    ]) {
-      const rejected = selectedAgents(SettingsManager.inMemory(malformed as any), found.agents);
-      assert.deepEqual(rejected.agents, []);
-      assert.ok(rejected.error);
-    }
-    const inherited = SettingsManager.inMemory({} as any);
-    assert.deepEqual(selectedAgents(inherited, found.agents).agents, found.agents);
+    mkdirSync(join(root, "project"));
+    mkdirSync(join(root, "outside"));
+    symlinkSync(join(root, "outside"), join(root, "project/.pi"), "dir");
+    await assert.rejects(assertSafeProjectSettingsLocation(join(root, "project")), /non-directory/);
+    await assert.rejects(saveProjectSkills(join(root, "project"), [], ["one"]), /non-directory/);
+    assert.throws(() => readFileSync(join(root, "outside/settings.json")), /ENOENT/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -442,47 +200,6 @@ test("sparse skill and agent selections preserve inherited native choices and sn
   }
 });
 
-test("malformed catalogue paths fail instead of widening the skill chooser", () => {
-  const settings = SettingsManager.inMemory({
-    resources: { skillCatalogues: "not-a-list" },
-  } as any);
-  assert.throws(
-    () => configuredSkillChoices(settings, "/project", "/agent", []),
-    /resources.skillCatalogues must be a list/,
-  );
-});
-
-test("invalid project skill selections can be inspected for reset and project settings symlink writes are refused", async () => {
-  const root = mkdtempSync(join(tmpdir(), "subagent-skill-recovery-"));
-  const project = join(root, "project"),
-    agentDir = join(root, "agent"),
-    outside = join(root, "outside");
-  mkdirSync(project, { recursive: true });
-  mkdirSync(agentDir, { recursive: true });
-  mkdirSync(outside, { recursive: true });
-  mkdirSync(join(project, ".pi"));
-  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ skills: [] }));
-  writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({ skills: [42] }));
-  const settings = SettingsManager.create(project, agentDir, { projectTrusted: true });
-  try {
-    assert.throws(
-      () => configuredSkillChoices(settings, project, agentDir, []),
-      /project skills must be a list/,
-    );
-    const choices = configuredSkillChoices(settings, project, agentDir, [], true);
-    assert.deepEqual(selectedSkills(settings, choices, true), []);
-    rmSync(join(project, ".pi"), { recursive: true });
-    symlinkSync(outside, join(project, ".pi"));
-    await assert.rejects(
-      assertSafeProjectSettingsLocation(project),
-      /Refusing to write through non-directory project settings path/,
-    );
-    assert.throws(() => readFileSync(join(outside, "settings.json"), "utf8"), /ENOENT/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("custom project agent selection preserves unrelated settings and refuses settings symlinks", async () => {
   const root = mkdtempSync(join(tmpdir(), "subagent-agent-settings-"));
   const project = join(root, "project"),
@@ -492,7 +209,7 @@ test("custom project agent selection preserves unrelated settings and refuses se
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(
     join(agentDir, "settings.json"),
-    JSON.stringify({ subagents: { agents: ["general-purpose", "reviewer"] } }),
+    JSON.stringify({ subagents: { agents: { "general-purpose": true, reviewer: true } } }),
   );
   writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({ theme: "dark", skills: [] }));
   try {
@@ -538,113 +255,6 @@ test("concurrent project resource writes preserve every settings field", async (
     assert.equal(settings.theme, "dark");
     assert.deepEqual(settings.subagents.agents, { reviewer: true });
     assert.deepEqual(settings.subagents.skills, { adr: true });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("pack-only skills and agents are inactive until selected while explicitly native loaded skills retain defaults", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pack-selection-"));
-  try {
-    const agentDir = join(root, "agent"),
-      project = join(root, "project"),
-      pack = join(root, "packs/sample");
-    mkdirSync(agentDir, { recursive: true });
-    mkdirSync(project, { recursive: true });
-    const path = skill(join(pack, "skills"), "pack-check");
-    writeFileSync(
-      join(pack, "package.json"),
-      JSON.stringify({
-        name: "sample",
-        description: "Swarm coordination",
-        keywords: ["bm25", "rpc"],
-        pi: { skills: ["skills"], extensions: [] },
-      }),
-    );
-    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [pack] }));
-    const manager = SettingsManager.create(project, agentDir, { projectTrusted: true });
-    const packs = (await discoverResourcePackages(manager, project, agentDir)).packs;
-    const choices = configuredSkillChoices(manager, project, agentDir, [], false, undefined, packs);
-    assert.deepEqual(
-      choices.map((s) => s.name),
-      ["pack-check"],
-    );
-    assert.deepEqual(selectedSkills(manager, choices), []);
-    assert.match(choices[0].packKeywords!, /sample Swarm coordination bm25 rpc/);
-    assert.equal(choices[0].packName, "sample");
-    const native = configuredSkillChoices(manager, project, agentDir, [
-      { name: "pack-check", path: choices[0].path },
-    ]);
-    assert.deepEqual(
-      selectedSkills(manager, native).map((s) => s.name),
-      ["pack-check"],
-    );
-    const agents = [
-      { name: "regular", description: "native", body: "", source: "user" },
-      { name: "worker", description: "pack", body: "", source: "pack", catalogueOnly: true },
-    ] as never;
-    assert.deepEqual(
-      selectedAgents(manager, agents).agents.map((a) => a.name),
-      ["regular"],
-    );
-    writeFileSync(
-      join(agentDir, "settings.json"),
-      JSON.stringify({
-        packages: [pack],
-        subagents: { skills: ["pack-check"], agents: ["worker"] },
-      }),
-    );
-    const selectedManager = SettingsManager.create(project, agentDir, { projectTrusted: true });
-    assert.deepEqual(
-      selectedSkills(selectedManager, choices).map((s) => s.name),
-      ["pack-check"],
-    );
-    assert.deepEqual(
-      selectedAgents(selectedManager, agents).agents.map((a) => a.name),
-      ["worker"],
-    );
-    assert.ok(path.endsWith("SKILL.md"));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("native temporary skills retain package ownership when a legacy catalogue has the same name", async () => {
-  const root = mkdtempSync(join(tmpdir(), "native-skill-priority-"));
-  try {
-    const pack = join(root, "package"),
-      legacy = join(root, "legacy"),
-      agentDir = join(root, "agent");
-    const nativePath = skill(join(pack, "skills"), "check");
-    skill(legacy, "check");
-    writeFileSync(
-      join(pack, "package.json"),
-      JSON.stringify({ name: "temporary-package", pi: { extensions: [], skills: ["skills"] } }),
-    );
-    const settings = SettingsManager.inMemory({ resources: { skillCatalogues: [legacy] } } as any);
-    const loaded = [{ name: "check", path: nativePath }];
-    const packs = (
-      await discoverResourcePackages(
-        settings,
-        root,
-        agentDir,
-        [{ path: nativePath, source: "cli", scope: "temporary", origin: "top-level" }],
-        [pack],
-      )
-    ).packs;
-    const choices = configuredSkillChoices(
-      settings,
-      root,
-      agentDir,
-      loaded,
-      false,
-      new Set([nativePath]),
-      packs,
-    );
-    assert.equal(choices.length, 1);
-    assert.equal(choices[0].path, nativePath);
-    assert.equal(choices[0].packName, "temporary-package");
-    assert.equal(choices[0].defaultSelected, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 # pi-resources
 
 Select skills and package guidance for a Pi session without loading delegation, background jobs
-or security. This extension provides `/skills`, `/packages` and the shared `session_setup` tool.
+or permissions. This extension provides `/skills`, `/packages` and the shared `session_setup` tool.
 It reuses Pi's loaded resources and the existing searchable resource browser.
 
 - `/skills` selects which available skill descriptions enter the parent prompt. Bodies stay lazy;

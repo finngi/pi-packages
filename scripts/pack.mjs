@@ -11,7 +11,6 @@ const names = [
   "pi-contracts",
   "pi-runtime",
   "pi-resource-browser",
-  "pi-security",
   "pi-permissions",
   "pi-background",
   "pi-delegation",
@@ -42,11 +41,6 @@ for (const name of names) {
         const base = key === "." ? "index" : key.slice(2);
         manifest.exports[key] = { types: `./dist/${base}.d.ts`, default: `./dist/${base}.js` };
       }
-    if (name === "pi-security")
-      manifest.exports["./permissions"] = {
-        types: "./dist/src/permission-extension.d.ts",
-        default: "./dist/src/permission-extension.js",
-      };
     await cp(join(source, "dist"), join(stage, "dist"), { recursive: true });
     if (manifest.pi?.skills?.length)
       await cp(join(source, "skills"), join(stage, "skills"), { recursive: true });

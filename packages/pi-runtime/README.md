@@ -2,13 +2,13 @@
 
 Shared implementation code imported by Pi extensions. Functions execute in the parent or child Pi process that calls them; there is no separate daemon or child-only runtime.
 
-The parent uses resource selection, auth resolution, launch-file installation, artifact collection, and usage accounting. Prepared children load the `pi-runtime/child-auth` entrypoint to register the selected provider. Accounting is installed per Pi event bus in both processes that use it; child reports cross RPC into the parent's ledger.
+The parent uses resource selection, native provider setup, launch-file installation, artifact collection, and usage accounting. Prepared children start the native `pi-runtime/child-rpc` adapter with selected provider configuration; Pi reads the original user auth/model stores. Accounting is installed per Pi event bus in both processes that use it; child reports cross RPC into the parent's ledger.
 
 - [Architecture](../../docs/architecture.md): execution locations and workspace/configuration distinctions.
 - [Accounting](../../docs/accounting.md), [semantic IDs](../../docs/semantic-ids.md), and [artifact retention](../../docs/guides/delegation.md#retain-and-integrate-artifacts).
 - [Package reference](../../docs/reference/packages.md) and [event contracts](../../docs/reference/events.md).
 
-Exports: [src/index.ts](src/index.ts) and [src/child-auth.ts](src/child-auth.ts). Importing the root library does not activate sibling extensions. From the repository root, run `npm run test --workspace=pi-runtime` and `npm run typecheck --workspace=pi-runtime`. [Local tarballs](../../docs/guides/distribution.md#build-local-tarballs) export emitted JavaScript and declarations.
+Exports: [src/index.ts](src/index.ts) and [src/child-rpc.ts](src/child-rpc.ts). Importing the root library does not activate sibling extensions. From the repository root, run `npm run test --workspace=pi-runtime` and `npm run typecheck --workspace=pi-runtime`. [Local tarballs](../../docs/guides/distribution.md#build-local-tarballs) export emitted JavaScript and declarations.
 
 ## Native resource packages
 

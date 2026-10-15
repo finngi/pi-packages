@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +8,7 @@ import test from "node:test";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
 import { createChildRuntime } from "../src/child-rpc.ts";
-import { resolveChildAuth } from "../src/child-auth.ts";
+import { prepareChildProvider } from "../src/child-provider.ts";
 
 const ai = import.meta.resolve("@earendil-works/pi-ai");
 
@@ -19,14 +18,14 @@ async function fixture() {
     child = join(root, "child");
   await Promise.all([mkdir(native), mkdir(child)]);
   const previous = new Map(
-    ["PI_CHILD_AGENT_DIR", "PI_CODING_AGENT_DIR", "PI_CHILD_AUTH", "PI_SECURITY_CHILD_AUTH"].map(
-      (name) => [name, process.env[name]],
-    ),
+    ["PI_CHILD_AGENT_DIR", "PI_CODING_AGENT_DIR", "PI_CHILD_PROVIDER_CONFIG"].map((name) => [
+      name,
+      process.env[name],
+    ]),
   );
   process.env.PI_CHILD_AGENT_DIR = native;
   process.env.PI_CODING_AGENT_DIR = child;
-  delete process.env.PI_CHILD_AUTH;
-  delete process.env.PI_SECURITY_CHILD_AUTH;
+  delete process.env.PI_CHILD_PROVIDER_CONFIG;
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
@@ -60,21 +59,10 @@ async function fixture() {
   };
 }
 
-test("child uses original native OAuth backing and ignores stale selected-model auth", async () => {
+test("child resolves and refreshes OAuth through the original native backing without credential copies", async () => {
   const f = await fixture();
   let runtime: Awaited<ReturnType<typeof createChildRuntime>> | undefined;
   try {
-    const snapshot = JSON.stringify({
-      model: f.model,
-      auth: { ok: true, apiKey: "stale-snapshot" },
-    });
-    const authPath = join(f.root, "snapshot.json");
-    await writeFile(authPath, snapshot);
-    process.env.PI_CHILD_AUTH = JSON.stringify({
-      version: 1,
-      path: authPath,
-      sha256: createHash("sha256").update(snapshot).digest("hex"),
-    });
     runtime = await createChildRuntime(f.args);
     const registry = new ModelRegistry(runtime.services.modelRuntime);
     const first = await registry.getProviderAuth("openai-codex");
@@ -124,14 +112,12 @@ test("native authentication retains selected same-id metadata and other model ty
         model.id === selected.id && (model.type ?? "chat") === "chat" ? selected : model,
       ),
     });
-    const snapshot = JSON.stringify(await resolveChildAuth(new ModelRegistry(parent), selected));
-    const authPath = join(f.root, "snapshot.json");
-    await writeFile(authPath, snapshot);
-    process.env.PI_CHILD_AUTH = JSON.stringify({
-      version: 1,
-      path: authPath,
-      sha256: createHash("sha256").update(snapshot).digest("hex"),
-    });
+    const providerPath = join(f.root, "provider.json");
+    await writeFile(
+      providerPath,
+      JSON.stringify(prepareChildProvider(new ModelRegistry(parent), selected)),
+    );
+    process.env.PI_CHILD_PROVIDER_CONFIG = providerPath;
     runtime = await createChildRuntime([
       "--provider",
       selected.provider,
@@ -184,16 +170,12 @@ test("static provider routing headers retain native model precedence and OAuth r
       "X-Fixture-Priority": "provider",
     };
     parent.registerProvider(f.model.provider, { headers: providerHeaders });
-    const snapshot = await resolveChildAuth(new ModelRegistry(parent), f.model);
-    assert.deepEqual(snapshot.providerHeaders, providerHeaders);
-    const bytes = JSON.stringify(snapshot),
-      authPath = join(f.root, "snapshot.json");
-    await writeFile(authPath, bytes);
-    process.env.PI_CHILD_AUTH = JSON.stringify({
-      version: 1,
-      path: authPath,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-    });
+    const providerPath = join(f.root, "provider.json");
+    const configuration = prepareChildProvider(new ModelRegistry(parent), f.model);
+    assert.deepEqual(configuration?.config?.headers, providerHeaders);
+    assert.equal(Object.hasOwn(configuration!, "auth"), false);
+    await writeFile(providerPath, JSON.stringify(configuration));
+    process.env.PI_CHILD_PROVIDER_CONFIG = providerPath;
     runtime = await createChildRuntime(f.args);
     const registry = new ModelRegistry(runtime.services.modelRuntime);
     const resolved = await registry.getApiKeyAndHeaders(runtime.session.model!);
@@ -379,7 +361,7 @@ test("prepared child entrypoint serves the stock RPC protocol without saving a s
   }
 });
 
-test("explicit provider adapters retain their fixture stream registration", async () => {
+test("explicit native provider extensions retain executable stream registration", async () => {
   const f = await fixture();
   let runtime: Awaited<ReturnType<typeof createChildRuntime>> | undefined;
   try {
@@ -394,18 +376,6 @@ test("explicit provider adapters retain their fixture stream registration", asyn
       provider,
       `export default pi => pi.registerProvider('child-fixture', {api:'openai-completions',apiKey:'fixture',baseUrl:'http://localhost',models:[${JSON.stringify(model)}],streamSimple(){throw Error('fixture stream')}});`,
     );
-    const snapshot = JSON.stringify({
-      model,
-      auth: { ok: true, apiKey: "snapshot" },
-      fixture: true,
-    });
-    const authPath = join(f.root, "snapshot.json");
-    await writeFile(authPath, snapshot);
-    process.env.PI_CHILD_AUTH = JSON.stringify({
-      version: 1,
-      path: authPath,
-      sha256: createHash("sha256").update(snapshot).digest("hex"),
-    });
     runtime = await createChildRuntime([
       "--provider",
       model.provider,
@@ -432,19 +402,27 @@ test("explicit provider adapters retain their fixture stream registration", asyn
   }
 });
 
-test("SDK-only selected model retains the existing resolved-auth fallback", async () => {
+test("ephemeral native provider configuration uses native authentication without a fallback stream", async () => {
   const f = await fixture();
   let runtime: Awaited<ReturnType<typeof createChildRuntime>> | undefined;
   try {
     const model = { ...f.model, provider: "sdk-only", id: "selected", api: "openai-completions" };
-    const snapshot = JSON.stringify({ model, auth: { ok: true, apiKey: "fixture-sdk-key" } });
-    const authPath = join(f.root, "snapshot.json");
-    await writeFile(authPath, snapshot);
-    process.env.PI_CHILD_AUTH = JSON.stringify({
-      version: 1,
-      path: authPath,
-      sha256: createHash("sha256").update(snapshot).digest("hex"),
+    const parent = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(),
+      modelsPath: null,
+      refreshOnCreate: false,
     });
+    parent.registerProvider(model.provider, {
+      api: model.api,
+      apiKey: "fixture-sdk-key",
+      models: [model],
+    });
+    const configPath = join(f.root, "provider.json");
+    await writeFile(
+      configPath,
+      JSON.stringify(prepareChildProvider(new ModelRegistry(parent), model)),
+    );
+    process.env.PI_CHILD_PROVIDER_CONFIG = configPath;
     runtime = await createChildRuntime([
       "--provider",
       model.provider,
@@ -456,9 +434,26 @@ test("SDK-only selected model retains the existing resolved-auth fallback", asyn
     assert.equal(runtime.session.model?.provider, model.provider);
     assert.equal(runtime.session.model?.id, model.id);
     assert.equal(
-      typeof runtime.services.modelRuntime.getRegisteredProviderConfig(model.provider)
-        ?.streamSimple,
-      "function",
+      runtime.services.modelRuntime.getRegisteredProviderConfig(model.provider)?.streamSimple,
+      undefined,
+    );
+    assert.equal(
+      (await runtime.services.modelRuntime.getAuth(model.provider))?.auth.apiKey,
+      "fixture-sdk-key",
+    );
+    parent.registerProvider(model.provider, {
+      api: model.api,
+      streamSimple() {
+        throw Error("fixture callback");
+      },
+    });
+    assert.throws(
+      () => prepareChildProvider(new ModelRegistry(parent), model),
+      /callbacks require/,
+    );
+    assert.equal(
+      prepareChildProvider(new ModelRegistry(parent), model, "/trusted/provider.ts"),
+      undefined,
     );
   } finally {
     await runtime?.dispose();

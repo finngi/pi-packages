@@ -42,11 +42,8 @@ For our resource-selection workflow, load **`pi-resources`**, adding `pi-context
 and `pi-delegation` for child agents. Each works independently.
 Libraries (`pi-runtime`, `pi-contracts`, `pi-resource-browser`) resolve through dependencies;
 do not select them as extensions. `pi-background`, `pi-goal` and `pi-codex-search` are optional features.
-Agents do not require `pi-background`. `pi-permissions` and the full `pi-security` sandbox are optional
-alternatives with their own configuration, not requirements of interactive Pi.
-
-The repository root still has a legacy aggregate manifest that includes the sandbox. Use
-individual package directories, not that root, as the basis of a personal setup.
+Agents do not require `pi-background`. `pi-permissions` is optional and reviews tool calls without
+OS confinement. All capabilities load through their native package manifests.
 
 ## Local paths, without publishing
 
@@ -59,7 +56,7 @@ from the repository root:
 
 ```sh
 node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --no-extensions \
-  -e ./packages/pi-resources -e ./packages/pi-context -e ./packages/pi-delegation --subagent-security=off
+  -e ./packages/pi-resources -e ./packages/pi-context -e ./packages/pi-delegation
 ```
 
 `--no-extensions` excludes automatically discovered and built-in extensions; explicit `-e`
@@ -78,7 +75,7 @@ loaded themes. Picker changes are session-only; Ctrl+S saves project defaults an
 saves personal defaults. Resumed sessions retain recorded choices.
 
 New executable packages need native installation/configuration and an idle `/reload` for
-ordinary changes. Runtime/security replacements or already-running children need a managed
+ordinary changes. Runtime replacement with already-running children needs a controlled
 restart. Existing children keep their launched configuration.
 
 Configured and temporary `-e` packages containing only agents/instructions are discoverable.

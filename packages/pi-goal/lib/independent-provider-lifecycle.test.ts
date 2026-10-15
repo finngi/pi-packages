@@ -6,7 +6,7 @@ import type {
   ExtensionContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { resolveChildAuth } from "pi-runtime/child-auth";
+import { prepareChildProvider } from "pi-runtime";
 import { GoalAdmission } from "./continuation.ts";
 import { GoalRequests } from "./usage.ts";
 
@@ -272,7 +272,9 @@ test("transparent guards preserve stock child transfer and keep custom providers
       find: () => model,
       getRegisteredNativeProvider: () => native,
       getRegisteredProviderConfig: () => config,
-      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "fixture-only", headers: {} }),
+      getApiKeyAndHeaders: async () => {
+        throw Error("Native preparation must not resolve credentials");
+      },
     }) as unknown as ModelRegistry;
 
   const stock = provider("Stock adapter", () => "stock");
@@ -289,14 +291,14 @@ test("transparent guards preserve stock child transfer and keep custom providers
     },
   });
   stockAdmission.install(context(stockRegistry));
-  const transferredStock = await resolveChildAuth(makeRegistry(registeredStock), {
+  const transferredStock = prepareChildProvider(makeRegistry(registeredStock), {
     provider: model.provider,
     id: model.id,
   });
   assert.equal(
-    transferredStock.fixture,
-    undefined,
-    "transparent stock wrapper remains eligible for normal child transfer",
+    transferredStock?.model.id,
+    model.id,
+    "transparent stock wrapper retains normal native model configuration",
   );
 
   const customNative = provider("Custom extension callback", () => "custom");
@@ -308,12 +310,13 @@ test("transparent guards preserve stock child transfer and keep custom providers
   };
   const customAdmission = admissionFor(customApi);
   customAdmission.install(context(customHarness.registry));
-  await assert.rejects(
-    resolveChildAuth(makeRegistry(customHarness.current().native), {
-      provider: model.provider,
-      id: model.id,
-    }),
-    /child custom provider cannot be transferred/,
+  assert.throws(
+    () =>
+      prepareChildProvider(makeRegistry(customHarness.current().native), {
+        provider: model.provider,
+        id: model.id,
+      }),
+    /trusted native extension entrypoint/,
     "transparent wrapper keeps a genuine extension callback nontransferable",
   );
 });

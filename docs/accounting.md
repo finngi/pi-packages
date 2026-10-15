@@ -51,4 +51,4 @@ The goal budget counts parent-provider usage for main-model requests dispatched 
 - [Ledger validation and deduplication](../packages/pi-runtime/src/usage.ts) and [usage tests](../packages/pi-runtime/test/usage.test.ts).
 - [Accounting installation, replay, and forwarding](../packages/pi-runtime/src/accounting.ts).
 - [Child RPC reconciliation](../packages/pi-delegation/lib/subagent/rpc-dialogue.ts) and [dialogue tests](../packages/pi-delegation/lib/subagent/rpc-dialogue.test.ts).
-- [Pi 1.2.0 parent/child integration](../packages/pi-delegation/lib/subagent/unrestricted-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.
+- [Pi 1.2.0 parent/child integration](../packages/pi-delegation/lib/subagent/native-delegation-stock.test.ts): four scripted child calls report 60 tokens and $0.12 of fixture cost; known usage reaches parent tool results once. This checks transport/accounting, not live model performance or prices.

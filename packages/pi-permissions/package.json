@@ -16,16 +16,20 @@
     ]
   },
   "dependencies": {
-    "pi-security": "0.1.0"
+    "tree-sitter-bash": "0.25.0",
+    "web-tree-sitter": "0.25.10",
+    "pi-contracts": "0.1.0",
+    "pi-runtime": "0.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-ai": "*"
   },
   "scripts": {
-    "test": "node ../pi-security/test/permissions-stock.mjs",
+    "test": "node --test test/*.test.*",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "node ../../scripts/build.mjs --package pi-permissions"
+    "build": "node ../../scripts/build.mjs --package pi-permissions",
+    "test:stock": "node test/stock-pi.mjs"
   },
   "engines": {
     "node": ">=24"

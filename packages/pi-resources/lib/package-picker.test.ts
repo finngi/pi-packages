@@ -130,12 +130,7 @@ async function fixture(t: any, trusted = true, configure?: (contributions: any[]
   };
   configure?.(contributions);
   setup.restore(ctx);
-  registerPackagePicker(
-    pi,
-    setup,
-    () => [],
-    () => [],
-  );
+  registerPackagePicker(pi, setup, () => []);
   let action: (browser: ResourceBrowser) => Promise<void> = async () => {};
   return {
     root,
@@ -306,13 +301,16 @@ test("package scope edits isolate members and inherit without rewriting session 
   });
 });
 
-test("editing a global package preserves legacy OFF for a project-only native sibling", async (t) => {
+test("editing a global package preserves explicit OFF for a project-only native sibling", async (t) => {
   const f = await fixture(t);
   const instructions = f.contributions.find((value) => value.kind === "instructions");
   instructions.candidates[0].globalDefaultable = false;
   await writeFile(
     f.globalFile,
-    JSON.stringify({ subagents: { skills: [], agents: [] }, localContext: { instructions: [] } }),
+    JSON.stringify({
+      subagents: { skills: { standalone: false }, agents: { standalone: false } },
+      localContext: { instructions: { standalone: false } },
+    }),
   );
   await f.run(async (browser) => {
     await browser.setScopeState("global", "on");

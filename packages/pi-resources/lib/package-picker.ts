@@ -24,7 +24,6 @@ export function registerPackagePicker(
   pi: ExtensionAPI,
   setup: ReturnType<typeof installSessionSetup>,
   diagnostics: () => string[],
-  skillPaths: (names: string[]) => string[],
 ) {
   pi.registerCommand("packages", {
     description:
@@ -157,29 +156,6 @@ export function registerPackagePicker(
                         : current[kind].includes(candidate.id),
                     ]),
                   ),
-                  nativeDefaults: Object.fromEntries(
-                    known.map((candidate) => [candidate.id, candidate.nativeDefault ?? false]),
-                  ),
-                  fallbackValues: Object.fromEntries(
-                    known.map((candidate) => [
-                      candidate.id,
-                      resolveResourceSelection(
-                        readResourceSelection(settings, "global", kind),
-                        undefined,
-                        candidate.id,
-                        candidate.nativeDefault ?? false,
-                      ).effective,
-                    ]),
-                  ),
-                  ...(kind === "skills"
-                    ? {
-                        skillPaths: Object.fromEntries(
-                          eligible.flatMap((candidate) =>
-                            skillPaths([candidate.id]).map((path) => [candidate.id, path]),
-                          ),
-                        ),
-                      }
-                    : {}),
                 },
               ];
             }),

@@ -48,7 +48,10 @@ test(
     await mkdir(project);
     await put(
       globalPath,
-      JSON.stringify({ packages: [pack], subagents: { skills: ["direct-native"] } }),
+      JSON.stringify({
+        packages: [pack],
+        subagents: { skills: { "direct-native": true, "pack-public": false } },
+      }),
     );
     await put(
       join(agentDir, "skills/direct-native/SKILL.md"),
@@ -133,7 +136,7 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
     const saved = { ...process.env };
     Object.assign(process.env, {
       PI_CODING_AGENT_DIR: agentDir,
-      PI_SUBAGENT_FIXTURE_EXTENSION: provider,
+      PI_SUBAGENT_PROVIDER_EXTENSION: provider,
     });
     delete process.env.PI_SECURITY_TRANSPORT;
     delete process.env.PI_SUBAGENT;
@@ -306,14 +309,11 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
       };
       const first = await open(true);
       const choices = configuredSkillChoices(
-        first.settings,
         project,
         agentDir,
         first.loader
           .getSkills()
           .skills.map((skill) => ({ name: skill.name, path: skill.filePath })),
-        false,
-        first.nativePaths,
         (await discoverResourcePackages(first.settings, project, agentDir)).packs,
       );
       const choice = choices.find((skill) => skill.name === "pack-public")!;
@@ -339,8 +339,11 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
       await close();
 
       const selected = JSON.stringify({
-        subagents: { agents: ["pack-worker"], skills: ["pack-public"] },
-        localContext: { instructions: [instructionId] },
+        subagents: {
+          agents: { "pack-worker": true },
+          skills: { "pack-public": true, "direct-native": false },
+        },
+        localContext: { instructions: { [instructionId]: true } },
       });
       await put(projectPath, selected);
       mode = "untrusted";
@@ -407,7 +410,10 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
       );
       assert.equal(
         await readFile(globalPath, "utf8"),
-        JSON.stringify({ packages: [pack], subagents: { skills: ["direct-native"] } }),
+        JSON.stringify({
+          packages: [pack],
+          subagents: { skills: { "direct-native": true, "pack-public": false } },
+        }),
         "Resource discovery must not rewrite global settings",
       );
     } finally {

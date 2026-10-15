@@ -13,7 +13,7 @@ Packages declare instruction directories in `pi.instructions`. `localContext.ins
 sets personal defaults. Saved choices use ID-to-boolean maps: a missing project ID inherits
 the personal choice, and a missing personal ID uses the local/native default. Legacy exact lists
 remain readable. Unavailable IDs in saved maps stay dormant and do not load instruction bodies.
-Standalone `resources.instructionCatalogues` paths are also supported. A leading YAML header
+Global instruction libraries are native packages, not a separate directory catalogue. A leading YAML header
 with a closing delimiter is removed before selected text enters the prompt.
 
 - [Load local context](../../docs/guides/context.md): overlay order, disabling, and optional personal Git excludes.

@@ -40,7 +40,10 @@ test(
       await writeFile(file, value);
     };
     await mkdir(project);
-    const global = JSON.stringify({ packages: [pack], subagents: { skills: ["native"] } }),
+    const global = JSON.stringify({
+        packages: [pack],
+        subagents: { skills: { native: true, "pack-public": false } },
+      }),
       local = JSON.stringify({ keep: "native" });
     await put(globalPath, global);
     await put(projectPath, local);
@@ -101,7 +104,7 @@ test(
     const saved = { ...process.env };
     Object.assign(process.env, {
       PI_CODING_AGENT_DIR: agentDir,
-      PI_SUBAGENT_FIXTURE_EXTENSION: provider,
+      PI_SUBAGENT_PROVIDER_EXTENSION: provider,
     });
     delete process.env.PI_SECURITY_TRANSPORT;
     delete process.env.PI_SUBAGENT;

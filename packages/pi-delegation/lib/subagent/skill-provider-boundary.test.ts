@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { SECURITY_SERVICE, SESSION_SETUP_STATE } from "pi-contracts";
+import { SESSION_SETUP_STATE } from "pi-contracts";
 import resources from "../../../pi-resources/extensions/resources.ts";
 import delegation from "../../extensions/subagent.ts";
 
@@ -32,9 +32,7 @@ for (const scenario of [
     const agentDir = join(root, "agent"),
       cwd = join(root, "project");
     const previous = process.env.PI_CODING_AGENT_DIR;
-    const transport = process.env.PI_SECURITY_TRANSPORT;
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    process.env.PI_SECURITY_TRANSPORT = "extensions";
     mkdirSync(join(agentDir, "agents"), { recursive: true });
     mkdirSync(join(agentDir, "skills", "check"), { recursive: true });
     mkdirSync(cwd);
@@ -46,8 +44,43 @@ for (const scenario of [
     );
     const hooks = new Map<string, Function[]>(),
       events = new Map<string, Function[]>();
-    const tools = new Map<string, any>(),
-      described: any[] = [];
+    const tools = new Map<string, any>();
+    let launched: any,
+      finish: Function = () => {};
+    const nativeTransport = {
+      launch(spec: any) {
+        launched = spec;
+        return {
+          id: "worker",
+          done: new Promise((resolve) => {
+            finish = resolve;
+          }),
+        };
+      },
+      async write(_id: string, bytes: Buffer) {
+        const value = JSON.parse(bytes.toString());
+        launched.onData(
+          "stdout",
+          Buffer.from(
+            JSON.stringify({
+              type: "response",
+              id: value.id,
+              success: true,
+              data: { disposition: "queued" },
+            }) + "\n",
+          ),
+        );
+      },
+      cancel() {
+        finish({ id: "worker", status: "cancelled", exitCode: 0 });
+      },
+      status() {
+        return { id: "worker", status: "running" };
+      },
+      read() {
+        return { chunks: [], nextCursor: 0, retainedFrom: 0, gap: false };
+      },
+    };
     const entries: any[] = [
       {
         type: "custom",
@@ -94,20 +127,7 @@ for (const scenario of [
         },
         emit: (name: string, value: any) => {
           for (const handler of events.get(name) ?? []) handler(value);
-          if (name === SECURITY_SERVICE)
-            value.respond({
-              version: 1,
-              prepareShell() {},
-              prepareChildLaunch() {},
-              async describeChild(spec: any) {
-                described.push(spec);
-                return {
-                  tools: ["read"],
-                  skills: spec.skills,
-                  scope: { mode: "auto", read: "fixture", write: "fixture", network: [] },
-                };
-              },
-            });
+          if (name === "background:service") value.respond(nativeTransport);
         },
       },
     };
@@ -124,8 +144,21 @@ for (const scenario of [
       },
       model: { provider: "fixture", id: "fixture" },
       modelRegistry: {
-        getAvailable: () => [],
-        getAvailableOfType: async () => [{ provider: "fixture", id: "fixture" }],
+        find: () => ({
+          provider: "fixture",
+          id: "fixture",
+          api: "openai-responses",
+          reasoning: false,
+          input: ["text"],
+          contextWindow: 8192,
+          maxTokens: 256,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        }),
+        getAvailableOfType: async () => [
+          { provider: "fixture", id: "fixture", api: "openai-responses", reasoning: false },
+        ],
+        getRegisteredNativeProvider: () => undefined,
+        getRegisteredProviderConfig: () => ({ api: "openai-responses", apiKey: "fixture" }),
       },
     };
     const emit = async (name: string, input: unknown) => {
@@ -137,14 +170,18 @@ for (const scenario of [
       await emit("session_start", {});
       await emit("resources_discover", {});
       await emit("before_agent_start", {
-        systemPromptOptions: { sections: {}, skills: [{ name: "check" }] },
+        systemPromptOptions: { cwd, sections: {}, skills: [{ name: "check" }] },
       });
-      assert.equal(
-        described.length,
-        1,
-        "the real delegation hook validates the effective child preview",
+      await tools
+        .get("subagent")
+        .execute("launch", { agent: "worker", task: "Check evidence" }, undefined, undefined, ctx);
+      const childSkills = launched.args.flatMap((value: string, index: number) =>
+        value === "--skill" ? [launched.args[index + 1]] : [],
       );
-      assert.deepEqual(described[0].skills, scenario.expected);
+      assert.deepEqual(
+        childSkills.map((file: string) => /^name: (.+)$/m.exec(readFileSync(file, "utf8"))?.[1]),
+        scenario.expected,
+      );
       assert.equal(tools.has("subagent"), true);
       assert.deepEqual(
         entries[0].data.overrides.skills,
@@ -155,8 +192,6 @@ for (const scenario of [
       await emit("session_shutdown", {});
       if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
       else process.env.PI_CODING_AGENT_DIR = previous;
-      if (transport === undefined) delete process.env.PI_SECURITY_TRANSPORT;
-      else process.env.PI_SECURITY_TRANSPORT = transport;
       rmSync(root, { recursive: true, force: true });
     }
   });

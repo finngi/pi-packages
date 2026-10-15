@@ -1,13 +1,8 @@
 # Run shell jobs
 
-Load `pi-background` to manage session-owned processes. With `pi-security` off, `pi-background` supplies ordinary
-host Bash through Pi's `bash` tool schema and manages its process lifetime; it does not authorize
-or constrain commands. With security enabled, `pi-security` owns the `bash` tool and command
-authorization. Its default `internal` transport manages secured processes itself. Set
-`PI_SECURITY_TRANSPORT=extensions` only when choosing the extension transport: security then sends
-each secured command through `pi-background` with a prepared one-use capability, which stays active for the
-process lifetime. The [security guide](security.md#launch-from-the-checkout) shows how to select
-that transport.
+Load `pi-background` for managed Bash, bounded output and cancellation. Commands run with normal
+host permissions. Add the separate permission gate if call review is desired. Delegation can share
+the process service but does not require this extension.
 
 ## Keep a command in the foreground
 

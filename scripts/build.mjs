@@ -9,7 +9,6 @@ const packages = [
   "pi-resource-browser",
   "pi-runtime",
   "pi-background",
-  "pi-security",
   "pi-permissions",
   "pi-delegation",
   "pi-resources",
@@ -41,7 +40,7 @@ for (const name of selected ? [selected] : packages) {
   );
   if (result.status !== 0) process.exit(result.status ?? 1);
   const entries = await readdir(directory);
-  for (const subdir of library ? [] : name === "pi-security" ? ["src"] : ["extensions", "lib"])
+  for (const subdir of library ? [] : ["extensions", "lib"])
     if (entries.includes(subdir))
       await assets(join(directory, subdir), join(directory, "dist", subdir));
 }

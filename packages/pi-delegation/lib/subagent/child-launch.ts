@@ -10,23 +10,15 @@ export function restrictionSpec(
   agent: AgentDef,
   task: string,
   settings?: ReturnType<typeof import("./settings.ts").resolveSettings>,
-  secured = true,
   staticContext?: {
     originalCwd: string;
     files: Array<{ path: string; content: string }>;
     instructions?: string;
   },
 ): Record<string, unknown> {
-  if (secured && agent.permissions && !["auto", "manual"].includes(agent.permissions))
-    throw Error(`unsupported child permissionMode "${agent.permissions}"`);
   return {
     task,
     instructions: agent.body,
-    ...(secured
-      ? agent.permissions
-        ? { permissionMode: agent.permissions }
-        : {}
-      : { permissionMode: "full-access" }),
     ...(agent.tools === undefined ? {} : { tools: agent.tools }),
     ...(settings?.skills === undefined
       ? agent.skills === undefined
@@ -54,6 +46,7 @@ export async function launchChild({
   onReply,
   onFailure,
   onMessage,
+  onSelect,
   onUsage,
   artifactDirectory,
 }: {
@@ -68,6 +61,11 @@ export async function launchChild({
     sourceRequestIds: string[],
   ) => Promise<Record<string, unknown>>;
   onUsage?: (record: UsageRecord) => void;
+  onSelect?: (request: {
+    title: string;
+    options: string[];
+    signal: AbortSignal;
+  }) => Promise<string | undefined>;
   artifactDirectory?: string;
 }) {
   if (!isCurrent()) throw Error("child session expired");
@@ -76,11 +74,13 @@ export async function launchChild({
     buffer = "",
     decoder = new StringDecoder("utf8");
   const pending: { stream: "stdout" | "stderr"; bytes: Buffer }[] = [];
+  const uiRequests = new AbortController();
   let id = "",
     transportSettled = false;
   // Background process records are bounded and may be evicted after completion. This ID is
   // transport-private; a missing record here means the process already exited and was reaped.
   const cancelTransport = (reason?: string) => {
+    uiRequests.abort();
     if (transportSettled) return;
     try {
       transport.cancel(id, reason);
@@ -155,13 +155,20 @@ export async function launchChild({
                                 error: "Agent messaging is unavailable",
                               }),
                             })
-                          : launcher.handleChildAsk
-                            ? await launcher.handleChildAsk(prepared.id, value)
-                            : (() => {
-                                throw Error(
-                                  "Security approval is unavailable when security is off",
-                                );
-                              })();
+                          : {
+                              type: "extension_ui_response",
+                              id: value.id,
+                              value:
+                                typeof value.title === "string" &&
+                                Array.isArray(value.options) &&
+                                value.options.every((option) => typeof option === "string")
+                                  ? await onSelect?.({
+                                      title: value.title,
+                                      options: value.options as string[],
+                                      signal: uiRequests.signal,
+                                    })
+                                  : undefined,
+                            };
                     if (!isCurrent()) throw Error("child session expired");
                     await transport.write(id, Buffer.from(JSON.stringify(response) + "\n"));
                   })
@@ -178,6 +185,7 @@ export async function launchChild({
       { notify: false },
     );
     void run.done.then(() => {
+      uiRequests.abort();
       transportSettled = true;
     });
     id = run.id;

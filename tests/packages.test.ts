@@ -45,7 +45,6 @@ test(
         "pi-contracts",
         "pi-runtime",
         "pi-resource-browser",
-        "pi-security",
         "pi-permissions",
         "pi-background",
         "pi-delegation",
@@ -183,14 +182,6 @@ test(
         "utf8",
       );
       assert.match(skill, /name: pi-help/);
-      const helper = join(directory, "node_modules/pi-security/dist/src/file-helper.js");
-      const run = spawnSync(process.execPath, [helper, "rg", "fd"], {
-        cwd: directory,
-        input: "",
-        encoding: "utf8",
-      });
-      assert.equal(run.status, 0, run.stderr);
-      assert.match(run.stdout, /"ready"/);
       const subprocessEnv = { ...process.env };
       delete subprocessEnv.NODE_TEST_CONTEXT;
       const childTools = spawnSync(
@@ -198,6 +189,7 @@ test(
         [
           "--test",
           join(root, "packages/pi-delegation/lib/subagent/native-package-tools-stock.test.ts"),
+          join(root, "packages/pi-delegation/lib/subagent/native-permissions-stock.test.ts"),
         ],
         {
           cwd: directory,
@@ -207,52 +199,7 @@ test(
         },
       );
       assert.equal(childTools.status, 0, childTools.stdout + childTools.stderr);
-      assert.match(childTools.stdout, /pass 3/);
-      const codemode = spawnSync(
-        process.execPath,
-        ["--test", join(root, "packages/pi-security/test/mcp/codemode-stock.test.mjs")],
-        {
-          cwd: directory,
-          encoding: "utf8",
-          env: {
-            ...subprocessEnv,
-            PI_SECURITY_CODEMODE_EXTENSION: join(
-              directory,
-              "node_modules/pi-security/dist/src/extension.js",
-            ),
-            PI_SECURITY_CODEMODE_CLI: join(
-              directory,
-              "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-            ),
-          },
-        },
-      );
-      assert.equal(codemode.status, 0, codemode.stdout + codemode.stderr);
-      assert.match(codemode.stdout, /pass [1-9][0-9]*/);
-
-      // Writable kernel integration is supported by the macOS backend only.
-      if (process.platform === "darwin") {
-        const packedE2e = spawnSync(
-          process.execPath,
-          [join(root, "packages/pi-security/test/extensions-e2e.mjs")],
-          {
-            cwd: directory,
-            encoding: "utf8",
-            timeout: 90_000,
-            env: { ...process.env, PI_PACKAGED_ROOT: join(directory, "node_modules") },
-          },
-        );
-        assert.equal(packedE2e.status, 0, packedE2e.stdout + packedE2e.stderr);
-        assert.match(packedE2e.stdout, /"background":\{"insideWrite":true/);
-        assert.match(
-          packedE2e.stdout,
-          /"packagedEntrypoints":\{"security":"[^"\n]+node_modules\/pi-security\/dist\/src\/extension\.js","background":"[^"\n]+node_modules\/pi-background\/dist\/extensions\/background-process\.js"\}/,
-        );
-        assert.match(
-          packedE2e.stdout,
-          /"packagedHostEntrypoints":\{"codingAgent":"[^"\n]+node_modules\/@earendil-works\/pi-coding-agent\/dist\/index\.js","aiCompat":"[^"\n]+node_modules\/@earendil-works\/pi-ai\/dist\/compat\.js"\}/,
-        );
-      }
+      assert.match(childTools.stdout, /pass 4/);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -1,5 +1,5 @@
-import { outputPreview } from "./output-buffer.ts";
-import type { ReadResult, Snapshot } from "./types.ts";
+import type { ReadResult, Snapshot } from "pi-runtime/processes";
+import { outputPreview } from "pi-runtime/processes";
 
 const ANSWER_PREVIEW_CHARACTERS = 8000;
 

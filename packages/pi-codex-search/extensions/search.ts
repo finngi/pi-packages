@@ -9,7 +9,6 @@ import type {
   ExtensionAPI,
   ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
-import { SECURITY_PRESENCE } from "pi-contracts";
 import {
   MAX_CONCURRENCY,
   MAX_QUERIES,
@@ -28,7 +27,6 @@ import {
 } from "../lib/search.ts";
 
 const PROVIDER = "openai-codex";
-const SECURITY_EVENT = "pi-security:service:v1";
 const BACKEND_ORIGIN = "https://chatgpt.com";
 
 const citationSchema = Type.Object({
@@ -98,29 +96,6 @@ const outputSchema = Type.Object({
 
 export interface SearchExtensionDependencies {
   fetchImpl?: typeof fetch;
-  security?: "required" | "off";
-}
-
-/** Per-call capability issued by the active pi-security service after exact tool admission. */
-export interface SearchCapability {
-  readonly origin: string;
-  readonly signal: AbortSignal;
-  assertCurrent(input: unknown): void;
-  dispatch<T>(
-    input: unknown,
-    url: string,
-    operation: (signal: AbortSignal) => Promise<T>,
-  ): Promise<T>;
-  release(): void;
-}
-
-interface SearchSecurityService {
-  version: 1;
-  prepareSearch(spec: {
-    toolCallId: string;
-    input: unknown;
-    signal?: AbortSignal;
-  }): SearchCapability;
 }
 
 function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
@@ -291,24 +266,22 @@ function createTool(deps: SearchExtensionDependencies = {}) {
       signal: AbortSignal | undefined,
       onUpdate: AgentToolUpdateCallback<unknown> | undefined,
       ctx: ExtensionToolContext,
-      grant?: SearchCapability,
     ) {
-      if (!grant || grant.origin !== BACKEND_ORIGIN)
-        throw new Error("Codex search requires an active pi-security search capability.");
       const queries = params.queries.map((query) => query.trim());
       if (queries.some((query) => query.length === 0))
         throw new SearchError("schema", "Search queries must not be empty.");
-      const toolSignal = combineSignals(signal, ctx.signal, grant?.signal);
-      const assertCurrent = () => grant.assertCurrent(params);
+      const toolSignal = combineSignals(signal, ctx.signal);
+      const assertCurrent = () => toolSignal?.throwIfAborted();
       const guardedFetch: typeof fetch = async (input, init) => {
         assertCurrent();
         const url = input instanceof Request ? input.url : String(input);
-        return await grant.dispatch(params, url, (capabilitySignal) =>
-          (deps.fetchImpl ?? fetch)(input, {
-            ...init,
-            signal: combineSignals(init?.signal ?? undefined, capabilitySignal),
-          }),
-        );
+        if (new URL(url).origin !== BACKEND_ORIGIN) throw Error("Unexpected Codex backend origin");
+        const response = await (deps.fetchImpl ?? fetch)(input, {
+          ...init,
+          signal: combineSignals(init?.signal ?? undefined, toolSignal),
+        });
+        assertCurrent();
+        return response;
       };
       toolSignal?.throwIfAborted();
       assertCurrent();
@@ -504,73 +477,7 @@ export function registerCodexSearch(
   pi: ExtensionAPI,
   deps: SearchExtensionDependencies = {},
 ): void {
-  const tool = createTool(deps);
-  const unwrappedExecute = tool.execute;
-  tool.execute = async (...args: Parameters<typeof unwrappedExecute>) => {
-    const services: unknown[] = [];
-    pi.events.emit(SECURITY_EVENT, {
-      version: 1,
-      respond: (service: unknown) => services.push(service),
-    });
-    const service = services[0] as Partial<SearchSecurityService> | undefined;
-    let selected = process.env.PI_SECURITY_TRANSPORT === "extensions";
-    pi.events.emit(SECURITY_PRESENCE, {
-      respond: (active: boolean) => {
-        selected ||= active;
-      },
-    });
-    if (deps.security === "off" && (selected || services.length))
-      throw Error("Disable pi-security before selecting unrestricted search");
-    if (!selected && services.length === 0 && deps.security !== "required") {
-      const signal = combineSignals(args[2], args[4].signal) ?? new AbortController().signal;
-      const unrestricted: SearchCapability = {
-        origin: BACKEND_ORIGIN,
-        signal,
-        assertCurrent() {
-          signal.throwIfAborted();
-        },
-        async dispatch(_input, url, operation) {
-          signal.throwIfAborted();
-          if (new URL(url).origin !== BACKEND_ORIGIN)
-            throw Error("Unexpected Codex backend origin");
-          const result = await operation(signal);
-          signal.throwIfAborted();
-          return result;
-        },
-        release() {},
-      };
-      return unwrappedExecute(args[0], args[1], args[2], args[3], args[4], unrestricted);
-    }
-    if (
-      services.length !== 1 ||
-      service?.version !== 1 ||
-      typeof service.prepareSearch !== "function"
-    ) {
-      throw new Error(
-        "Codex search requires exactly one active pi-security service; search is refused.",
-      );
-    }
-    const capability = service.prepareSearch({
-      toolCallId: args[0],
-      input: args[1],
-      signal: combineSignals(args[2], args[4].signal),
-    });
-    try {
-      if (
-        !capability ||
-        capability.origin !== BACKEND_ORIGIN ||
-        !(capability.signal instanceof AbortSignal) ||
-        typeof capability.assertCurrent !== "function" ||
-        typeof capability.dispatch !== "function" ||
-        typeof capability.release !== "function"
-      )
-        throw new Error("Invalid pi-security search capability; search is refused.");
-      return await unwrappedExecute(args[0], args[1], args[2], args[3], args[4], capability);
-    } finally {
-      capability?.release?.();
-    }
-  };
-  pi.registerTool(tool);
+  pi.registerTool(createTool(deps));
 }
 
 export function createCodexSearchExtension(deps: SearchExtensionDependencies = {}) {

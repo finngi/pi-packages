@@ -46,10 +46,8 @@ export default function (pi: ExtensionAPI) {
     packs: [],
     problems: [],
   };
-  let nativeSkillDefaults: Set<string> | undefined;
   let nativePersonalSkillPaths = new Set<string>();
-  let skillChoicesSnapshot: SkillChoice[] = [],
-    metadataRegistered = false;
+  let skillChoicesSnapshot: SkillChoice[] = [];
   let skillIdentities = new Map<string, { dev: number; ino: number }>();
   let skillDefaultsSnapshot: GlobalSelectionSnapshot = { present: false };
   const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -69,7 +67,6 @@ export default function (pi: ExtensionAPI) {
     // package excludes it. Only the resolver's enabled personal members are defaultable.
     if (pack)
       return pack.globalDefaultable !== false && !!pack.personalSkills?.includes(skill.path);
-    // Pi re-labels resources_discover paths as temporary; preserve standalone native scope.
     return !skill.defaultSelected || nativePersonalSkillPaths.has(skill.path);
   };
   const settingsManager = (ctx: ExtensionContext) =>
@@ -79,7 +76,7 @@ export default function (pi: ExtensionAPI) {
     const raw = readResourceSelection(manager, "global", "skills");
     skillDefaultsSnapshot = {
       present: raw !== undefined,
-      ...(Array.isArray(raw) ? { names: raw } : raw ? { values: raw } : {}),
+      ...(raw ? { values: raw } : {}),
     };
   };
   const selectedPublicSkills = (ctx: ExtensionContext) => {
@@ -101,7 +98,6 @@ export default function (pi: ExtensionAPI) {
     return skillChoicesSnapshot.filter((choice) => {
       try {
         if (
-          metadataRegistered &&
           !registered.some(
             (skill) =>
               skill.name === choice.name &&
@@ -132,21 +128,16 @@ export default function (pi: ExtensionAPI) {
       getAgentDir(),
       skills().map((skill) => skill.source),
     );
-    // Native resources are loaded before resources_discover; catalogue registration must not widen defaults.
-    nativeSkillDefaults = new Set(skills().map((skill) => resolve(ctx.cwd, skill.path)));
+    // Only resources already loaded by native Pi can enter this session selection.
     nativePersonalSkillPaths = new Set(
       skills()
         .filter((skill) => skill.source.scope === "user")
         .map((skill) => skill.path),
     );
-    metadataRegistered = false;
     skillChoicesSnapshot = configuredSkillChoices(
-      settingsManager(ctx),
       ctx.cwd,
       getAgentDir(),
       skills().map((skill) => ({ name: skill.name, path: skill.path })),
-      false,
-      nativeSkillDefaults,
       packageResources.packs,
     );
     skillIdentities = new Map(
@@ -156,20 +147,6 @@ export default function (pi: ExtensionAPI) {
       }),
     );
     refreshDefaultSnapshots(ctx);
-  });
-  pi.on("resources_discover", (_input, ctx) => {
-    try {
-      const choices = currentSkillChoices(ctx);
-      metadataRegistered = true;
-      return { skillPaths: choices.map((skill) => skill.path) };
-    } catch (error) {
-      if (ctx.hasUI)
-        ctx.ui.notify(
-          `Could not load selected skills; inspect /skills before continuing. (${errorText(error)})`,
-          "warning",
-        );
-      return { skillPaths: [] };
-    }
   });
   pi.on("input", (event, ctx) => {
     const match = /^\/skill:([^\s]+)(?:\s|$)/.exec(event.text);
@@ -282,21 +259,8 @@ export default function (pi: ExtensionAPI) {
     choices: SkillChoice[] = [],
     entries: ResourceEntry[] = [],
   ) => {
-    const latest = SettingsManager.create(ctx.cwd, getAgentDir(), {
-      projectTrusted: ctx.isProjectTrusted(),
-    });
     if (scope === "project" && !ctx.isProjectTrusted())
       throw Error("Saving skill defaults requires a trusted project");
-    const global = readResourceSelection(latest, "global", "skills");
-    const nativeDefaults = Object.fromEntries(
-      choices.map((choice) => [choice.name, choice.defaultSelected]),
-    );
-    const fallbackValues = Object.fromEntries(
-      choices.map((choice) => [
-        choice.name,
-        resolveResourceSelection(global, undefined, choice.name, choice.defaultSelected).effective,
-      ]),
-    );
     await writeResourceDefault({
       scope,
       kind,
@@ -305,25 +269,13 @@ export default function (pi: ExtensionAPI) {
       knownIds: choices.map((choice) => choice.name),
       cwd: ctx.cwd,
       agentDir: getAgentDir(),
-      nativeDefaults,
-      fallbackValues,
-      skillPaths: Object.fromEntries(choices.map((choice) => [choice.name, choice.path])),
     });
     const updated = SettingsManager.create(ctx.cwd, getAgentDir(), {
       projectTrusted: ctx.isProjectTrusted(),
     });
     refreshSkillEntries(updated, entries, choices);
   };
-  const currentSkillChoicesForPackages = (names: string[]) =>
-    skillChoicesSnapshot
-      .filter((skill) => names.includes(skill.name) && !skill.defaultSelected)
-      .map((skill) => skill.path);
-  registerPackagePicker(
-    pi,
-    setup,
-    () => packageResources.problems,
-    (names) => currentSkillChoicesForPackages(names),
-  );
+  registerPackagePicker(pi, setup, () => packageResources.problems);
   const selectionArgs = (args: string) => {
     const match = /^(enable|disable|none|all|inherit|inspect)(?:\s+(.+))?$/.exec(args.trim());
     return match ? { action: match[1], name: match[2]?.trim() } : undefined;
@@ -339,12 +291,9 @@ export default function (pi: ExtensionAPI) {
       const manager = settingsManager(ctx);
       const loaded = skills().map((skill) => ({ name: skill.name, path: skill.path }));
       const choices = configuredSkillChoices(
-        manager,
         ctx.cwd,
         getAgentDir(),
         loaded,
-        repairingInvalidProjectSelection,
-        nativeSkillDefaults,
         packageResources.packs,
       );
       const selected = selectedSkills(
@@ -356,9 +305,6 @@ export default function (pi: ExtensionAPI) {
       const selectedNames = new Set(
         setup.selection("skills") ?? selected.map((skill) => skill.name),
       );
-      const skillDefaults =
-        (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents?.skills ??
-        [];
       if (action) {
         let next = new Map(
           choices
@@ -439,7 +385,8 @@ export default function (pi: ExtensionAPI) {
           selectionScope: "session",
           defaultsScope: "project",
           defaultsInherited: !Object.hasOwn(
-            (manager.getProjectSettings() as { subagents?: { skills?: string[] } }).subagents ?? {},
+            (manager.getProjectSettings() as { subagents?: { skills?: Record<string, boolean> } })
+              .subagents ?? {},
             "skills",
           ),
           entries,
@@ -470,9 +417,6 @@ export default function (pi: ExtensionAPI) {
                       saved.find((entry) => entry.id === skill.name)!.selected,
                     ]),
                   ),
-                  nativeDefaults: Object.fromEntries(
-                    choices.map((skill) => [skill.name, skill.defaultSelected]),
-                  ),
                 },
               },
             });
@@ -497,21 +441,6 @@ export default function (pi: ExtensionAPI) {
                     eligible.map((skill) => [
                       skill.name,
                       saved.find((entry) => entry.id === skill.name)!.selected,
-                    ]),
-                  ),
-                  skillPaths: Object.fromEntries(choices.map((skill) => [skill.name, skill.path])),
-                  nativeDefaults: Object.fromEntries(
-                    choices.map((skill) => [skill.name, skill.defaultSelected]),
-                  ),
-                  fallbackValues: Object.fromEntries(
-                    choices.map((skill) => [
-                      skill.name,
-                      resolveResourceSelection(
-                        readResourceSelection(settingsManager(ctx), "global", "skills"),
-                        undefined,
-                        skill.name,
-                        skill.defaultSelected,
-                      ).effective,
                     ]),
                   ),
                 },

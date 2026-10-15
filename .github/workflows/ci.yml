@@ -22,23 +22,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - name: Install Linux kernel and file helpers
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap ripgrep fd-find
+      - name: Install Linux file helpers
+        run: sudo apt-get update && sudo apt-get install -y ripgrep fd-find
         if: runner.os == 'Linux'
-      # Ubuntu permits user namespaces per executable through AppArmor.
-      # Keep the host-wide restriction enabled; this exception is for the CI VM's bwrap only.
-      - name: Permit Bubblewrap namespaces on the disposable Ubuntu runner
-        if: runner.os == 'Linux'
-        run: |
-          sudo tee /etc/apparmor.d/pi-ci-bwrap >/dev/null <<'PROFILE'
-          abi <abi/4.0>,
-          include <tunables/global>
-          profile pi-ci-bwrap /usr/bin/bwrap flags=(default_allow) {
-            userns,
-          }
-          PROFILE
-          sudo apparmor_parser -r /etc/apparmor.d/pi-ci-bwrap
-          bwrap --unshare-net --ro-bind / / -- /bin/true
       - name: Install macOS file helpers
         run: brew install ripgrep fd
         if: runner.os == 'macOS'
@@ -48,8 +34,5 @@ jobs:
       - run: npm run check:boundary
       - run: npm run check:docs
       - run: npm test
-      - run: npm run test:linux --workspace=pi-security
-        if: runner.os == 'Linux'
       - run: npm run test:packages
       - run: npm run test:e2e
-        if: runner.os == 'macOS'

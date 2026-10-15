@@ -1,118 +1,56 @@
-# Native packages with independent capabilities
+# One native package path
 
-Status: candidate implementation and isolated stock-Pi checks. Not activated in the installed
-personal runtime. Existing running sessions and their package/cache bindings are unchanged.
+## Decision
 
-## Why this change
+Use stock Pi plus independently loadable packages. Remove the full OS sandbox, secured launcher,
+credential snapshots, parallel skill catalogue loader and old-format settings readers. Retain the
+small optional permission gate without any sandbox dependency.
 
-The useful capabilities are selectable behaviour, delegated agents, background work, goals and
-permission decisions. Requiring all of them to share a security-controlled launcher makes a
-small workflow depend on unrelated infrastructure. We retain working code and remove those
-requirements instead of replacing Pi or rewriting the capability state machines.
+The old design made agent launches, simple Bash and search depend on policy/resource transport
+machinery. The thin package experiment still imported that machinery and duplicated native
+resource/authentication behaviour. Renaming it did not remove those dependencies.
 
-Pi remains responsible for installation, source/version resolution, project trust, sessions,
-model access, native tools and UI. Packages are ordinary directories with a manifest; they can
-be installed from a local path, a Git repository or npm. No particular checkout location such as
-`~/.config/agents` is part of the resource format.
+## Retained code and reason
 
-## Packages and dependencies
+| Code | Why it remains |
+|---|---|
+| `pi.agents` / `pi.instructions` metadata | Pi has no native types for these resources |
+| Child RPC adapter and message broker | Named child workflows and correlated dialogue are additional behaviour |
+| Selected tool/skill/model setup | A child needs an explicit launch configuration, including private skills |
+| Shared process manager | Background output, cancellation and session-owned cleanup |
+| Session selection records | Choices must survive resume without rewriting saved defaults |
+| Goal state machine and evaluator | Objective, budgets, waits and continuation are additional behaviour |
+| Usage receipts | Child/classifier/evaluator calls otherwise disappear from parent totals |
+| Artifact collection | Scratch files must survive child cleanup |
+| Optional gate | Deny/allow and automatic approval are useful without OS confinement |
 
-| Package | Owns | Optional integration |
-| --- | --- | --- |
-| `pi-context` | Selected instructions and local project context | Agent/session setup contributions |
-| `pi-delegation` | Agent definitions, child RPC lifecycle and communication | Jobs transport, selected security service |
-| `pi-background` | Background shell jobs, output and cancellation | Selected security service, goal completion delivery |
-| `pi-goal` | Objective, continuation and evaluation | Child/job waits |
-| `pi-permissions` | Deny/allow rules and unmatched-action approval | Native model classifier or an approval-capable UI/client |
-| `pi-security` | Existing kernel confinement and secured transports | Existing integrations, retained separately |
+Native package resolution governs discovery; excluded skills are never reconstructed by another
+loader. Native authentication governs each process; selected model metadata can cross the RPC
+boundary, executable provider callbacks require a trusted extension source. There is one launcher.
 
-`pi-runtime`, `pi-contracts` and `pi-resource-browser` are library dependencies, not automatically
-activated extensions. The process manager is shared code: child agents can reuse it without
-loading the jobs extension. Granular imports keep plain process, accounting and goal modules
-from eagerly importing resource-picker UI code. The current runtime manifest still installs the
-browser library because other exports use it; this is not a claim of a minimal npm install graph.
+The permission extension contributes its own child initialization through a small trusted launch
+event. This lets a hook-only package accompany delegated work without teaching delegation an OS
+sandbox. Genuine root-user messages remain separate from the worker-authored child task.
 
-`pi-permissions` uses the existing parser/classifier library through `pi-security/permissions`.
-Its library dependency does not activate the sandbox extension. It is an alternative entrypoint,
-not a second gate to load alongside the full sandbox. The repository-root package keeps its
-existing aggregate manifest; the thin capabilities are selected through their individual package
-directories or separately packed artifacts. Nothing here publishes them to npm.
+Personal code lives in ordinary private packages. Core-class UI patches are removed; supported
+native header/footer/tool rendering replaces them. Exact private viewport behaviour is not a
+reason to retain another harness loader.
 
-## Resource location and cross-extension behaviour
+## Alternatives rejected
 
-Native package declarations go in personal `~/.pi/agent/settings.json` or the trusted project's
-`.pi/settings.json`. A local package source resolves relative to that settings file; manifest
-paths resolve relative to the package root. For example:
+- Retaining the old sandbox as a library: imports still carry its dependency graph and policy types.
+- A second package registry: duplicates native installation, filtering and identity.
+- Serialized resolved login credentials: duplicates native refresh/locking and restricts providers.
+- Runtime compatibility readers: keep old semantics alive indefinitely. Convert saved configuration
+  once during local migration, preserve transcripts/artifacts, then use one current representation.
 
-```json
-{
-  "name": "research-resources",
-  "version": "0.1.0",
-  "pi": {
-    "extensions": [],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"],
-    "themes": ["./themes"],
-    "agents": ["./agents"],
-    "instructions": ["./instructions"]
-  }
-}
-```
+## Verification
 
-Only the first four resource types are native Pi types. The agent/instruction extensions read
-the last two fields using Pi's already-resolved package roots. Thus user-level capability
-extensions can discover content supplied by other user-level or trusted project packages.
-Discovery makes content available for selection; it does not select it, register new tools,
-activate executable dependencies or grant permissions. A plain Pi installation without those
-capability extensions ignores the extra metadata.
+Check each package on stock Pi, then pack/install into a fresh consumer. Exercise child tools,
+private skills, model choice, permissions, accounting, goals and session resume. Local activation
+must use the same agent directory and verify that no legacy package or loader remains active.
+No npm publication is part of this migration.
 
-Configured custom-only Git/npm packages are now discoverable through Pi's installed package
-records. Explicit `-e` sources use Pi's argument parser and temporary installed-path lookup,
-including custom-only packages. We do not infer cache paths or add a second resolver.
-
-## Personal packaging
-
-The personal migration is prepared separately from this reusable repository:
-
-- `personal-interactive`: the existing public-API tool renderer and optional native themes.
-- `personal-extensions`: model-facing timestamps, usable in interactive, print and RPC sessions.
-
-These names express intended use; Pi itself has no special interactive-package category.
-Rendering code affects interactive display. Context transformations work in all modes. Neither
-package needs a special launcher or a required home-directory location. Other personal/vendor
-capabilities stay separately packaged.
-
-The current launcher preload patches private Pi UI classes. It is not copied into the thin
-interactive package: pinned viewport layout, custom message clicking and accounting/startup
-patches remain part of the existing installation pending an explicit cutover/API decision.
-This candidate is not presented as full visual parity with that preload.
-
-## Permission boundary
-
-Permission decisions are before-tool hooks, not operating-system confinement. Allowed commands
-run with the Pi process's normal host access. Explicit denies take precedence, explicit allows
-skip model review, and unmatched actions require manual approval or an available classifier.
-Missing policy/model, malformed response, cancellation and ambiguous verdicts block the action.
-The model sees user context, worker reasoning/explanation and the exact action as evidence.
-
-The gate is process-local. Children load selected tool entrypoints; hook-only permission packages
-do not accompany those tools automatically, so a parent gate does not review each child action.
-Reviewing a `subagent` launch grants that launch; it is not evidence of per-child tool review.
-Child tasks are worker-authored, not root-user authorization. Do not claim sandbox confinement
-or automatic descendant enforcement. Existing explicitly selected sandbox service failures still
-refuse execution; they never fall back to ordinary host execution.
-
-## Verification and retained scope
-
-Use the standalone scripts and package tests listed in the component decision notes. Tests use
-stock Pi 1.2, deterministic providers, temporary resources and actual child/job processes. They
-verify module loading, state transitions and effects; they do not prove live classifier judgment
-quality. Packed-consumer checks cover compiled export paths and native package entrypoints.
-
-No new installer, scheduler, daemon, global permission registry, model client or session database
-was added. No settings migration, package publication, runtime activation or restart is part of
-this candidate.
-
-See [resource decisions](thin-slice-resources.md), [job/goal decisions](thin-slice-jobs-goals.md),
-[permissions](../../packages/pi-permissions/README.md), and the pinned upstream
-[package contract](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md).
+See [package design](../package-design.md), [testing](../testing.md),
+[permissions](../../packages/pi-permissions/README.md) and the
+[upstream package contract](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md).

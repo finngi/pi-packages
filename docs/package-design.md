@@ -114,7 +114,7 @@ launched children. Ctrl+Shift+S saves personal defaults for new sessions across 
 | Try another native package for one invocation | `pi -e SOURCE` | New invocation; no saved package declaration |
 | Install/remove a saved native package | `pi install SOURCE` / `pi remove SOURCE`; choose scope with `--local` | Next start or idle `/reload` |
 | Change ordinary extension code | Native idle `/reload`, where cleanup is safe | Replaces the extension runtime |
-| Replace secured runtime code or affect running children | Stage a tested runtime; exit prior processes before activation | Restart/resume |
+| Replace runtime code while children run | Stage a tested runtime; exit prior processes before activation | Restart/resume |
 
 We do not install or unload executable packages inside a model tool call. Native reload shuts down
 extensions and invalidates their contexts, including the tool performing setup. It can also stop
@@ -127,11 +127,6 @@ Security, background processes and delegation remain native extension packages. 
 are ordinary npm dependencies and importing one does not activate a sibling extension. Stock Pi
 libraries remain peer dependencies (`*`); the repository pins the tested development versions.
 Policy, credentials and personal preferences stay outside package manifests.
-
-For the secured launcher, retain a tested immutable dependency set and stage updates together.
-Pi gives packages separate module roots and does not guarantee one shared dependency instance.
-Native packaging therefore does not replace ownership checks, capability bindings or controlled
-runtime activation. Independent user packages and their native filters survive runtime upgrades.
 
 Source of truth: the pinned stock Pi [package guide](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md),
 [extension lifecycle](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md),

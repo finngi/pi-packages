@@ -38,8 +38,8 @@ for (const names of scenarios)
     const settingsFile = join(agentDir, "settings.json");
     const defaults = {
       packages: [pack],
-      subagents: { skills: [], agents: [] },
-      localContext: { instructions: [] },
+      subagents: { skills: { check: false }, agents: { worker: false } },
+      localContext: { instructions: {} },
     };
     try {
       await mkdir(cwd);

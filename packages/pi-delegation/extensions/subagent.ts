@@ -17,7 +17,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ChildLaunchService, Communication } from "pi-contracts";
 import {
-  SECURITY_PRESENCE,
   SESSION_SETUP_CONTRIBUTIONS,
   type SessionSetupContributionRequest,
   USAGE_EVENT,
@@ -34,7 +33,6 @@ import {
 } from "pi-runtime";
 import { Type } from "typebox";
 import { backgroundService } from "../lib/background/service.ts";
-import { securitySelected, securityService } from "../lib/security-service.ts";
 import {
   discover,
   discoverAgents as discoverAgentDirectory,
@@ -80,7 +78,7 @@ import {
   writeResourceDefaults,
 } from "pi-runtime";
 import { resolveSettings } from "../lib/subagent/settings.ts";
-import { createUnrestrictedLauncher } from "../lib/subagent/unrestricted-launcher.ts";
+import { createNativeLauncher } from "../lib/subagent/native-launcher.ts";
 
 export default function (pi: ExtensionAPI) {
   installAccounting(pi);
@@ -94,30 +92,14 @@ export default function (pi: ExtensionAPI) {
       }
       return childProcesses;
     });
-  const secured = () => {
-    let active = securitySelected();
-    pi.events.emit(SECURITY_PRESENCE, {
-      respond: (present: boolean) => {
-        active ||= present;
-      },
-    });
-    return active;
-  };
   if (process.env.PI_SUBAGENT === "1") {
-    const bound =
-      process.env.PI_SUBAGENT_SECURITY === "off"
-        ? (JSON.parse(process.env.PI_SUBAGENT_CONTEXT ?? "null") as
-            | (Communication & { workspace: string })
-            | null)
-        : undefined;
-    if (!secured() && !bound) throw Error("Missing child communication binding");
-    registerChildMessaging(pi, bound ?? undefined);
+    const bound = JSON.parse(process.env.PI_SUBAGENT_CONTEXT ?? "null") as
+      | (Communication & { workspace: string })
+      | null;
+    if (!bound) throw Error("Missing child communication binding");
+    registerChildMessaging(pi, bound);
     return;
   }
-  pi.registerFlag("subagent-security", {
-    description: "required or off; defaults to required when security is selected, otherwise off",
-    type: "string",
-  });
   const setup = installSessionSetup(pi);
   let packageResources: { packs: ResourcePackage[]; problems: string[] } = {
     packs: [],
@@ -295,7 +277,7 @@ export default function (pi: ExtensionAPI) {
         ? {}
         : { instructions: parentPromptOptions.sections.instructions }),
     };
-  const unrestricted = createUnrestrictedLauncher(
+  const nativeLauncher = createNativeLauncher(
     pi,
     () => {
       if (!parentContext) throw Error("Parent context unavailable");
@@ -303,15 +285,7 @@ export default function (pi: ExtensionAPI) {
     },
     fileURLToPath(import.meta.url),
   );
-  const launcher = (): ChildLaunchService => {
-    const selection = pi.getFlag("subagent-security") ?? (secured() ? "required" : "off");
-    if (!["required", "off"].includes(String(selection)))
-      throw Error("subagent-security must be required or off");
-    if (selection === "required") return securityService(pi.events);
-    if (secured())
-      throw Error("Disable pi-security for this session before selecting unrestricted subagents");
-    return unrestricted;
-  };
+  const launcher = (): ChildLaunchService => nativeLauncher;
   const event = (type: string, fields: Record<string, unknown> = {}) =>
     pi.appendEntry("pi-subagents.event.v1", { version: 1, type, ...fields });
   const identify = (ctx: ExtensionContext) => {
@@ -479,7 +453,7 @@ export default function (pi: ExtensionAPI) {
     const raw = readResourceSelection(manager, "global", "agents");
     agentDefaultsSnapshot = {
       present: raw !== undefined,
-      ...(Array.isArray(raw) ? { names: raw } : raw ? { values: raw } : {}),
+      ...(raw ? { values: raw } : {}),
     };
     defaultsSnapshotCaptured = true;
   };
@@ -576,7 +550,6 @@ export default function (pi: ExtensionAPI) {
           skills: parentSkills,
           privateSkills: agent.privateSkills?.map((s) => s.name) ?? [],
         },
-        secured(),
         model,
       );
       return resolved;
@@ -594,7 +567,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const resolved = await settings(agent, ctx);
         const spec = {
-          ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
+          ...restrictionSpec(agent, "Preview capabilities", resolved),
           communication: {
             id: "pending-agent-workspace",
             name: agent.name,
@@ -794,10 +767,6 @@ export default function (pi: ExtensionAPI) {
   ) => {
     if (scope === "project" && !ctx.isProjectTrusted())
       throw Error("Saving agent defaults requires a trusted project");
-    const latest = settingsManager(ctx);
-    const nativeDefaults = Object.fromEntries(
-      agents.map((agent) => [agent.name, !agent.catalogueOnly]),
-    );
     await writeResourceDefault({
       scope,
       kind,
@@ -806,18 +775,6 @@ export default function (pi: ExtensionAPI) {
       knownIds: agents.map((agent) => agent.name),
       cwd: ctx.cwd,
       agentDir: getAgentDir(),
-      nativeDefaults,
-      fallbackValues: Object.fromEntries(
-        agents.map((agent) => [
-          agent.name,
-          resolveResourceSelection(
-            readResourceSelection(latest, "global", "agents"),
-            undefined,
-            agent.name,
-            !agent.catalogueOnly,
-          ).effective,
-        ]),
-      ),
     });
     refreshAgentEntries(settingsManager(ctx), entries, agents);
   };
@@ -901,7 +858,7 @@ export default function (pi: ExtensionAPI) {
       const rows = await Promise.all(
         full.agents.map(async (agent) => {
           try {
-            return `${agent.name} — ${agent.description}\n${agent.filePath} (${agent.source})\nValidated request (unset resources inherit): ${JSON.stringify({ ...(await settings(agent, ctx)), tools: agent.tools ?? "inherit", skills: agent.skills ?? "inherit", permissionMode: agent.permissions ?? "inherit", conversation: agent.context ?? "none" })}`;
+            return `${agent.name} — ${agent.description}\n${agent.filePath} (${agent.source})\nValidated request (unset resources inherit): ${JSON.stringify({ ...(await settings(agent, ctx)), tools: agent.tools ?? "inherit", skills: agent.skills ?? "inherit", conversation: agent.context ?? "none" })}`;
           } catch (e) {
             return `${agent.name}: ${e instanceof Error ? e.message : String(e)}\n${agent.filePath}`;
           }
@@ -959,7 +916,7 @@ export default function (pi: ExtensionAPI) {
                 try {
                   const resolved = await settings(agent, ctx);
                   const spec = {
-                    ...restrictionSpec(agent, "Preview capabilities", resolved, secured()),
+                    ...restrictionSpec(agent, "Preview capabilities", resolved),
                     communication: {
                       id: "pending-agent-workspace",
                       name: agent.name,
@@ -977,23 +934,14 @@ export default function (pi: ExtensionAPI) {
                     { label: "Tools", value: capabilities.tools.join(", ") || "none" },
                     { label: "Child skills", value: resolved.skills.join(", ") || "none" },
                     { label: "History", value: String(agent.context ?? "none") },
-                    ...Object.entries(scope)
-                      .filter(
-                        ([key, value]) =>
-                          scope.security !== "off" ||
-                          (!["mode", "security"].includes(key) &&
-                            !(["read", "write"].includes(key) && value === "host permissions")),
-                      )
-                      .map(([key, value]) => ({
-                        label:
-                          key === "workspaceModes"
-                            ? "Workspaces"
-                            : key[0].toUpperCase() + key.slice(1),
-                        value: Array.isArray(value) ? value.join(", ") : String(value),
-                      })),
+                    ...Object.entries(scope).map(([key, value]) => ({
+                      label:
+                        key === "workspaceModes"
+                          ? "Workspaces"
+                          : key[0].toUpperCase() + key.slice(1),
+                      value: Array.isArray(value) ? value.join(", ") : String(value),
+                    })),
                   ];
-                  if (scope.security === "off")
-                    fields.push({ label: "Execution", value: "Host permissions" });
                 } catch (error) {
                   fields = [
                     { label: "Capabilities unavailable", value: errorText(error) },
@@ -1032,9 +980,6 @@ export default function (pi: ExtensionAPI) {
                   snapshot: true,
                   knownIds: full.agents.map((agent) => agent.name),
                   values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
-                  nativeDefaults: Object.fromEntries(
-                    full.agents.map((agent) => [agent.name, !agent.catalogueOnly]),
-                  ),
                 },
               },
             });
@@ -1053,9 +998,6 @@ export default function (pi: ExtensionAPI) {
                   snapshot: true,
                   knownIds: full.agents.map((agent) => agent.name),
                   values: Object.fromEntries(saved.map((entry) => [entry.id, entry.selected])),
-                  nativeDefaults: Object.fromEntries(
-                    full.agents.map((agent) => [agent.name, !agent.catalogueOnly]),
-                  ),
                 },
               },
             });
@@ -1098,8 +1040,7 @@ export default function (pi: ExtensionAPI) {
       conversation: Type.Optional(Type.String()),
       workspace: Type.Optional(
         Type.Union([Type.Literal("scratch"), Type.Literal("project")], {
-          description:
-            "Defaults to scratch. Project uses the parent directory directly and requires security off.",
+          description: "Defaults to scratch. Project uses the parent directory directly.",
         }),
       ),
     }),
@@ -1113,10 +1054,6 @@ export default function (pi: ExtensionAPI) {
           `Agent "${params.agent}" unavailable. Available named agents: ${agentCatalogue(found.agents)}. Run /agents to inspect discovery and trust diagnostics.`,
         );
       identify(ctx);
-      if (params.workspace === "project" && secured())
-        throw Error(
-          "Project workspace requires security off; secured children currently use scratch workspaces",
-        );
       const advertised = previews.get(agent.name);
       const communication = { id: newAgentId(), name: agent.name, parentId, parentName: "main" };
       let effective: Awaited<ReturnType<typeof settings>>;
@@ -1124,13 +1061,7 @@ export default function (pi: ExtensionAPI) {
       try {
         effective = await settings(agent, ctx, params.model);
         spec = {
-          ...restrictionSpec(
-            agent,
-            "Preview capabilities",
-            effective,
-            secured(),
-            parentStaticContext(),
-          ),
+          ...restrictionSpec(agent, "Preview capabilities", effective, parentStaticContext()),
           communication,
         };
       } catch (error) {
@@ -1164,10 +1095,27 @@ export default function (pi: ExtensionAPI) {
         worker = await launchChild({
           launcher: launcher(),
           transport: childTransport(),
+          onSelect: async ({ title, options, signal: childSignal }) => {
+            if (!ctx.hasUI || closed || generation !== token) return undefined;
+            const signal = ctx.signal ? AbortSignal.any([childSignal, ctx.signal]) : childSignal;
+            signal.throwIfAborted();
+            const answer = await ctx.ui.select(
+              `${agent.name} (${communication.id}): ${title}`,
+              options,
+              { signal },
+            );
+            signal.throwIfAborted();
+            return !closed &&
+              generation === token &&
+              answer !== undefined &&
+              options.includes(answer)
+              ? answer
+              : undefined;
+          },
           spec: {
-            ...restrictionSpec(agent, task, effective, secured(), parentStaticContext()),
+            ...restrictionSpec(agent, task, effective, parentStaticContext()),
             communication,
-            ...(!secured() ? { workspace: params.workspace ?? "scratch" } : {}),
+            workspace: params.workspace ?? "scratch",
           },
           artifactDirectory: join(
             process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
@@ -1304,7 +1252,6 @@ export default function (pi: ExtensionAPI) {
               tools: worker.prepared.effectiveResources?.tools ?? effective.tools ?? preview.tools,
               model: effective.model,
               thinking: effective.thinking,
-              permissionMode: effective.permissionMode,
               conversation,
             },
             goalWait: waitId
@@ -1373,64 +1320,6 @@ export default function (pi: ExtensionAPI) {
       identify(ctx);
       const value = await route(parentId, "main", params);
       return { content: [{ type: "text", text: JSON.stringify(value) }], details: value };
-    },
-  });
-  pi.registerTool({
-    name: "subagent_message",
-    defaultActive: false,
-    label: "Message subagent",
-    description:
-      "Steer a busy child or queue a follow-up; idle child starts a new turn. Returns a correlated request and optional goal wait ID.",
-    parameters: Type.Object({
-      id: Type.String(),
-      message: Type.String(),
-      mode: Type.Optional(Type.Union([Type.Literal("steer"), Type.Literal("followUp")])),
-    }),
-    async execute(_id, params, signal, _update, ctx) {
-      const worker = lookup(params.id),
-        token = generation;
-      if (!worker || !current(worker, token)) throw Error("Unknown or revoked agent");
-      signal?.throwIfAborted();
-      let offer: ReturnType<ResponseOffers["offer"]> | undefined;
-      const abort = () => offer?.release();
-      signal?.addEventListener("abort", abort, { once: true });
-      try {
-        const ack = await worker.dialogue.message(
-          agentEnvelope("message", parentId, params.message),
-          params.mode ?? "followUp",
-          (requestId) => {
-            offer = offers.offer(
-              worker.dialogue,
-              requestId,
-              ctx.sessionManager.getSessionId(),
-              `${ctx.sessionManager.getSessionId()}:${worker.prepared.id}:g${token}`,
-              () => current(worker, token),
-            );
-          },
-        );
-        signal?.throwIfAborted();
-        if (ack.disposition === "handled") offer?.release();
-        const waitId = ack.disposition !== "handled" && offer?.accepted ? offer.waitId : undefined;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                accepted: true,
-                to: actor(worker).id,
-                request_id: ack.requestId,
-                ...(waitId ? { wait_id: waitId } : {}),
-              }),
-            },
-          ],
-          details: { id: worker.id, ...ack, waitId },
-        };
-      } catch (error) {
-        offer?.release();
-        throw error;
-      } finally {
-        signal?.removeEventListener("abort", abort);
-      }
     },
   });
   for (const action of ["check", "cancel", "close"] as const)

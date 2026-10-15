@@ -1,6 +1,6 @@
 # Get started
 
-This walkthrough builds the checkout and starts a parent Pi session with background transport and delegation. It uses ordinary host permissions. To confine model file and shell tools, follow [configure security](guides/security.md) before working on a project.
+This walkthrough builds the checkout and starts a parent Pi session with background transport and delegation. It uses ordinary host permissions. Add the optional [permission gate](../packages/pi-permissions/README.md) when calls need allow/deny or classifier review.
 
 ## 1. Build the checkout
 
@@ -39,12 +39,10 @@ Project agent definitions need directory trust. Using a user-directory definitio
 From the repository root:
 
 ```sh
-env -u PI_SECURITY_TRANSPORT -u PI_SECURITY_POLICY \
-  node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
+node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   --no-extensions \
   -e packages/pi-background/extensions/background-process.ts \
-  -e packages/pi-delegation/extensions/subagent.ts \
-  --subagent-security=off
+  -e packages/pi-delegation/extensions/subagent.ts
 ```
 
 This calls the pinned Pi 1.2.0 CLI in the checkout. It does not depend on how a global `pi` command was installed. In Pi 1.2.0, `--no-extensions` disables automatic extension discovery **and built-in extensions**; explicit `-e` paths still load. The parent retains its default tools and activates these explicitly loaded extension tools. A definition requesting an inactive parent tool is refused. A `--tools` allowlist would also need to include the custom delegation tools.
@@ -57,8 +55,8 @@ Run `/agents` to inspect discovery and effective settings. Then give the main ag
 
 > Use reviewer to inspect the proposed parser change. Give it the project path and the files to review. Ask for findings with source evidence.
 
-The model calls `subagent` with the definition name and task. The acknowledgement reports the running agent ID, workspace, effective tools, scope, and request ID. It confirms dispatch, not completion. The default workspace is scratch; a child launched without security can read host files using its selected tools.
+The model calls `subagent` with the definition name and task. The acknowledgement reports the running agent ID, workspace, effective tools, scope, and request ID. It confirms dispatch, not completion. The default workspace is scratch; a child can read host files using its selected tools.
 
 A child can send progress or questions through `agent_message`. Its completed response is delivered to the parent, or can be read with `subagent_check`. Close it with `subagent_close` when the parent has reviewed the response. Closing retains ordinary scratch files and returns their artifact location.
 
-Continue with [delegate work](guides/delegation.md) for project work and artifact collection, or [configure security](guides/security.md) for a confined session. Exact calls and limits are in the [tool reference](reference/tools.md).
+Continue with [delegate work](guides/delegation.md) for project work and artifact collection, or [the permission gate](../packages/pi-permissions/README.md) for call review. Exact calls and limits are in the [tool reference](reference/tools.md).

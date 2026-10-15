@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,19 +21,19 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
   put(join(project, ".pi/agents"), "untrusted");
   writeFileSync(
     join(agentDir, "settings.json"),
-    JSON.stringify({ subagents: { agents: ["available"] } }),
+    JSON.stringify({
+      subagents: { agents: { available: true, not_selected: false, newly_added: false } },
+    }),
   );
-  const savedAgent = process.env.PI_CODING_AGENT_DIR,
-    savedTransport = process.env.PI_SECURITY_TRANSPORT;
+  const savedAgent = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  process.env.PI_SECURITY_TRANSPORT = "extensions";
   const handlers = new Map<string, Function>(),
     tools = new Map<string, any>();
-  const childSpecs: any[] = [];
-  let childDescriptions = 0;
-  let alterPreview = false;
-  let failPreview = false;
-  let hostilePreview = false;
+  let modelAvailabilityCalls = 0;
+  let failOnAvailabilityCall = -1;
+  let hostileFailure = false;
+  let activeTools = ["read", "session_setup"];
+  let availableModels = [{ provider: "fixture", id: "fixture", reasoning: false }];
   const pi = {
     on: (name: string, fn: Function) => handlers.set(name, fn),
     registerCommand: () => {},
@@ -42,52 +42,17 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     registerMessageRenderer: () => {},
     registerTool: (tool: any) => tools.set(tool.name, tool),
     appendEntry: () => {},
-    getActiveTools: () => ["read", "session_setup"],
+    getActiveTools: () => activeTools,
     getAllTools: () =>
-      ["read", "session_setup"].map((name) => ({ name, description: name, exposure: "direct" })),
+      ["read", "write", "session_setup"].map((name) => ({
+        name,
+        description: name,
+        exposure: "direct",
+      })),
     setActiveTools() {},
     getThinkingLevel: () => "off",
     getCommands: () => [],
-    events: {
-      on: () => {},
-      emit: (name: string, value: any) => {
-        if (name === "pi-security:service:v1")
-          value.respond({
-            version: 1,
-            prepareShell() {},
-            prepareChildLaunch() {},
-            describeChild: async (spec: any) => {
-              childDescriptions++;
-              if (hostilePreview)
-                throw {
-                  toString() {
-                    throw Error(
-                      "private skill body at /private/agent/skills/private-review/SKILL.md",
-                    );
-                  },
-                };
-              childSpecs.push(spec);
-              if (failPreview)
-                throw Error(
-                  "duplicate private bundle skill: private-review at /private/agent/skills/private-review/SKILL.md",
-                );
-              return {
-                tools: alterPreview ? ["read", "write"] : ["read", "agent_message", "agent_list"],
-                skills: ["private-review"],
-                scope: {
-                  mode: "auto",
-
-                  read: "policy-permitted files",
-                  write: "own workspace only",
-                  network: [],
-                  readDeny: ["/private/parent-secret"],
-                  writeDeny: ["/private/trusted-code"],
-                },
-              };
-            },
-          });
-      },
-    },
+    events: { on() {}, emit() {} },
   };
   const ctx = {
     cwd: project,
@@ -96,22 +61,39 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     sessionManager: { getBranch: () => [], getSessionId: () => "catalogue-fixture" },
     model: { provider: "fixture", id: "fixture" },
     modelRegistry: {
-      getAvailable: () => [],
-      getAvailableOfType: async () => [{ provider: "fixture", id: "fixture" }],
+      async getAvailableOfType() {
+        modelAvailabilityCalls++;
+        if (modelAvailabilityCalls === failOnAvailabilityCall) {
+          if (hostileFailure)
+            throw {
+              toString() {
+                throw Error("private skill body at /private/agent/skills/private-review/SKILL.md");
+              },
+            };
+          throw Error("private-review at /private/agent/skills/private-review/SKILL.md");
+        }
+        return availableModels;
+      },
     },
   };
   try {
     extension(pi as any);
     const hook = handlers.get("before_agent_start")!;
     await handlers.get("session_start")!({}, ctx);
-    let input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    let input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     assert.equal(await hook(input, ctx), undefined);
     let prompt = (input.systemPromptOptions.sections as any).agents;
     assert.match(prompt, /available description/);
     for (const excluded of ["untrusted", "private metadata", "private child body"])
       assert.ok(!prompt.includes(excluded));
     put(join(agentDir, "agents"), "newly_added");
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     prompt = (input.systemPromptOptions.sections as any).agents;
     assert.ok(!prompt.includes("newly_added description"));
@@ -127,9 +109,9 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       tools.get("subagent").parameters.properties.model,
       "model selection is a real tool parameter",
     );
-    ctx.modelRegistry.getAvailableOfType = async () => [
-      { provider: "fixture", id: "fixture" },
-      { provider: "fixture", id: "alternate" },
+    availableModels = [
+      { provider: "fixture", id: "fixture", reasoning: false },
+      { provider: "fixture", id: "alternate", reasoning: false },
     ];
     await assert.rejects(
       tools
@@ -143,7 +125,7 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
         ),
       /user-configured model "fixture\/fixture".*conflicts/,
     );
-    const descriptionsBeforeRejectedLaunch = childDescriptions;
+    const descriptionsBeforeRejectedLaunch = modelAvailabilityCalls;
     await assert.rejects(
       tools
         .get("subagent")
@@ -151,21 +133,27 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       /Available named agents:[\s\S]*available/,
     );
     assert.equal(
-      childDescriptions,
+      modelAvailabilityCalls,
       descriptionsBeforeRejectedLaunch,
       "a deselected agent is rejected before child preparation",
     );
     writeFileSync(
       join(agentDir, "settings.json"),
-      JSON.stringify({ subagents: { agents: ["not_selected"] } }),
+      JSON.stringify({ subagents: { agents: { not_selected: true } } }),
     );
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     assert.ok(
       !(input.systemPromptOptions.sections as any).agents.includes("not_selected description"),
     );
     await handlers.get("session_start")!({}, ctx);
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     assert.match((input.systemPromptOptions.sections as any).agents, /not_selected description/);
 
@@ -182,10 +170,13 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     );
     writeFileSync(
       join(agentDir, "settings.json"),
-      JSON.stringify({ subagents: { agents: ["not_selected", "private-worker"] } }),
+      JSON.stringify({ subagents: { agents: { not_selected: true, "private-worker": true } } }),
     );
     await handlers.get("session_start")!({}, ctx);
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     const refreshedPrompt = (input.systemPromptOptions.sections as any).agents as string;
     assert.match(refreshedPrompt, /private-worker/);
@@ -196,22 +187,9 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       privateSkill,
     ])
       assert.ok(!refreshedPrompt.includes(hidden), `parent catalogue leaked ${hidden}`);
-    const privateWorkerSpec = childSpecs.find((spec) =>
-      spec.agentBundle?.privateSkills?.some((skill: any) => skill.name === "private-review"),
-    );
-    assert.deepEqual(
-      privateWorkerSpec?.agentBundle?.privateSkills,
-      [
-        {
-          name: "private-review",
-          description: "Child-only checklist.",
-          path: realpathSync(privateSkill),
-        },
-      ],
-      JSON.stringify(childSpecs),
-    );
-
-    alterPreview = true;
+    assert.doesNotMatch(refreshedPrompt, /capabilities unavailable/);
+    assert.match(refreshedPrompt, /host permissions/);
+    activeTools = ["read", "write", "session_setup"];
     await assert.rejects(
       tools
         .get("subagent")
@@ -230,8 +208,11 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       },
     );
 
-    failPreview = true;
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    failOnAvailabilityCall = modelAvailabilityCalls + 3;
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     const failedPrompt = (input.systemPromptOptions.sections as any).agents as string;
     for (const hidden of [
@@ -243,7 +224,8 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
       assert.ok(!failedPrompt.includes(hidden), `preview failure prompt leaked ${hidden}`);
     assert.match(failedPrompt, /Run \/agents to inspect diagnostics/);
 
-    hostilePreview = true;
+    failOnAvailabilityCall = modelAvailabilityCalls + 2;
+    hostileFailure = true;
     await assert.rejects(
       tools
         .get("subagent")
@@ -259,7 +241,10 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
     ctx.modelRegistry.getAvailableOfType = async () => {
       throw Error("private auth diagnostic");
     };
-    input = { systemPrompt: "base", systemPromptOptions: { sections: {} } };
+    input = {
+      systemPrompt: "base",
+      systemPromptOptions: { cwd: project, contextFiles: [], sections: {} },
+    };
     await hook(input, ctx);
     assert.match(
       (input.systemPromptOptions.sections as any).agents,
@@ -271,8 +256,6 @@ test("parent hook refreshes validated discovery, excludes untrusted agents and d
   } finally {
     if (savedAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = savedAgent;
-    if (savedTransport === undefined) delete process.env.PI_SECURITY_TRANSPORT;
-    else process.env.PI_SECURITY_TRANSPORT = savedTransport;
     rmSync(root, { recursive: true });
   }
 });

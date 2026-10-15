@@ -37,7 +37,6 @@ test("parseAgent trims fields and keeps the body as the prompt", () => {
     thinking: undefined,
     tools: undefined,
     skills: undefined,
-    permissions: undefined,
     context: undefined,
     targets: undefined,
   });
@@ -51,17 +50,16 @@ const withFields = (fields: Record<string, unknown>) => {
   return parseAgent("ignored", "/a/x.md", parseFields);
 };
 
-test("model, thinking, tools, skills and permissions are read from the file", () => {
+test("model, thinking, tools and skills are read from the file", () => {
   const a = withFields({
     model: " sonnet ",
     thinking: "high",
     tools: "read, grep,read",
     skills: ["adr", "writing-instructions"],
-    permissionMode: "manual",
   });
   assert.deepEqual(
-    [a.model, a.thinking, a.tools, a.skills, a.permissions],
-    ["sonnet", "high", ["read", "grep"], ["adr", "writing-instructions"], "manual"],
+    [a.model, a.thinking, a.tools, a.skills],
+    ["sonnet", "high", ["read", "grep"], ["adr", "writing-instructions"]],
   );
 });
 
@@ -88,7 +86,7 @@ test("bad field values make the agent unusable with a reason", () => {
   assert.throws(() => withFields({ thinking: "extreme" }), /thinking must be one of/);
   assert.throws(
     () => withFields({ permissionMode: ["auto"] }),
-    /permissionMode must be a non-empty string/,
+    /permissionMode is no longer an agent setting/,
   );
   assert.throws(() => withFields({ tools: { a: 1 } }), /tools must be a list of names/);
   assert.throws(() => withFields({ tools: ["read", 3] }), /tools must be a list of names/);
@@ -506,7 +504,10 @@ test("metadata targets filter deployment copies and invalid authored tools/modes
   assert.throws(() => withFields({ targets: ["codex"] }), /targets/);
   assert.deepEqual(withFields({ tools: ["Read"] }).tools, ["Read"]);
   assert.deepEqual(withFields({ tools: ["subagent"] }).tools, ["subagent"]);
-  assert.throws(() => withFields({ permissionMode: "typo" }), /authored mode/);
+  assert.throws(
+    () => withFields({ permissionMode: "typo" }),
+    /permissionMode is no longer an agent setting/,
+  );
   const dir = mkdtempSync(join(tmpdir(), "agents-targets-"));
   writeFileSync(join(dir, "x.md"), "ignored");
   assert.deepEqual(

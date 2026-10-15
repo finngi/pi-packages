@@ -11,17 +11,10 @@ const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
 
 export type ResourceKind = "skills" | "agents" | "instructions";
 export type ResourceDefaultState = "inherit" | "on" | "off";
-export type ResourceSelectionValue = string[] | Record<string, boolean> | undefined;
+export type ResourceSelectionValue = Record<string, boolean> | undefined;
 
 type ResourceSettings = {
-  skills?: string[];
-  subagents?: {
-    agents?: ResourceSelectionValue;
-    skills?: ResourceSelectionValue;
-    skillPaths?: string[];
-    skillPathsCreatedSetting?: boolean;
-  };
-  resources?: { skillCatalogues?: string[] };
+  subagents?: { agents?: ResourceSelectionValue; skills?: ResourceSelectionValue };
   localContext?: { instructions?: ResourceSelectionValue };
 };
 
@@ -37,15 +30,14 @@ export interface SkillChoice {
 }
 export interface GlobalSelectionSnapshot {
   present: boolean;
-  names?: string[];
   values?: Record<string, boolean>;
 }
 function snapshotValue(snapshot: GlobalSelectionSnapshot): ResourceSelectionValue {
   if (!snapshot.present) return undefined;
-  return snapshot.values ?? snapshot.names ?? [];
+  return snapshot.values ?? {};
 }
 function hasExplicitSelection(value: ResourceSelectionValue): boolean {
-  return Array.isArray(value) ? true : !!value && Object.keys(value).length > 0;
+  return !!value && Object.keys(value).length > 0;
 }
 
 function selectionValue(settings: ResourceSettings, kind: ResourceKind): ResourceSelectionValue {
@@ -85,16 +77,8 @@ export function validateResourceSelection(
   kind: ResourceKind,
 ): ResourceSelectionValue {
   if (value === undefined) return undefined;
-  if (Array.isArray(value)) {
-    if (
-      value.some((id) => typeof id !== "string" || !id.trim() || id !== id.trim()) ||
-      new Set(value).size !== value.length
-    )
-      throw Error(`${kind} selection must contain unique non-empty IDs`);
-    return value as string[];
-  }
-  if (!value || typeof value !== "object")
-    throw Error(`${kind} selection must be a list or ID-to-boolean map`);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw Error(`${kind} selection must be an ID-to-boolean map`);
   const entries = Object.entries(value);
   if (entries.some(([id, selected]) => !id.trim() || typeof selected !== "boolean"))
     throw Error(`${kind} selection map must contain non-empty IDs and boolean values`);
@@ -106,7 +90,6 @@ export function resourceSelectionState(
   id: string,
 ): ResourceDefaultState {
   if (value === undefined) return "inherit";
-  if (Array.isArray(value)) return value.includes(id) ? "on" : "off";
   if (Object.hasOwn(value, id)) return value[id] ? "on" : "off";
   return "inherit";
 }
@@ -129,19 +112,6 @@ export function resolveResourceSelection(
   if (globalState !== "inherit")
     return { globalState, projectState, effective: globalState === "on", source: "global" };
   return { globalState, projectState, effective: nativeDefault, source: "native" };
-}
-
-function legacyMap(value: ResourceSelectionValue, knownIds: string[]): Record<string, boolean> {
-  const result = Object.create(null) as Record<string, boolean>;
-  if (value === undefined) return result;
-  if (!Array.isArray(value)) {
-    for (const [id, selected] of Object.entries(value)) result[id] = selected;
-    return result;
-  }
-  const selected = new Set(value);
-  for (const id of knownIds) result[id] = selected.has(id);
-  for (const id of value) if (!knownIds.includes(id)) result[id] = true;
-  return result;
 }
 
 function writeSelectionValue(
@@ -184,12 +154,6 @@ export interface ResourceDefaultWrite {
   knownIds: string[];
   cwd?: string;
   agentDir?: string;
-  /** Selected extension skill paths, keyed by skill ID, for project skill writes. */
-  skillPaths?: Record<string, string>;
-  /** Native baseline for known IDs; false is used when omitted. */
-  nativeDefaults?: Record<string, boolean>;
-  /** Effective lower-scope values used to maintain project skill paths. */
-  fallbackValues?: Record<string, boolean>;
 }
 
 export interface ResourceDefaultsWrite {
@@ -200,9 +164,6 @@ export interface ResourceDefaultsWrite {
       {
         values: Record<string, boolean | undefined>;
         knownIds: string[];
-        skillPaths?: Record<string, string>;
-        nativeDefaults?: Record<string, boolean>;
-        fallbackValues?: Record<string, boolean>;
         /** Bulk save: discard saved IDs that are no longer known in this category. */
         snapshot?: boolean;
       }
@@ -226,7 +187,6 @@ function settingsFileUpdate(
 }
 
 export function writeResourceDefault(options: ResourceDefaultWrite): Promise<void> {
-  const fallbackValues = options.nativeDefaults ?? {};
   return writeResourceDefaults({
     scope: options.scope,
     cwd: options.cwd,
@@ -235,11 +195,6 @@ export function writeResourceDefault(options: ResourceDefaultWrite): Promise<voi
       [options.kind]: {
         values: { [options.id]: options.state === "inherit" ? undefined : options.state === "on" },
         knownIds: options.knownIds,
-        ...(options.skillPaths ? { skillPaths: options.skillPaths } : {}),
-        ...(options.nativeDefaults ? { nativeDefaults: options.nativeDefaults } : {}),
-        ...(options.fallbackValues
-          ? { fallbackValues: options.fallbackValues }
-          : { fallbackValues }),
       },
     },
   });
@@ -251,7 +206,10 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       const selection = options.selections[kind];
       if (!selection) continue;
       const before = selectionValue(settings as ResourceSettings, kind);
-      const next = legacyMap(before, selection.knownIds);
+      const next: Record<string, boolean> = Object.assign(
+        Object.create(null),
+        validateResourceSelection(before, kind),
+      );
       if (selection.snapshot) {
         const known = new Set(selection.knownIds);
         for (const id of Object.keys(next)) if (!known.has(id)) delete next[id];
@@ -261,130 +219,45 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
         else next[id] = state;
       }
       const value = Object.keys(next).length ? next : undefined;
-      if (options.scope === "project" && kind === "skills") {
-        const selected = selection.knownIds.filter((id) =>
-          Object.hasOwn(next, id)
-            ? next[id] === true
-            : (selection.fallbackValues?.[id] ?? selection.nativeDefaults?.[id] ?? false),
-        );
-        const paths = selected
-          .filter((id) => !(selection.nativeDefaults?.[id] ?? false))
-          .flatMap((id) => selection.skillPaths?.[id] ?? []);
-        applySkillSelection(settings, options.cwd!, paths, selected);
-        writeSelectionValue(settings, kind, value);
-      } else writeSelectionValue(settings, kind, value);
+      writeSelectionValue(settings, kind, value);
     }
   });
 }
 
 export function configuredSkillChoices(
-  settings: SettingsManager,
   cwd: string,
   agentDir: string,
   loaded: Array<{ name: string; path: string }>,
-  ignoreInvalidProjectSelection = false,
-  defaultPaths?: ReadonlySet<string>,
   packs: ResourcePackage[] = [],
 ): SkillChoice[] {
-  const global = settings.getGlobalSettings() as ResourceSettings;
-  const project = settings.getProjectSettings() as ResourceSettings;
-  if (
-    Object.hasOwn(global, "resources") &&
-    (!global.resources || typeof global.resources !== "object" || Array.isArray(global.resources))
-  )
-    throw Error("resources must be an object");
-  const globalSkills = Object.hasOwn(global, "skills") ? global.skills : [];
-  const catalogues =
-    global.resources && Object.hasOwn(global.resources, "skillCatalogues")
-      ? global.resources.skillCatalogues
-      : [];
-  const projectSkills = Object.hasOwn(project, "skills") ? project.skills : [];
-  for (const [label, paths] of [
-    ["global skills", globalSkills],
-    ["resources.skillCatalogues", catalogues],
-    ["project skills", projectSkills],
-  ] as const) {
-    if (
-      (!Array.isArray(paths) || paths.some((path) => typeof path !== "string")) &&
-      !(label === "project skills" && ignoreInvalidProjectSelection)
-    )
-      throw Error(`${label} must be a list of paths`);
-  }
-  const validGlobalSkills = Array.isArray(globalSkills) ? globalSkills : [];
-  const validCatalogues = Array.isArray(catalogues) ? catalogues : [];
-  const validProjectSkills = Array.isArray(projectSkills) ? projectSkills : [];
-  const projectSubagents = project.subagents;
-  const managedPaths = projectSubagents?.skillPaths;
-  if (
-    managedPaths !== undefined &&
-    (!Array.isArray(managedPaths) || managedPaths.some((path) => typeof path !== "string")) &&
-    !ignoreInvalidProjectSelection
-  )
-    throw Error("project subagents.skillPaths must be a list of paths");
-  const managedPathSet = new Set(
-    (Array.isArray(managedPaths) ? managedPaths : []).map((path) => resolve(cwd, path)),
+  // Native Pi has already applied source trust, package filters, CLI exclusions and collisions.
+  // Re-read metadata only for those exact loaded files; never discover another skill root.
+  const metadata = new Map(
+    loadSkills({
+      cwd,
+      agentDir,
+      skillPaths: loaded.map((skill) => skill.path),
+      includeDefaults: false,
+    }).skills.map((skill) => [resolve(cwd, skill.filePath), skill]),
   );
-  const exclusions = validGlobalSkills
-    .filter((path) => path.startsWith("!"))
-    .map((path) => path.slice(1).trim())
-    .filter(Boolean);
   const packSkills = new Map(
-    packs.flatMap((pack) => pack.skills.map((path) => [path, pack] as const)),
+    packs.flatMap((pack) => pack.skills.map((file) => [resolve(cwd, file), pack] as const)),
   );
-  const roots = [
-    // Pi has already resolved name collisions; catalogues must not replace its loaded definition.
-    ...loaded.map((skill) => skill.path),
-    ...validGlobalSkills.filter((path) => !path.startsWith("!")),
-    ...validCatalogues,
-    ...packSkills.keys(),
-    ...validProjectSkills.filter((path): path is string => typeof path === "string"),
-  ];
-  const discovered = loadSkills({
-    cwd,
-    agentDir,
-    skillPaths: roots,
-    includeDefaults: false,
-  }).skills;
-  const byPath = new Map<string, SkillChoice>();
-  for (const skill of discovered) {
-    const key = resolve(cwd, skill.filePath);
-    const pack = packSkills.get(key);
-    byPath.set(key, {
-      name: skill.name,
-      description: skill.description,
-      path: skill.filePath,
-      toggleable: true,
-      defaultSelected: false,
-      ...(pack ? { packName: pack.name, packKeywords: resourcePackageKeywords(pack) } : {}),
-      ...(skill.disableModelInvocation ? { manualOnly: true } : {}),
-    });
-  }
-  for (const skill of loaded) {
-    const key = resolve(cwd, skill.path);
-    const configured = byPath.get(key);
-    if (configured)
-      configured.defaultSelected = defaultPaths ? defaultPaths.has(key) : !managedPathSet.has(key);
-    else
-      byPath.set(key, {
+  return loaded
+    .map((skill) => {
+      const key = resolve(cwd, skill.path),
+        details = metadata.get(key),
+        pack = packSkills.get(key);
+      return {
         name: skill.name,
-        description: "Currently loaded by Pi",
+        description: details?.description ?? "Currently loaded by Pi",
         path: skill.path,
         toggleable: true,
-        defaultSelected: defaultPaths ? defaultPaths.has(key) : !managedPathSet.has(key),
-      });
-  }
-  const byName = new Map<string, SkillChoice>();
-  for (const choice of byPath.values()) {
-    const existing = byName.get(choice.name);
-    if (!existing || (choice.defaultSelected && !existing.defaultSelected))
-      byName.set(choice.name, choice);
-  }
-  return [...byName.values()]
-    .filter(
-      (skill) =>
-        skill.defaultSelected ||
-        !exclusions.some((pattern) => pattern === skill.name || pattern === skill.path),
-    )
+        defaultSelected: true,
+        ...(details?.disableModelInvocation ? { manualOnly: true } : {}),
+        ...(pack ? { packName: pack.name, packKeywords: resourcePackageKeywords(pack) } : {}),
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -406,18 +279,6 @@ export function selectedSkills(
   const globalRaw = globalSnapshot
     ? validateResourceSelection(snapshotValue(globalSnapshot), "skills")
     : currentGlobalRaw;
-  const byName = new Map(choices.filter((x) => x.toggleable).map((x) => [x.name, x]));
-  for (const [label, raw] of [
-    ["project", projectRaw],
-    ["global", globalRaw],
-  ] as const) {
-    if (!Array.isArray(raw)) continue;
-    const missing = raw.filter((name) => !byName.has(name));
-    if (missing.length) {
-      if (ignoreInvalidProjectSelection && label === "project") return [];
-      throw Error(`${label} subagents.skills contains unknown skill names: ${missing.join(", ")}`);
-    }
-  }
   return choices
     .filter(
       (choice) =>
@@ -525,20 +386,6 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
       error: error instanceof Error ? error.message : String(error),
     };
   }
-  const known = new Set(agents.map((agent) => agent.name));
-  for (const [label, raw] of [
-    ["project", projectRaw],
-    ["global", globalRaw],
-  ] as const) {
-    if (!Array.isArray(raw)) continue;
-    const invalid = raw.filter((name) => !known.has(name));
-    if (invalid.length)
-      return {
-        agents: [],
-        configured: true,
-        error: `${label} subagents.agents contains unknown or untrusted names: ${invalid.join(", ")}`,
-      };
-  }
   const configured = hasExplicitSelection(projectRaw) || hasExplicitSelection(globalRaw);
   return {
     agents: agents.filter(
@@ -633,68 +480,4 @@ export async function assertSafeProjectSettingsLocation(cwd: string): Promise<vo
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-}
-
-function applySkillSelection(
-  current: Record<string, unknown>,
-  cwd: string,
-  paths: string[],
-  names: string[],
-) {
-  const subagents = current.subagents;
-  if (
-    subagents !== undefined &&
-    (!subagents || typeof subagents !== "object" || Array.isArray(subagents))
-  )
-    throw Error("Project settings subagents value must be an object");
-  if (
-    current.skills !== undefined &&
-    (!Array.isArray(current.skills) || current.skills.some((path) => typeof path !== "string"))
-  )
-    throw Error("Project skills must be a list of paths");
-  const existingManagedPaths = (subagents as Record<string, unknown> | undefined)?.skillPaths;
-  const createdSkillsSetting = (subagents as Record<string, unknown> | undefined)
-    ?.skillPathsCreatedSetting;
-  if (
-    existingManagedPaths !== undefined &&
-    (!Array.isArray(existingManagedPaths) ||
-      existingManagedPaths.some((path) => typeof path !== "string"))
-  )
-    throw Error("Project subagents.skillPaths must be a list of paths");
-  if (createdSkillsSetting !== undefined && typeof createdSkillsSetting !== "boolean")
-    throw Error("Project subagents.skillPathsCreatedSetting must be a boolean");
-  const previousManaged = new Set(
-    (Array.isArray(existingManagedPaths) ? existingManagedPaths : []).map((path) =>
-      resolve(cwd, path),
-    ),
-  );
-  if (paths.some((path) => typeof path !== "string" || !path.trim()))
-    throw Error("Selected skill paths must be strings");
-  const selectedPaths = [...new Set(paths)];
-  const selectedNames = [...new Set(names)];
-  if (
-    names.some((name) => typeof name !== "string" || !name.trim() || name !== name.trim()) ||
-    selectedNames.length !== names.length
-  )
-    throw Error("Selected skill names must be non-empty and unique");
-  const selectedPathSet = new Set(selectedPaths.map((path) => resolve(cwd, path)));
-  const existingPaths = (Array.isArray(current.skills) ? current.skills : []).filter(
-    (path): path is string =>
-      typeof path === "string" &&
-      (!previousManaged.has(resolve(cwd, path)) || selectedPathSet.has(resolve(cwd, path))),
-  );
-  const finalPaths = [...new Set([...existingPaths, ...selectedPaths])];
-  const createdSetting =
-    createdSkillsSetting === true || (current.skills === undefined && selectedPaths.length > 0);
-  if (finalPaths.length) current.skills = finalPaths;
-  else if (Array.isArray(current.skills)) {
-    if (createdSetting) delete current.skills;
-    else current.skills = [];
-  }
-  current.subagents = {
-    ...(subagents as Record<string, unknown> | undefined),
-    skills: selectedNames,
-    skillPaths: selectedPaths,
-    ...(createdSetting ? { skillPathsCreatedSetting: true } : {}),
-  };
 }

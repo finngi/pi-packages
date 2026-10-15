@@ -1,6 +1,7 @@
 export { installAccounting, USAGE_BRIDGE } from "./accounting.ts";
 export { type ArtifactResult, collectArtifacts } from "./artifacts.ts";
-export { resolveChildAuth, resolveClassifierAuth } from "./child-auth.ts";
+export { prepareChildProvider } from "./child-provider.ts";
+export { childLaunchContributions } from "./child-launch-contributions.ts";
 export * from "./child-resources.ts";
 export * from "./provider-transfer.ts";
 export * from "./resource-packages.ts";

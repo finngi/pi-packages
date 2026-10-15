@@ -22,8 +22,8 @@ test("saving one resource kind leaves absent providers' global and project defau
   await mkdir(join(cwd, ".pi"), { recursive: true });
   const before = {
     packages: ["native-source"],
-    subagents: { agents: ["reviewer"], skills: ["old"] },
-    localContext: { instructions: ["catalogue:saved"] },
+    subagents: { agents: { reviewer: true }, skills: { old: true } },
+    localContext: { instructions: { "catalogue:saved": true } },
   };
   await writeFile(join(agentDir, "settings.json"), JSON.stringify(before));
   await writeFile(join(cwd, ".pi/settings.json"), JSON.stringify(before));
@@ -51,7 +51,7 @@ test("saving one resource kind leaves absent providers' global and project defau
   });
   for (const file of [join(agentDir, "settings.json"), join(cwd, ".pi/settings.json")]) {
     const after = JSON.parse(await readFile(file, "utf8"));
-    assert.deepEqual(after.subagents.agents, ["reviewer"]);
+    assert.deepEqual(after.subagents.agents, { reviewer: true });
     assert.deepEqual(after.localContext, before.localContext);
     assert.deepEqual(after.packages, before.packages);
     assert.deepEqual(after.subagents.skills, { "native-source": false, old: false });
@@ -65,7 +65,7 @@ test("sparse defaults resolve project, global and native inheritance consistentl
     effective: true,
     source: "native",
   });
-  assert.deepEqual(resolveResourceSelection(["one"], { one: false }, "one", true), {
+  assert.deepEqual(resolveResourceSelection({ one: true }, { one: false }, "one", true), {
     globalState: "on",
     projectState: "off",
     effective: false,
@@ -77,7 +77,7 @@ test("sparse defaults resolve project, global and native inheritance consistentl
     effective: false,
     source: "global",
   });
-  assert.equal(resourceSelectionState([], "one"), "off");
+  assert.equal(resourceSelectionState({ one: false }, "one"), "off");
   assert.equal(resourceSelectionState({}, "one"), "inherit");
   assert.deepEqual(validateResourceSelection({ one: true }, "instructions"), { one: true });
   assert.throws(() => validateResourceSelection({ one: "on" }, "instructions"), /boolean/);
@@ -101,7 +101,7 @@ test("sparse defaults resolve project, global and native inheritance consistentl
   );
 });
 
-test("atomic sparse patch converts a legacy list without changing known or unknown siblings", async (t) => {
+test("atomic sparse patch preserves known and unknown sibling maps", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-resource-sparse-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
@@ -109,8 +109,8 @@ test("atomic sparse patch converts a legacy list without changing known or unkno
   await writeFile(
     join(agentDir, "settings.json"),
     JSON.stringify({
-      subagents: { skills: ["kept", "removed-from-catalogue"] },
-      localContext: { instructions: [] },
+      subagents: { skills: { kept: true, "project-only": false, "removed-from-catalogue": true } },
+      localContext: { instructions: {} },
       unrelated: true,
     }),
   );
@@ -136,14 +136,14 @@ test("atomic sparse patch converts a legacy list without changing known or unkno
   assert.equal(saved.unrelated, true);
 });
 
-test("per-row Inherit deletes only that override and preserves legacy siblings", async (t) => {
+test("per-row Inherit deletes only that override and preserves siblings", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-resource-project-sparse-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const cwd = join(root, "project");
   await mkdir(join(cwd, ".pi"), { recursive: true });
   await writeFile(
     join(cwd, ".pi/settings.json"),
-    JSON.stringify({ localContext: { instructions: ["one", "stale"] } }),
+    JSON.stringify({ localContext: { instructions: { one: true, stale: true } } }),
   );
   await writeResourceDefaults({
     scope: "project",
@@ -165,7 +165,9 @@ test("bulk snapshots clear stale IDs but retain known ineligible rows", async (t
   await mkdir(agentDir);
   await writeFile(
     join(agentDir, "settings.json"),
-    JSON.stringify({ subagents: { agents: ["reviewer", "project-agent", "missing-agent"] } }),
+    JSON.stringify({
+      subagents: { agents: { reviewer: true, "project-agent": true, "missing-agent": true } },
+    }),
   );
   await writeResourceDefaults({
     scope: "global",
@@ -212,7 +214,6 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
 
   for (const kind of ["skills", "agents", "instructions"] as const) {
     const knownIds = ["project-on", "project-off", "inherited"];
-    const nativeDefaults = Object.fromEntries(knownIds.map((id) => [id, false]));
     const globalValues = { "project-on": false, "project-off": true, inherited: true };
     const projectValues = { "project-on": true, "project-off": false };
     await writeResourceDefaults({
@@ -224,7 +225,7 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
       scope: "project",
       cwd,
       selections: {
-        [kind]: { knownIds, values: projectValues, nativeDefaults, fallbackValues: globalValues },
+        [kind]: { knownIds, values: projectValues },
       },
     });
 
@@ -258,7 +259,6 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
       state: "off",
       knownIds,
       agentDir,
-      nativeDefaults,
     });
     const globalAfter = { ...global, inherited: false };
     assert.equal(resolveResourceSelection(globalAfter, local, "inherited", true).effective, false);
@@ -275,8 +275,6 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
       state: "on",
       knownIds,
       cwd,
-      nativeDefaults,
-      fallbackValues: globalAfter,
     });
     assert.equal(
       resolveResourceSelection(globalAfter, { ...local, inherited: true }, "inherited", false)
@@ -290,9 +288,11 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
       state: "inherit",
       knownIds,
       cwd,
-      nativeDefaults,
-      fallbackValues: globalAfter,
     });
     assert.equal(resolveResourceSelection(globalAfter, local, "inherited", false).effective, false);
   }
+});
+
+test("settings list compatibility is rejected rather than converted", () => {
+  assert.throws(() => validateResourceSelection(["old"], "skills"), /ID-to-boolean map/);
 });

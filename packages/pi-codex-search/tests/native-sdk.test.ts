@@ -94,7 +94,6 @@ async function sessionFor(
   collectionOrder: "before" | "after" = "before",
   storedAccountId = "acct_stored",
   options: {
-    security?: "required" | "off";
     freshness?: "live" | "cached" | "indexed";
     noPermissionCollector?: boolean;
     omitGrant?: boolean;
@@ -269,76 +268,13 @@ async function sessionFor(
     return response;
   };
   const effectsFactory: ExtensionFactory = (pi) => {
-    const approved = new Map<string, string>();
-    const active = new Map<string, () => void>();
     pi.on("tool_call", (event) => {
-      if (event.toolName === "codex_search")
-        approved.set(event.toolCallId, JSON.stringify(event.input));
-    });
-    pi.events.on("pi-security:service:v1", (request: any) =>
-      request.respond({
-        version: 1,
-        prepareSearch({
-          toolCallId,
-          input,
-          signal,
-        }: {
-          toolCallId: string;
-          input: unknown;
-          signal?: AbortSignal;
-        }) {
-          assert.equal(
-            approved.get(toolCallId),
-            JSON.stringify(input),
-            "exact native admission consumed",
-          );
-          approved.delete(toolCallId);
-          if (options.omitGrant) return undefined;
-          const controller = new AbortController();
-          const snapshot = JSON.stringify(input);
-          let current = true;
-          const capability = {
-            origin: "https://chatgpt.com",
-            signal: controller.signal,
-            assertCurrent(nextInput: unknown) {
-              assert.equal(current, true, "execution capability remains current");
-              assert.equal(JSON.stringify(nextInput), snapshot, "exact input remains bound");
-            },
-            async dispatch(
-              nextInput: unknown,
-              url: string,
-              operation: (signal: AbortSignal) => Promise<unknown>,
-            ) {
-              capability.assertCurrent(nextInput);
-              assert.match(
-                url,
-                /^https:\/\/chatgpt\.com\/backend-api\/codex\/(responses|models\?client_version=1\.0\.0)$/,
-              );
-              const result = await operation(controller.signal);
-              capability.assertCurrent(nextInput);
-              return result;
-            },
-            release() {
-              current = false;
-              controller.abort();
-              active.delete(toolCallId);
-              signal?.removeEventListener("abort", capability.release);
-            },
-          };
-          signal?.addEventListener("abort", capability.release, { once: true });
-          active.set(toolCallId, capability.release);
-          return capability;
-        },
-      }),
-    );
-    pi.on("tool_result", (event) => active.get(event.toolCallId)?.());
-    pi.on("session_shutdown", () => {
-      for (const release of [...active.values()]) release();
+      if (event.toolName === "codex_search" && options.omitGrant)
+        return { block: true, reason: "permission policy is unavailable" };
     });
   };
   const searchFactory = createCodexSearchExtension({
     fetchImpl: backend,
-    security: options.security ?? "required",
   });
   const factories: ExtensionFactory[] = [
     ...(options.accounting ? [installAccounting] : []),
@@ -890,7 +826,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
   });
 
   for (const collectionOrder of ["before", "after"] as const) {
-    it(`discovers the fixed-origin service when search loads ${collectionOrder === "before" ? "before" : "after"} the security service`, async () => {
+    it(`native admission hooks apply when search loads ${collectionOrder === "before" ? "before" : "after"} the gate`, async () => {
       const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-order-"));
       const requests: string[] = [];
       const outcomes: unknown[] = [];
@@ -1082,7 +1018,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
     }
   });
 
-  it("fails closed when the security service returns an invalid capability", async () => {
+  it("native tool admission blocks backend access when permission configuration is unavailable", async () => {
     const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-no-grant-"));
     const requests: string[] = [];
     let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
@@ -1101,14 +1037,14 @@ describe("Pi 1.2.0 native SDK paths", () => {
       await created.session.prompt("Use the requested search tool once.");
       assert.equal(requests.length, 0);
       const result = created.session.messages.find((message) => message.role === "toolResult");
-      assert.match(JSON.stringify(result), /invalid pi-security search capability/i);
+      assert.match(JSON.stringify(result), /permission policy is unavailable/i);
     } finally {
       created?.session.dispose();
       await rm(path, { recursive: true, force: true });
     }
   });
 
-  it("works through the real SDK without security when explicitly selected", async () => {
+  it("works independently through the real SDK with native OAuth", async () => {
     const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-off-")),
       requests: string[] = [],
       outcomes: unknown[] = [];
@@ -1123,7 +1059,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
         false,
         "before",
         "acct_stored",
-        { noPermissionCollector: true, security: "off" },
+        { noPermissionCollector: true },
       );
       await created.session.prompt("Use the search tool once.");
       assert(requests.length > 0);
@@ -1137,17 +1073,16 @@ describe("Pi 1.2.0 native SDK paths", () => {
       await rm(path, { recursive: true, force: true });
     }
   });
-  it("refuses backend access through the real SDK when no security service exists", async () => {
-    const path = await mkdtemp(join(tmpdir(), "pi-search-sdk-standalone-"));
+  it("an absent optional permission gate leaves native search usable", async () => {
+    const path = await mkdtemp(join(tmpdir(), "pi-search-native-optional-gate-"));
     const requests: string[] = [];
-    const outcomes: unknown[] = [];
     let created: Awaited<ReturnType<typeof sessionFor>> | undefined;
     try {
       created = await sessionFor(
         path,
         "direct",
         requests,
-        outcomes,
+        [],
         undefined,
         false,
         "before",
@@ -1155,14 +1090,7 @@ describe("Pi 1.2.0 native SDK paths", () => {
         { noPermissionCollector: true },
       );
       await created.session.prompt("Use the requested search tool once.");
-      assert.equal(requests.length, 0);
-      assert.ok(
-        created.session.messages.some(
-          (message) =>
-            message.role === "toolResult" &&
-            JSON.stringify(message).includes("exactly one active pi-security"),
-        ),
-      );
+      assert.equal(requests.filter((url) => url.endsWith("/codex/responses")).length, 1);
     } finally {
       created?.session.dispose();
       await rm(path, { recursive: true, force: true });
@@ -1204,7 +1132,7 @@ describe("standalone extension registration", () => {
     );
   });
 
-  it("refuses naked execution before resolving auth or dispatching a request", async () => {
+  it("direct execution resolves native authentication and sanitizes errors", async () => {
     const tool = createCodexSearchTool({
       fetchImpl: async () => {
         throw new Error("fetch must not run");
@@ -1213,13 +1141,13 @@ describe("standalone extension registration", () => {
     const ctx = {
       modelRegistry: {
         getProviderAuth() {
-          throw new Error("auth must not run");
+          throw new Error("private-auth-error");
         },
       },
     };
     await assert.rejects(
       (tool.execute as any)("naked", { queries: ["query"] }, undefined, undefined, ctx),
-      /active pi-security search capability/,
+      /could not resolve OpenAI Codex credentials/,
     );
   });
 
@@ -1254,75 +1182,41 @@ describe("standalone extension registration", () => {
     assert.equal(typeof registered?.execute, "function");
   });
 
-  it("requires exactly one service and releases admitted capabilities even on auth failure", async () => {
+  it("registered tools resolve native credentials exactly once and never fetch after auth failure", async () => {
     let registered: ReturnType<typeof createCodexSearchTool> | undefined;
-    let responses: unknown[] = [];
     let authCalls = 0,
-      releases = 0;
-    const pi = {
-      registerTool(tool: any) {
-        registered = tool;
-      },
-      events: {
-        emit(name: string, request: any) {
-          if (name === "pi-security:presence:v1") return;
-          assert.equal(name, "pi-security:service:v1");
-          for (const service of responses) request.respond(service);
+      fetchCalls = 0;
+    registerCodexSearch(
+      {
+        registerTool(tool: any) {
+          registered = tool;
+        },
+      } as any,
+      {
+        fetchImpl: async () => {
+          fetchCalls++;
+          throw Error("fetch must not run");
         },
       },
-    } as any;
-    registerCodexSearch(pi, {
-      security: "required",
-      fetchImpl: async () => {
-        throw Error("fetch must not run");
-      },
-    });
-    const ctx = {
-      modelRegistry: {
-        async getProviderAuth(...args: unknown[]) {
-          assert.deepEqual(args, ["openai-codex"]);
-          authCalls++;
-          throw Error("private-auth-error");
-        },
-      },
-    } as any;
-    const service = {
-      version: 1,
-      prepareSearch() {
-        return {
-          origin: "https://chatgpt.com",
-          signal: new AbortController().signal,
-          assertCurrent() {},
-          dispatch() {
-            throw Error("dispatch must not run");
-          },
-          release() {
-            releases++;
-          },
-        };
-      },
-    };
-    for (const invalid of [
-      [],
-      [service, service],
-      [{ version: 2, prepareSearch() {} }],
-      [{ version: 1 }],
-    ]) {
-      responses = invalid;
-      await assert.rejects(
-        registered!.execute("call", { queries: ["query"] }, undefined, undefined, ctx),
-        /exactly one active pi-security/,
-      );
-    }
-    assert.equal(authCalls, 0);
-    assert.equal(releases, 0);
-    responses = [service];
+    );
     await assert.rejects(
-      registered!.execute("call", { queries: ["query"] }, undefined, undefined, ctx),
-      /could not resolve OpenAI Codex credentials/,
+      registered!.execute("call", { queries: ["query"] }, undefined, undefined, {
+        modelRegistry: {
+          async getProviderAuth(...args: unknown[]) {
+            assert.deepEqual(args, ["openai-codex"]);
+            authCalls++;
+            throw Error("private-auth-error");
+          },
+        },
+      } as any),
+      (error) => {
+        assert.match(String(error), /could not resolve OpenAI Codex credentials/);
+        assert.doesNotMatch(String(error), /private-auth-error/);
+        return true;
+      },
     );
     assert.equal(authCalls, 1);
-    assert.equal(releases, 1);
+    assert.equal(fetchCalls, 0);
   });
 
   it("truncates a bounded provider answer while retaining its typed success and truncation flag", async () => {
@@ -1351,47 +1245,25 @@ describe("standalone extension registration", () => {
     model?: { provider: string; id: string };
     updates?: unknown[];
   }) {
-    const tool = createCodexSearchTool({ fetchImpl: options.fetchImpl });
-    const execute = tool.execute as (...args: any[]) => Promise<any>;
-    const current = { value: true };
     const controller = new AbortController();
-    const inputSnapshot = JSON.stringify(options.input);
     let dispatches = 0;
-    const grant = {
-      origin: "https://chatgpt.com",
-      signal: controller.signal,
-      assertCurrent(nextInput?: unknown) {
-        const input = nextInput === undefined ? options.input : nextInput;
-        if (!current.value) throw new Error("permission/session grant was revoked");
-        if (JSON.stringify(input) !== inputSnapshot)
-          throw new Error("search input changed after admission");
-      },
-      async dispatch(
-        input: unknown,
-        url: string,
-        operation: (signal: AbortSignal) => Promise<unknown>,
-      ) {
-        grant.assertCurrent(input);
+    const tool = createCodexSearchTool({
+      fetchImpl: async (input, init) => {
         dispatches++;
-        assert.equal(new URL(url).origin, "https://chatgpt.com");
-        return operation(controller.signal);
+        assert.equal(new URL(String(input)).origin, "https://chatgpt.com");
+        return options.fetchImpl(input, init);
       },
-      release() {
-        grant.revoke();
-      },
-      revoke(reason = new Error("permission/session grant was revoked")) {
-        current.value = false;
-        controller.abort(reason);
-      },
-    };
+    });
+    const execute = tool.execute as (...args: any[]) => Promise<any>;
     const context = {
       modelRegistry: {
         getProviderAuth:
           options.getProviderAuth ??
           (async () => ({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } })),
+        find: () => undefined,
       },
       model: options.model,
-      signal: undefined,
+      signal: controller.signal,
       sessionManager: { getSessionId: () => "session_synthetic" },
     };
     const updates = options.updates ?? [];
@@ -1401,11 +1273,10 @@ describe("standalone extension registration", () => {
       undefined,
       (update: unknown) => updates.push(update),
       context,
-      grant,
     );
     return {
       pending,
-      grant,
+      controller,
       get dispatches() {
         return dispatches;
       },
@@ -1413,7 +1284,7 @@ describe("standalone extension registration", () => {
     };
   }
 
-  it("does not fetch if authority is revoked while current-runtime credential resolution is pending", async () => {
+  it("does not fetch if native session cancellation occurs during credential resolution", async () => {
     let resolveAuth!: (value: unknown) => void;
     const authPending = new Promise<unknown>((resolve) => {
       resolveAuth = resolve;
@@ -1427,14 +1298,14 @@ describe("standalone extension registration", () => {
         return Response.json({ models: [] });
       },
     });
-    harness.grant.revoke();
+    harness.controller.abort();
     resolveAuth({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } });
     await assert.rejects(harness.pending);
     assert.equal(requests, 0);
     assert.equal(harness.dispatches, 0);
   });
 
-  it("does not send a Responses query after the default-model await loses its session grant", async () => {
+  it("does not send a Responses query after cancellation during default-model lookup", async () => {
     let started!: () => void;
     const requestStarted = new Promise<void>((resolve) => {
       started = resolve;
@@ -1456,35 +1327,37 @@ describe("standalone extension registration", () => {
       },
     });
     await requestStarted;
-    harness.grant.revoke(new Error("session identity changed"));
+    harness.controller.abort(new Error("session identity changed"));
     await assert.rejects(harness.pending);
     assert.equal(requests, 1);
     assert.equal(harness.dispatches, 1);
   });
 
-  it("refuses exact input mutation before the first guarded network dispatch", async () => {
+  it("captures query text before asynchronous native credential lookup", async () => {
     let resolveAuth!: (value: unknown) => void;
     const authPending = new Promise<unknown>((resolve) => {
       resolveAuth = resolve;
     });
-    let requests = 0;
+    let submitted = "";
     const input = { queries: ["before"] };
     const harness = guardedHarness({
       input,
+      model: { provider: "openai-codex", id: "selected-model" },
       getProviderAuth: () => authPending,
-      fetchImpl: async () => {
-        requests++;
-        return Response.json({ models: [] });
+      fetchImpl: async (_url, init) => {
+        submitted = String(init?.body);
+        return new Response(streamFrom([new TextEncoder().encode(responsesFixture)]));
       },
     });
     input.queries[0] = "after";
     resolveAuth({ source: "oauth", auth: { apiKey: tokenFor("acct_synthetic") } });
-    await assert.rejects(harness.pending, /input changed after admission/);
-    assert.equal(requests, 0);
-    assert.equal(harness.dispatches, 0);
+    await harness.pending;
+    assert.match(submitted, /before/);
+    assert.doesNotMatch(submitted, /after/);
+    assert.equal(harness.dispatches, 1);
   });
 
-  it("checks every dispatch and stops newly queued queries when policy authority is revoked", async () => {
+  it("checks every dispatch and stops newly queued queries on native session cancellation", async () => {
     let started!: () => void;
     const firstFive = new Promise<void>((resolve) => {
       started = resolve;
@@ -1507,14 +1380,14 @@ describe("standalone extension registration", () => {
       },
     });
     await firstFive;
-    harness.grant.revoke(new Error("policy epoch changed"));
+    harness.controller.abort(new Error("policy epoch changed"));
     await assert.rejects(harness.pending);
     assert.equal(requests, 5);
     assert.equal(harness.dispatches, 5);
     assert.equal(harness.updates.length, 1, "no partial progress was published after revocation");
   });
 
-  it("aborts an in-flight Responses reader and publishes no stale result after revocation", async () => {
+  it("aborts an in-flight Responses reader and publishes no stale result after cancellation", async () => {
     let readerCancelled = false;
     const updates: unknown[] = [];
     const harness = guardedHarness({
@@ -1537,7 +1410,7 @@ describe("standalone extension registration", () => {
           }),
         ),
     });
-    const revoke = () => harness.grant.revoke(new Error("permission epoch changed"));
+    const revoke = () => harness.controller.abort(new Error("permission epoch changed"));
     const interval = setInterval(() => {
       if (updates.length) {
         clearInterval(interval);

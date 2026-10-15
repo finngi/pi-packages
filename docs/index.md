@@ -7,7 +7,7 @@ Start with [getting started](getting-started.md) to build the packages and launc
 | Task | Guide |
 | --- | --- |
 | Develop an experimental package or choose a session setup | [Development packages](guides/development-packages.md) |
-| Select and review a confined session | [Configure security](guides/security.md) |
+| Review tool calls | [Permissions](../packages/pi-permissions/README.md) |
 | Define an agent, delegate work, and retain files | [Delegate work](guides/delegation.md) |
 | Run shell jobs and hand foreground work to the background | [Manage processes](guides/background-processes.md) |
 | Start a goal and manage evaluation and continuation | [Manage goals](guides/goals.md) |
@@ -19,7 +19,7 @@ Start with [getting started](getting-started.md) to build the packages and launc
 
 ## Concepts
 
-- [Architecture](architecture.md): where code executes, how processes communicate, and where confinement applies.
+- [Architecture](architecture.md): where code executes, how processes communicate, and how optional approval works.
 - [Usage and cost accounting](accounting.md): recorded provider usage, result delivery, estimates, and unknown usage.
 
 ## Reference
@@ -29,7 +29,7 @@ Start with [getting started](getting-started.md) to build the packages and launc
 | [Packages](reference/packages.md) | Responsibilities, dependencies, entrypoints, SDK pins, and licences |
 | [Tools and commands](reference/tools.md) | Parameters, returned values, and limits |
 | [Configuration](reference/configuration.md) | Security selection, policy paths, agent metadata, and context settings |
-| [Security policy](reference/security-policy.md) | Policy schema, host executables and enforcement |
+| [Permission policy](../packages/pi-permissions/README.md) | Allow/deny rules and manual/automatic review |
 | [Goals](reference/goals.md) | Authorization, assessment roles, provider accounting, persisted state, and waits |
 | [Events and delivery](reference/events.md) | In-process services, RPC frames, session records, and response ownership |
 | [Semantic IDs](semantic-ids.md) | Format, vocabulary, collision behavior, and tokenizer evidence |
