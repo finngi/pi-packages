@@ -85,7 +85,7 @@ test("native Bash retains stdout, stderr, exit code and timing", async () => {
     assert.match(result.structuredContent.output, /host-out/);
     assert.match(result.structuredContent.output, /host-err/);
     const listed = await jobs(app, { action: "list" });
-    assert.equal(listed.details[0].mode, "host");
+    assert.equal(listed.details[0].owner, "bash");
     assert.equal(listed.details[0].status, "failed");
   } finally {
     await app.hook("session_shutdown");

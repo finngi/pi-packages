@@ -14,7 +14,6 @@ const spec = (script: string, extras: Partial<LaunchSpec> = {}): LaunchSpec => (
   cwd: process.cwd(),
   owner: "fixture",
   label: "fixture",
-  mode: "sandbox",
   ...extras,
 });
 const wait = async (fn: () => boolean) => {

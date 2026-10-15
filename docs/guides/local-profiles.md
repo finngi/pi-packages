@@ -8,7 +8,7 @@ agent directory when changing packages so native login, sessions and retained re
 |---|---|
 | Delegation | Agent definitions, models, selected tools/skills |
 | Background jobs | Commands and display preferences |
-| Permission gate | Whether loaded, deny/allow rules, manual or automatic review |
+| Permissions | Whether loaded, mode (off/ask/auto), allow/deny rules, classifier model |
 | Goals | Evaluator model and timeout |
 | Context | Selected instructions and project overlays |
 | Presentation | Themes, layout, timestamps and footer |

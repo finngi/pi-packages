@@ -173,7 +173,6 @@ export default function (pi: ExtensionAPI) {
         cwd: spec.cwd,
         owner: "bash",
         label: spec.label,
-        mode: "host",
         stdin: "closed",
         ...(typeof timeout === "number" ? { timeoutMs: timeout * 1000 } : {}),
         ...(spec.onData ? { onData: spec.onData } : {}),
@@ -362,9 +361,7 @@ export default function (pi: ExtensionAPI) {
       async execute(_id, params): Promise<AgentToolResult<Snapshot | EncodedRead | Snapshot[]>> {
         if (closed) throw new Error("Background process session is closed");
         if (params.action === "list") {
-          const jobs = processes
-            .list()
-            .map(({ adapterMetadata: _metadata, ...snapshot }) => snapshot);
+          const jobs = processes.list();
           return {
             content: [
               { type: "text", text: jobs.length ? JSON.stringify(jobs) : "No background jobs." },
@@ -375,12 +372,10 @@ export default function (pi: ExtensionAPI) {
         if (!params.id) throw new Error("A process ID is required");
         if (params.action === "cancel") processes.cancel(params.id);
         const snapshot = processes.status(params.id);
-        // Opaque trusted-client authority stays in the host transport and never enters model-visible output.
-        const { adapterMetadata: _adapterMetadata, ...publicSnapshot } = snapshot;
         if (params.action !== "read")
           return {
-            content: [{ type: "text", text: JSON.stringify(publicSnapshot) }],
-            details: publicSnapshot,
+            content: [{ type: "text", text: JSON.stringify(snapshot) }],
+            details: snapshot,
           };
         const output = processes.read(params.id, params.cursor, params.maxBytes);
         return {
