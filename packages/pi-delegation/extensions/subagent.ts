@@ -760,12 +760,14 @@ export default function (pi: ExtensionAPI) {
       let selectionChanged = false;
       const action = selectionArgs(command);
       if (action) {
-        const names = new Set(current.agents.map((agent) => agent.name));
-        if (action.action === "all") {
-          setup.execute({ op: "apply", agents: full.agents.map((agent) => agent.name) }, ctx);
-          selectionChanged = true;
-        } else if (action.action === "none") {
-          setup.execute({ op: "apply", agents: [] }, ctx);
+        // Session choices are per agent, like the picker; unlisted agents keep inheriting.
+        if (action.action === "all" || action.action === "none") {
+          const state = action.action === "all" ? "on" : "off";
+          setup.setStates(
+            "agents",
+            Object.fromEntries(full.agents.map((agent) => [agent.name, state])),
+            ctx,
+          );
           selectionChanged = true;
         } else if (action.action === "inherit") {
           setup.execute({ op: "reset", kinds: ["agents"] }, ctx);
@@ -773,9 +775,7 @@ export default function (pi: ExtensionAPI) {
         } else if (action.action === "enable" || action.action === "disable") {
           if (!action.name || !full.agents.some((agent) => agent.name === action.name))
             throw Error(`Unknown or untrusted named agent "${action.name ?? ""}"`);
-          if (action.action === "enable") names.add(action.name);
-          else names.delete(action.name);
-          setup.execute({ op: "apply", agents: [...names].sort() }, ctx);
+          setup.setState("agents", action.name, action.action === "enable" ? "on" : "off", ctx);
           selectionChanged = true;
         } else if (action.action === "inspect" && !action.name) {
           throw Error("Use /agents inspect NAME");
