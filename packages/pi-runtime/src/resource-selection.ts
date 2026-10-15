@@ -77,7 +77,11 @@ export function validateResourceSelection(
   kind: ResourceKind,
 ): ResourceSelectionValue {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (Array.isArray(value))
+    throw Error(
+      `Saved ${kind} selection uses the old list format; save it again from the picker or change it to an ID-to-boolean map such as {"id": true}`,
+    );
+  if (!value || typeof value !== "object")
     throw Error(`${kind} selection must be an ID-to-boolean map`);
   const entries = Object.entries(value);
   if (entries.some(([id, selected]) => !id.trim() || typeof selected !== "boolean"))
@@ -206,9 +210,13 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       const selection = options.selections[kind];
       if (!selection) continue;
       const before = selectionValue(settings as ResourceSettings, kind);
+      // Saving converts the old list format, where listed IDs were selected.
+      const current = Array.isArray(before)
+        ? Object.fromEntries(before.filter((id) => typeof id === "string").map((id) => [id, true]))
+        : before;
       const next: Record<string, boolean> = Object.assign(
         Object.create(null),
-        validateResourceSelection(before, kind),
+        validateResourceSelection(current, kind),
       );
       if (selection.snapshot) {
         const known = new Set(selection.knownIds);

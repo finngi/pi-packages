@@ -296,3 +296,22 @@ test("row defaults stay isolated across all resource kinds and inherited rows fo
 test("settings list compatibility is rejected rather than converted", () => {
   assert.throws(() => validateResourceSelection(["old"], "skills"), /ID-to-boolean map/);
 });
+
+test("the old list format gets a clear error and is converted by the next save", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "pi-resource-legacy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  await mkdir(agentDir);
+  await writeFile(
+    join(agentDir, "settings.json"),
+    JSON.stringify({ subagents: { skills: ["tdd", "review"] } }),
+  );
+  assert.throws(() => validateResourceSelection(["tdd"], "skills"), /old list format/);
+  await writeResourceDefaults({
+    scope: "global",
+    agentDir,
+    selections: { skills: { knownIds: ["tdd", "review"], values: { review: false } } },
+  });
+  const saved = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
+  assert.deepEqual(saved.subagents.skills, { tdd: true, review: false });
+});
