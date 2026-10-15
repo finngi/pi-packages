@@ -101,7 +101,7 @@ export function planSessionSetup(
       throw Error(
         `Unknown or unavailable ${kind} IDs: ${missing.join(", ")}${recovery}${
           kind === "packages"
-            ? ". Choose a package returned by session_setup list. Add new sources with pi install, then /reload while idle. Use -e for temporary packages in a new invocation. Security/runtime changes or running children need a restart. No selection was changed."
+            ? ". Choose a package returned by session_setup list. Add new sources with pi install, then /reload while idle. Use -e for temporary packages in a new invocation. Executable extension changes or running children need a restart. No selection was changed."
             : ""
         }`,
       );

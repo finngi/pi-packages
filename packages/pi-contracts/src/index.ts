@@ -161,7 +161,6 @@ export interface PreparedChild {
     skills: readonly string[];
     model?: Readonly<SelectedModel>;
     thinking: string;
-    permissions?: Readonly<{ write: boolean; network: boolean }>;
   }>;
   isCurrent?(): boolean;
   beforeCleanup?(callback: () => Promise<void>): void;
