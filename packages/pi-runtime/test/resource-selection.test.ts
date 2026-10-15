@@ -297,21 +297,13 @@ test("settings list compatibility is rejected rather than converted", () => {
   assert.throws(() => validateResourceSelection(["old"], "skills"), /ID-to-boolean map/);
 });
 
-test("the old list format gets a clear error and is converted by the next save", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "pi-resource-legacy-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const agentDir = join(root, "agent");
-  await mkdir(agentDir);
-  await writeFile(
-    join(agentDir, "settings.json"),
-    JSON.stringify({ subagents: { skills: ["tdd", "review"] } }),
+test("the old list format names the setting to edit", () => {
+  assert.throws(
+    () => validateResourceSelection(["tdd"], "skills"),
+    /subagents\.skills in settings\.json uses the old list format/,
   );
-  assert.throws(() => validateResourceSelection(["tdd"], "skills"), /old list format/);
-  await writeResourceDefaults({
-    scope: "global",
-    agentDir,
-    selections: { skills: { knownIds: ["tdd", "review"], values: { review: false } } },
-  });
-  const saved = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-  assert.deepEqual(saved.subagents.skills, { tdd: true, review: false });
+  assert.throws(
+    () => validateResourceSelection(["a"], "instructions"),
+    /localContext\.instructions in settings\.json/,
+  );
 });

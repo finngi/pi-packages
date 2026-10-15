@@ -79,7 +79,7 @@ export function validateResourceSelection(
   if (value === undefined) return undefined;
   if (Array.isArray(value))
     throw Error(
-      `Saved ${kind} selection uses the old list format; save it again from the picker or change it to an ID-to-boolean map such as {"id": true}`,
+      `${kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
     );
   if (!value || typeof value !== "object")
     throw Error(`${kind} selection must be an ID-to-boolean map`);
@@ -210,13 +210,9 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       const selection = options.selections[kind];
       if (!selection) continue;
       const before = selectionValue(settings as ResourceSettings, kind);
-      // Saving converts the old list format, where listed IDs were selected.
-      const current = Array.isArray(before)
-        ? Object.fromEntries(before.filter((id) => typeof id === "string").map((id) => [id, true]))
-        : before;
       const next: Record<string, boolean> = Object.assign(
         Object.create(null),
-        validateResourceSelection(current, kind),
+        validateResourceSelection(before, kind),
       );
       if (selection.snapshot) {
         const known = new Set(selection.knownIds);
