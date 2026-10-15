@@ -50,9 +50,14 @@ session toggles. The preview exposes `searchFocused` so a host can keep shortcut
 
 ## Layout and keys
 
-The list shows session checkboxes, without package-path badges. Its border shows the category and
-how many are selected. The preview keeps session and default state at the top, above three tabs:
-**Overview** (metadata), **Instructions** and **Source**.
+The list shows active-session checkboxes and three scope columns:  Session,  Project and
+ Global. Filled circles mean On, hollow circles Off, dots Inherit and half circles mixed package
+members; a dash means unknown. These columns show each scope's stored choice, while the checkbox
+shows the active result after inheritance and session-type filtering. Its border shows the category
+and selection count. The adjacent pane has **Overview**, **Instructions** and **Source** tabs in its
+top border, with the resource name on the right. Scope controls and the effective session type sit
+above the content. Successful per-item edits update those controls without a repeated footer message;
+save errors and bulk-save confirmations still appear below the panes.
 
 - Click a tab, or use h/l (Left/Right) to move into the preview and between tabs.
 - j/k (Up/Down) move through the list or scroll the preview.

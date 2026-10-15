@@ -245,7 +245,7 @@ test("search changes the list and the adjacent preview without another dialog", 
   f.component.handleInput("/");
   f.component.handleInput("review");
   await flush();
-  assert.match(f.text(), /1\/2 shown/);
+  assert.match(f.text(), /1\/2/);
   assert.match(f.text(), /Read-only report/);
   assert.doesNotMatch(f.text(), /Architecture decision records/);
   f.component.dispose();
@@ -330,7 +330,7 @@ test("clicking the search field accepts multiword queries rather than toggling t
   f.component.handleInput("code review");
   await flush();
   assert.equal(f.component.input.getValue(), "code review");
-  assert.match(f.text(), /1\/2 shown/);
+  assert.match(f.text(), /1\/2/);
   assert.deepEqual(f.saved, []);
   f.component.dispose();
 });
@@ -462,7 +462,26 @@ test("mouse detail tabs switch content without toggling and scrolling preserves 
   for (let i = 0; i < 4; i++) component.handleInput("\x1b[6~");
   text = component.render(110).map(stripTerminalSequences).join("\n");
   assert.match(text, /Session: OFF/);
-  assert.match(text, /Instructions/);
+  for (const [label, content] of [
+    ["Source", /\/source\/SKILL.md/],
+    ["Overview", /Record architecture decisions/],
+  ] as const) {
+    const x = rows[y].indexOf(` ${label} `) + 2;
+    component.handleMouse({
+      type: "click",
+      button: "left",
+      x,
+      y,
+      screenX: x,
+      screenY: y,
+      width: 110,
+      height: rows.length,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    });
+    assert.match(component.render(110).map(stripTerminalSequences).join("\n"), content);
+  }
   component.dispose();
   f.component.dispose();
 });
@@ -510,7 +529,7 @@ test("Session Inherit removes only its override and follows the project's resolv
   assert.equal(f.entries[0].projectState, "on");
   assert.equal(f.entries[0].globalState, "off");
   assert.match(f.text(160), /Session: INHERIT/);
-  assert.match(f.text(160), /Active here: ON — project choice/);
+  assert.match(f.text(160), /\[x\] adr/);
   assert.deepEqual(f.saved, [], "Inherit is not an explicit On toggle");
   f.component.dispose();
 });
@@ -789,10 +808,7 @@ test("project saves do not attempt session activation even when its toggle would
   await chooseDefault(component, "project", "on");
   assert.equal(f.entries[0].defaultSelected, true);
   assert.equal(f.entries[0].selected, false);
-  assert.match(
-    component.render(140).map(stripTerminalSequences).join("\n"),
-    /project selection ON\. Other scopes unchanged/,
-  );
+  assert.match(component.render(140).map(stripTerminalSequences).join("\n"), /Project:\s+ON/);
   component.dispose();
   f.component.dispose();
 });
@@ -935,7 +951,7 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
   const text = () => component.render(160).map(stripTerminalSequences).join("\n");
   assert.match(text(), /Project:\s+INHERIT/);
   assert.match(text(), /Global:\s+MIXED/);
-  assert.match(text(), /Active here: OFF/);
+  assert.match(text(), /Session:\s+OFF/);
   component.handleInput("g");
   assert.match(text(), /Global choices · MIXED/);
   component.handleInput("\r");
@@ -946,7 +962,7 @@ test("inherited native defaults and mixed packages retain the host's refreshed s
   assert.equal(f.entries[0].selected, false);
   assert.match(text(), /Project:\s+INHERIT/);
   assert.match(text(), /Global:\s+INHERIT/);
-  assert.match(text(), /Active here: OFF/);
+  assert.match(text(), /Session:\s+OFF/);
   component.dispose();
   f.component.dispose();
 });
@@ -1072,7 +1088,7 @@ test("unavailable saved controls explain the restriction in Overview, keyboard a
   await flush();
   const text = () => component.render(140).map(stripTerminalSequences).join("\n");
   assert.match(text(), /Global default unavailable: loaded only for this project or launch/);
-  assert.match(text(), /Active here: ON/);
+  assert.match(text(), /\[x\] adr/);
   component.handleInput("l");
   component.handleInput("l");
   assert.doesNotMatch(text(), /Global default unavailable/);

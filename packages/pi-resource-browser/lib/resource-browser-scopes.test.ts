@@ -102,11 +102,26 @@ test("scope controls separate explicit values from effective selection and fit n
   assert.match(text, /Session:\s+OFF/);
   assert.match(text, /Project:\s+INHERIT/);
   assert.match(text, /Global:\s+ON/);
-  assert.match(text, /Active here: OFF — session choice/);
+  assert.doesNotMatch(text, /Active here:|Other scopes unchanged/);
   assert.match(text, /Applies in: Interactive only — project/);
   const rendered = text.split("\n");
   const scopeRow = rendered.findIndex((line) => line.includes("Session:"));
   const controls = rendered[scopeRow];
+  const heading = rendered.find((line) => line.includes(""))!;
+  const resource = rendered.find((line) => line.includes("[ ] review"))!;
+  for (const [icon, marker] of [
+    ["", ""],
+    ["", "·"],
+    ["", ""],
+  ])
+    assert.equal(
+      resource[heading.indexOf(icon)],
+      marker,
+      "scope indicators align with their headers",
+    );
+  const previewHeading = rendered.find((line) => line.includes(" Overview "))!;
+  assert.match(previewHeading, /Overview.*Instructions.*Source.*review/);
+  assert.doesNotMatch(previewHeading, /\d+–\d+\//);
   assert.doesNotMatch(controls, /[\[\]]/, "scope options use colour without brackets");
   assert.equal(
     controls.indexOf("Project:") - controls.indexOf("Session:"),

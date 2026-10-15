@@ -397,25 +397,17 @@ export class ResourceBrowser implements Component {
   async setScopeState(scope: ResourceScope, state: ResourceDefaultState): Promise<void> {
     const entry = this.results[this.index];
     if (!entry || !this.canEditDefault(entry, scope)) return;
-    await this.saveScope(
-      scope,
-      async () => {
-        if (scope === "session") await this.options.setSession!(entry, state);
-        else await this.options.setDefault!(entry, state, scope);
-      },
-      `selection ${state.toUpperCase()}`,
-    );
+    await this.saveScope(scope, async () => {
+      if (scope === "session") await this.options.setSession!(entry, state);
+      else await this.options.setDefault!(entry, state, scope);
+    });
   }
   async setScopeMode(scope: ResourceScope, mode: ResourceSessionMode): Promise<void> {
     const entry = this.results[this.index];
     if (!entry || !this.options.setMode || !this.canEditDefault(entry, scope)) return;
-    await this.saveScope(
-      scope,
-      () => this.options.setMode!(entry, mode, scope),
-      `session type ${mode === "interactive" ? "INTERACTIVE ONLY" : mode === "any" ? "ANY SESSION" : "INHERIT"}`,
-    );
+    await this.saveScope(scope, () => this.options.setMode!(entry, mode, scope));
   }
-  private async saveScope(scope: ResourceScope, save: () => Promise<void>, description: string) {
+  private async saveScope(scope: ResourceScope, save: () => Promise<void>) {
     const entry = this.results[this.index]!;
     this.defaultMenu = undefined;
     this.savingDefaults = true;
@@ -426,7 +418,7 @@ export class ResourceBrowser implements Component {
       await save();
       if (!this.alive) return;
       this.changed = true;
-      this.status = `${entry.name}: ${scope} ${description}. Other scopes unchanged.`;
+      this.status = "";
     } catch (error) {
       if (!this.alive) return;
       this.error = true;
@@ -594,7 +586,7 @@ export class ResourceBrowser implements Component {
       return { handled: true, focus: true };
     }
     if (
-      event.y === l.previewY &&
+      event.y === l.previewY - 1 &&
       event.x >= l.previewX &&
       event.type === "click" &&
       event.button === "left"
@@ -711,15 +703,25 @@ export class ResourceBrowser implements Component {
       columns: number,
       height: number,
       active: boolean,
+      endTitle = "",
     ) => {
       const border = (text: string) => theme.fg(active ? "accent" : "borderMuted", text);
-      const label = ` ${title} `;
+      const end = endTitle ? ` ${truncateToWidth(endTitle, Math.max(0, columns - 8), "…")} ` : "";
+      const label = truncateToWidth(
+        ` ${title} `,
+        Math.max(0, columns - 2 - visibleWidth(end)),
+        "…",
+      );
       const top =
-        "╭" +
-        truncateToWidth(label, columns - 2, "", true).replace(/ +$/, (m) => "─".repeat(m.length)) +
-        "╮";
+        border("╭") +
+        label +
+        border(
+          "─".repeat(Math.max(0, columns - 2 - visibleWidth(label) - visibleWidth(end))) +
+            end +
+            "╮",
+        );
       return [
-        border(top),
+        top,
         ...Array.from(
           { length: height },
           (_, i) => border("│") + pad(body[i] ?? "", columns - 2) + border("│"),
@@ -737,7 +739,23 @@ export class ResourceBrowser implements Component {
             : theme.fg("dim", "[ ]");
       let row = `${isCurrent ? "›" : " "} ${marker} ${clean(entry.name)}`;
       if (entry.badge === "partial") row += theme.fg("muted", " · partial");
-      row = pad(row, left - 2);
+      const scopes = (["session", "project", "global"] as const)
+        .map((scope) => {
+          const state = this.defaultState(entry, scope);
+          const marker =
+            state === "on"
+              ? ""
+              : state === "off"
+                ? ""
+                : state === "inherit"
+                  ? "·"
+                  : state === "mixed"
+                    ? ""
+                    : "—";
+          return theme.fg(state === "on" ? "success" : state === "off" ? "text" : "dim", marker);
+        })
+        .join("  ");
+      row = pad(row, left - 10) + scopes + " ";
       return isCurrent ? theme.bg("selectedBg", row) : row;
     });
     if (!rows.length) rows.push(theme.fg("muted", "No matches"));
@@ -751,12 +769,12 @@ export class ResourceBrowser implements Component {
         const label = tab === "body" ? "Instructions" : tab[0].toUpperCase() + tab.slice(1);
         const shown = ` ${label} `;
         this.tabRanges.push({ tab, start: tabColumn, end: tabColumn + shown.length });
-        tabColumn += shown.length + 2;
+        tabColumn += shown.length + 1;
         return this.detailTab === tab
           ? theme.bold(theme.fg("accent", shown))
           : theme.fg("muted", shown);
       })
-      .join("  ");
+      .join(theme.fg("borderMuted", "─"));
     this.scopeRanges = [];
     let scopeColumn = 0;
     const scopeLines: string[] = [""];
@@ -774,7 +792,7 @@ export class ResourceBrowser implements Component {
             }
             this.scopeRanges.push({
               scope,
-              row: scopeLines.length + 1,
+              row: scopeLines.length,
               start: scopeColumn,
               end: scopeColumn + shown.length,
             });
@@ -797,18 +815,14 @@ export class ResourceBrowser implements Component {
     const stateLines = entry
       ? scopeLines.map((line) => truncateToWidth(line.trimEnd(), Math.max(1, right - 4)))
       : [state];
-    const effective = entry
-      ? `Active here: ${entry.badge === "partial" ? "MIXED" : entry.selected ? "ON" : "OFF"}${entry.effectiveSource ? ` — ${entry.effectiveSource} choice` : ""}`
-      : "";
     const applies = entry?.mode
       ? `Applies in: ${entry.mode === "interactive" ? "Interactive only" : "Any session"}${entry.modeSource ? ` — ${entry.modeSource}` : ""}`
       : "";
     const pinned = [
-      " " + tabLine,
       "",
       ...stateLines.map((line) => " " + line),
       "",
-      ...[effective, applies]
+      ...[applies]
         .filter(Boolean)
         .flatMap((line) =>
           new Text(line, 0, 0).render(Math.max(1, right - 4)).map((part) => " " + part),
@@ -884,18 +898,27 @@ export class ResourceBrowser implements Component {
             .map((line) => " " + line),
         ];
     const listBox = box(
-      `${this.options.title} · ${selected} selected · ${this.results.length}/${this.options.entries.length} shown`,
+      theme.fg(
+        this.pane !== "preview" ? "accent" : "borderMuted",
+        `${this.options.title} · ${selected} selected · ${this.results.length}/${this.options.entries.length}`,
+      ),
       rows,
       left,
       wide ? previewRows : listRows,
       this.pane !== "preview",
+      "    ",
     );
     const previewBox = box(
-      `${entry?.name ?? "Details"} · ${this.detailOffset + 1}–${Math.min(detailLines.length, this.detailOffset + contentRows)}/${detailLines.length}`,
+      tabLine,
       detailBody,
       right,
       previewRows,
       this.pane === "preview",
+      truncateToWidth(
+        clean(entry?.name ?? "Details"),
+        Math.max(0, right - visibleWidth(tabLine) - 6),
+        "…",
+      ),
     );
     this.layout = {
       left,
@@ -907,7 +930,15 @@ export class ResourceBrowser implements Component {
     };
     if (wide) lines.push(...listBox.map((line, i) => line + " " + previewBox[i]));
     else lines.push(...listBox, "", ...previewBox);
-    lines.push(truncateToWidth(theme.fg(this.error ? "error" : "muted", this.status), width));
+    lines.push(
+      truncateToWidth(
+        theme.fg(
+          this.error ? "error" : "muted",
+          this.status || " On    Off   · Inherit    Mixed   — Unknown",
+        ),
+        width,
+      ),
+    );
     const help = (items: Array<[string, string]>) => {
       let row = "";
       for (const [key, label] of items) {

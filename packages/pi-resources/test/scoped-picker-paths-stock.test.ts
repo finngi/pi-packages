@@ -90,7 +90,7 @@ async function search(browser: ResourceBrowser, query: string) {
   browser.handleInput("\r");
   for (let i = 0; i < 50; i++) browser.handleInput("\x1b[A");
   await tick();
-  assert.match(text(browser), new RegExp(`╭ ${query} ·`));
+  assert.match(text(browser), new RegExp(`Overview.*Instructions.*Source.* ${query} `));
 }
 
 async function fixture(t: any, mixed = false) {
@@ -448,7 +448,7 @@ test(
           }
           f.capture(`${choice.command}-inherited-global-on`, browser);
           assert.match(text(browser), /Session: INHERIT/);
-          assert.match(text(browser), /Active here: ON/);
+          assert.match(text(browser), /\[x\]/);
           // Bulk saves are explicit snapshots, unlike one-row edits.
           browser.handleInput("\x13");
           await settled(browser);
@@ -575,7 +575,7 @@ test(
     assert.equal(extra?.globalDefaultable, false);
     await f.run("packages", async (browser) => {
       await search(browser, "scope-global");
-      assert.match(text(browser), /Active here: MIXED/);
+      assert.match(text(browser), /\[-\] scope-global/);
       const partialBefore = await f.settings();
       setKittyProtocolActive(true);
       browser.handleInput("\x1b[115;6u");
