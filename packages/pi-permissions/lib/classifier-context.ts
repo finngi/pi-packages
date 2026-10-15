@@ -8,6 +8,8 @@ export interface ClassifierView {
   childTask?: string;
   /** The agent's text and reasoning immediately before this call. */
   assistantDecision?: { text: string; thinking: string };
+  /** True when older user messages were dropped before they reached this view. */
+  earlierUserMessagesOmitted?: boolean;
 }
 
 const TRANSCRIPT_BYTES = 64 * 1024;
@@ -79,6 +81,19 @@ export function assistantDecisionBeforeTool(
   return undefined;
 }
 
+/** The newest user messages that fit `budget` once rendered, each trimmed to the field limit. */
+export function newestUserMessages(messages: readonly string[], budget = TRANSCRIPT_BYTES) {
+  const kept: string[] = [];
+  for (const text of [...messages].reverse()) {
+    const trimmed = tail(text);
+    const size = bytes(`User: ${trimmed}`);
+    if (size > budget && kept.length) break;
+    kept.unshift(trimmed);
+    budget -= size;
+  }
+  return { kept, omitted: kept.length < messages.length };
+}
+
 /** Render the view for the model, dropping the oldest user messages to fit. */
 export function classifierTranscript(view: ClassifierView): string {
   const fixed = [
@@ -96,14 +111,11 @@ export function classifierTranscript(view: ClassifierView): string {
     `Working directory: ${view.cwd}`,
     `Tool call: ${view.tool} ${JSON.stringify(view.input)}`,
   ];
-  let budget = TRANSCRIPT_BYTES - bytes(fixed.join("\n"));
-  const users: string[] = [];
-  for (const text of [...view.userMessages].reverse()) {
-    const line = `User: ${tail(text)}`;
-    if (bytes(line) > budget && users.length) break;
-    users.unshift(line);
-    budget -= bytes(line);
-  }
-  if (users.length < view.userMessages.length) users.unshift("[earlier user messages omitted]");
+  const { kept, omitted } = newestUserMessages(
+    view.userMessages,
+    TRANSCRIPT_BYTES - bytes(fixed.join("\n")),
+  );
+  const users = kept.map((text) => `User: ${text}`);
+  if (omitted || view.earlierUserMessagesOmitted) users.unshift("[earlier user messages omitted]");
   return [...users, ...fixed].join("\n");
 }

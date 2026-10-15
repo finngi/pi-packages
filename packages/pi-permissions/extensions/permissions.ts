@@ -14,7 +14,11 @@ import {
 } from "pi-contracts";
 import { installAccounting } from "pi-runtime/accounting";
 import { classify } from "../lib/classifier.ts";
-import { assistantDecisionBeforeTool, recentUserMessages } from "../lib/classifier-context.ts";
+import {
+  assistantDecisionBeforeTool,
+  newestUserMessages,
+  recentUserMessages,
+} from "../lib/classifier-context.ts";
 import {
   DEFAULT_SETTINGS,
   decide,
@@ -27,6 +31,9 @@ import {
 
 const MODE_ENTRY = "pi-permissions.mode";
 const CHILD_ENV = "PI_CHILD_EXTENSION_PERMISSIONS";
+// Linux rejects a single environment string over 128 KiB, so the child gets what the
+// classifier can show rather than the whole conversation.
+const CHILD_ENV_BYTES = 96 * 1024;
 
 /** Checks each tool call against rules, then asks the user or a classifier model. */
 export default function permissions(pi: ExtensionAPI) {
@@ -36,6 +43,7 @@ export default function permissions(pi: ExtensionAPI) {
   let mode: Mode = DEFAULT_SETTINGS.mode;
   let sessionAllow: string[] = [];
   let rootUserMessages: string[] | undefined;
+  let rootMessagesOmitted = false;
   // Bumped on every user message so an approval in flight cannot outlive a change of mind.
   let epoch = 0;
   let prompts: Promise<unknown> = Promise.resolve();
@@ -48,6 +56,7 @@ export default function permissions(pi: ExtensionAPI) {
     epoch++;
     sessionAllow = [];
     rootUserMessages = undefined;
+    rootMessagesOmitted = false;
     const inherited = childSession ? process.env[CHILD_ENV] : undefined;
     try {
       if (inherited) {
@@ -56,6 +65,7 @@ export default function permissions(pi: ExtensionAPI) {
         rootUserMessages = Array.isArray(value.userMessages)
           ? value.userMessages.filter((text: unknown) => typeof text === "string")
           : [];
+        rootMessagesOmitted = value.userMessagesOmitted === true;
       } else {
         const global = SettingsManager.create(ctx.cwd, getAgentDir()).getGlobalSettings();
         settings = readSettings((global as { permissions?: unknown }).permissions);
@@ -113,17 +123,22 @@ export default function permissions(pi: ExtensionAPI) {
   pi.events.on(CHILD_LAUNCH_CONTRIBUTIONS, (value) => {
     const request = value as ChildLaunchContributionRequest;
     if (request?.version !== 1) return;
-    const userMessages =
-      rootUserMessages ?? recentUserMessages(request.ctx.sessionManager.getBranch());
-    request.contribute({
-      extension: fileURLToPath(import.meta.url),
-      env: {
-        [CHILD_ENV]: JSON.stringify({
-          settings: { ...settings, mode, allow: [...settings.allow, ...sessionAllow] },
-          userMessages,
-        }),
-      },
-    });
+    const all = rootUserMessages ?? recentUserMessages(request.ctx.sessionManager.getBranch());
+    let { kept, omitted } = newestUserMessages(all);
+    const encode = () =>
+      JSON.stringify({
+        settings: { ...settings, mode, allow: [...settings.allow, ...sessionAllow] },
+        userMessages: kept,
+        userMessagesOmitted: omitted || rootMessagesOmitted,
+      });
+    let env = encode();
+    // JSON escaping can still grow the text, so drop the oldest messages until it fits.
+    while (Buffer.byteLength(env) > CHILD_ENV_BYTES && kept.length) {
+      kept = kept.slice(1);
+      omitted = true;
+      env = encode();
+    }
+    request.contribute({ extension: fileURLToPath(import.meta.url), env: { [CHILD_ENV]: env } });
   });
 
   const askUser = (
@@ -198,6 +213,7 @@ export default function permissions(pi: ExtensionAPI) {
         input,
         cwd: ctx.cwd,
         userMessages: rootUserMessages ?? recentUserMessages(entries),
+        earlierUserMessagesOmitted: rootMessagesOmitted,
         ...(childSession ? { childTask: recentUserMessages(entries).join("\n\n") } : {}),
         assistantDecision: assistantDecisionBeforeTool(entries, event),
       },

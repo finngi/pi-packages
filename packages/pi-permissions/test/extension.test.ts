@@ -187,3 +187,39 @@ test("a new user message cancels an approval in flight", async () => {
     await h.done();
   }
 });
+
+test("children get the newest user messages within the environment size limit", async () => {
+  const h = await harness({ mode: "auto", model: "fixture/judge" });
+  let child: Awaited<ReturnType<typeof harness>> | undefined;
+  try {
+    for (let index = 0; index < 300; index++)
+      h.entries.push({
+        type: "message",
+        message: { role: "user", content: `${index} ${"\n".repeat(7_000)}` },
+      });
+    h.entries.push({ type: "message", message: { role: "user", content: "latest" } });
+    const value = h.child();
+    // Linux refuses to start a process with an environment string over 128 KiB.
+    assert.ok(Buffer.byteLength(JSON.stringify(value)) < 128 * 1024);
+    assert.equal(value.userMessages.at(-1), "latest");
+    assert.equal(value.userMessagesOmitted, true);
+
+    process.env.PI_SUBAGENT = "1";
+    process.env.PI_CHILD_EXTENSION_PERMISSIONS = JSON.stringify(value);
+    let prompt = "";
+    child = await harness(undefined, {
+      complete: (text) => {
+        prompt = text;
+        return JSON.stringify({ reason: "ok", verdict: "allow" });
+      },
+    });
+    assert.equal(await child.call("write", { path: "x" }), undefined);
+    assert.match(prompt, /^\[earlier user messages omitted\]/);
+    assert.match(prompt, /User: latest/);
+  } finally {
+    delete process.env.PI_SUBAGENT;
+    delete process.env.PI_CHILD_EXTENSION_PERMISSIONS;
+    await child?.done();
+    await h.done();
+  }
+});
