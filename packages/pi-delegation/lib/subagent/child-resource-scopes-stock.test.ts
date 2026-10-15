@@ -389,6 +389,10 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
       }
       const namedLaunch = results.filter((result) => result.toolName === "subagent")[3];
       assert.match(JSON.stringify(namedLaunch), /missing.*not found.*omitted/i);
+      assert.match(
+        JSON.stringify(namedLaunch),
+        /interactive-only\\" is interactive-only and was left out of the child/,
+      );
       assert.equal(await readFile(join(agentDir, "settings.json"), "utf8"), globalSettings);
       assert.equal(await readFile(join(project, ".pi/settings.json"), "utf8"), projectSettings);
     } finally {

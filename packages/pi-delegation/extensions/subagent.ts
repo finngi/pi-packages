@@ -514,13 +514,10 @@ export default function (pi: ExtensionAPI) {
         toggleable: true,
         defaultSelected: true,
       }));
-      const inheritedSkills = selectedSkills(
-        settingsManager(ctx),
-        choices,
-        false,
-        undefined,
-        false,
-      ).map((skill) => skill.name);
+      const manager = settingsManager(ctx);
+      const inheritedSkills = selectedSkills(manager, choices, false, undefined, false).map(
+        (skill) => skill.name,
+      );
       const resolved = resolveSettings(
         agent,
         {
@@ -530,7 +527,10 @@ export default function (pi: ExtensionAPI) {
           tools: pi.getActiveTools(),
           skills: inheritedSkills,
           availableSkills: choices
-            .filter((skill) => resourceApplies(settingsManager(ctx), "skills", skill.name, false))
+            .filter((skill) => resourceApplies(manager, "skills", skill.name, false))
+            .map((skill) => skill.name),
+          interactiveOnlySkills: choices
+            .filter((skill) => !resourceApplies(manager, "skills", skill.name, false))
             .map((skill) => skill.name),
         },
         model,

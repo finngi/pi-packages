@@ -527,7 +527,8 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     },
     execute(input: unknown, ctx: ExtensionContext) {
       const request = validateSessionSetupRequest(input),
-        contributions = collect(ctx);
+        contributions = collect(ctx),
+        warnings = [...defaultErrors];
       if (request.op !== "list") {
         ids(baseTools, "baseTools");
         const next = planSessionSetup(request, {}, contributions),
@@ -574,6 +575,18 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
           pi.setActiveTools(previousTools);
           throw error;
         }
+        // Requested interactive-only resources stay out of RPC, print and child sessions.
+        if (request.op === "apply" && !interactive)
+          for (const kind of resources) {
+            if (request[kind] === undefined && request.packages === undefined) continue;
+            const skipped = (overrides[kind] ?? []).filter(
+              (id) => state(kind, id).mode === "interactive",
+            );
+            if (skipped.length)
+              warnings.push(
+                `Left out interactive-only ${kind}: ${skipped.join(", ")}. They load only in an interactive terminal session.`,
+              );
+          }
       }
       const selected = Object.fromEntries(
         selections.map((kind) => [
@@ -597,7 +610,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         selected: selected as Record<(typeof selections)[number], string[]>,
         overrides: structuredClone(overrides),
         ...(restoreError ? { error: restoreError } : {}),
-        ...(defaultErrors.length ? { warnings: [...defaultErrors] } : {}),
+        ...(warnings.length ? { warnings } : {}),
         candidates: candidates.slice(0, request.limit ?? 20),
         total: candidates.length,
         effects: {

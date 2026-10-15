@@ -650,3 +650,19 @@ test("settings for an unloaded provider are not read", () => {
   assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
   assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
 });
+
+test("RPC apply names interactive-only resources it leaves out", () => {
+  const f = fixture();
+  f.save("global", { resourceSessionTypes: { skills: { native: "interactive" } } });
+  f.ctx.mode = "rpc";
+  f.setup.restore(f.ctx, true);
+  const result = f.setup.execute({ op: "apply", skills: ["native", "lexical"] }, f.ctx);
+  assert.deepEqual(result.selected.skills, ["lexical"]);
+  assert.deepEqual(result.warnings, [
+    "Left out interactive-only skills: native. They load only in an interactive terminal session.",
+  ]);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+  f.ctx.mode = "tui";
+  f.setup.restore(f.ctx, true);
+  assert.equal(f.setup.execute({ op: "apply", skills: ["native"] }, f.ctx).warnings, undefined);
+});

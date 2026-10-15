@@ -14,6 +14,8 @@ export interface ParentResources {
   skills: string[];
   /** Native-resolved skills eligible for explicit names, regardless of saved selection. */
   availableSkills?: string[];
+  /** Native skills saved as interactive-only; children never receive them. */
+  interactiveOnlySkills?: string[];
 }
 const isAlias = (id: string) => id.endsWith("-latest") || !/-\d{8}$/.test(id);
 export function matchModel(pattern: string, available: ModelRef[]): ModelRef | undefined {
@@ -77,9 +79,11 @@ export function resolveSettings(agent: AgentDef, parent: ParentResources, reques
       ? [...parent.skills, ...bundleSkills]
       : agent.skills;
   const missing = requested.filter((name) => !availableSkills.has(name));
-  const warnings = missing.map(
-    (name) =>
-      `Skill "${name}" was not found in the agent bundle or native project/personal resources; omitted.`,
+  const interactiveOnly = new Set(parent.interactiveOnlySkills);
+  const warnings = missing.map((name) =>
+    interactiveOnly.has(name)
+      ? `Skill "${name}" is interactive-only and was left out of the child.`
+      : `Skill "${name}" was not found in the agent bundle or native project/personal resources; omitted.`,
   );
   return {
     model: { provider: model.provider, id: model.id },
