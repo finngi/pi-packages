@@ -29,6 +29,8 @@ test("invalid settings are rejected with the offending key", () => {
   assert.throws(() => readSettings({ extra: true }), /unknown key extra/);
   assert.throws(() => readSettings({ allow: ["bash:"] }), /permissions.allow/);
   assert.throws(() => readSettings({ timeoutSec: 0 }), /timeoutSec/);
+  // A prefix on any other tool would never match, so a deny rule would silently do nothing.
+  assert.throws(() => readSettings({ deny: ["write:/etc"] }), /only bash rules/);
 });
 
 test("tool rules allow or deny every call to that tool", () => {
