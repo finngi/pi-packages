@@ -300,18 +300,24 @@ try {
         arguments: { command: "printf PACKED_BACKGROUND_OUTPUT; sleep 30", background: true },
       },
       () => ({ name: "bash", arguments: { command: "printf foreground" } }),
-      () => ({
-        name: "background_process",
-        arguments: { action: "read", id: results[0].details.id },
-      }),
-      () => ({
-        name: "background_process",
-        arguments: { action: "cancel", id: results[0].details.id },
-      }),
     ]);
     assert.equal(results[0].details.running, true);
-    assert.match(JSON.stringify(results[2].content), /PACKED_BACKGROUND_OUTPUT/);
-    assert.equal(results[3].details.status, "cancelled");
+    const id = results[0].details.id;
+    let output = "";
+    try {
+      // Reads are nonblocking: a newly launched process may not have emitted output yet.
+      const deadline = Date.now() + 10_000;
+      while (!output.includes("PACKED_BACKGROUND_OUTPUT") && Date.now() < deadline) {
+        await run([{ name: "background_process", arguments: { action: "read", id } }]);
+        output = JSON.stringify(results[0].content);
+        if (!output.includes("PACKED_BACKGROUND_OUTPUT"))
+          await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.match(output, /PACKED_BACKGROUND_OUTPUT/);
+    } finally {
+      await run([{ name: "background_process", arguments: { action: "cancel", id } }]);
+    }
+    assert.equal(results[0].details.status, "cancelled");
   } else if (name === "pi-delegation") {
     await run([
       {
