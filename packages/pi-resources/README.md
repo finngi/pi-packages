@@ -1,14 +1,15 @@
 # pi-resources
 
-Choose which skills and package guidance a Pi session uses, without loading delegation, background
+Choose which skills and packages a Pi session can use, without loading delegation, background
 jobs or permissions. It adds `/skills`, `/packages` and the shared `session_setup` tool, using
 Pi's loaded resources and the shared resource browser.
 
 - `/skills` chooses which skill descriptions the parent's prompt lists. Skill bodies still load on
   demand, and `/skill:name` is refused for skills that are off.
-- `/packages` groups public skills, agents and instructions by package. Agents need
-  `pi-delegation` and instructions need `pi-context`. Both are optional, and opening the picker
-  never loads them.
+- `/packages` makes package resources available or hides them. It does not select their skills,
+  agents or instructions. Those choices stay independent, and return when a disabled package is
+  enabled again. Extension-only packages appear too; native extension code still loads at startup.
+  Agents need `pi-delegation` and instructions need `pi-context`. Opening the picker loads neither.
 
 ## Saving choices
 
@@ -39,7 +40,8 @@ for a row, or reset that category with `session_setup`, to follow refreshed defa
 A grey Global control means the resource only exists in this project or this `-e` run. The reason
 shows in Overview and when you use the control. To make a package available in every project,
 register its source in personal settings with Pi and include the resource in any package filters.
-Saving defaults does not register sources.
+Saving defaults does not register sources. Package availability is saved separately in
+`resourcePackages`; it never rewrites individual resource defaults or the native source list.
 
 ## Picking is not installing
 

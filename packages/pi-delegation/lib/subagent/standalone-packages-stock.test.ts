@@ -75,7 +75,10 @@ test("stock Pi selects an agent-only package without an instructions provider", 
       uiContext: { notify() {}, setStatus() {}, setWidget() {} },
     });
     const before = setup!.execute({ op: "list" }, ctx!).overrides.instructions;
-    const receipt = setup!.execute({ op: "apply", packages: ["agent-only"] }, ctx!);
+    const receipt = setup!.execute(
+      { op: "apply", packages: ["agent-only"], agents: ["worker"] },
+      ctx!,
+    );
     assert.deepEqual(receipt.selected.agents, ["worker"]);
     assert.deepEqual(receipt.overrides.instructions, before);
     assert.match(receipt.effects.packages, /Available resource types: agents/);
@@ -183,7 +186,17 @@ test("stock Pi discovers temporary package skills, agents and instructions witho
       mode: "print",
       uiContext: { notify() {}, setStatus() {}, setWidget() {} },
     });
-    const receipt = setup!.execute({ op: "apply", packages: ["temporary-resources"] }, ctx!);
+    const found = setup!.execute({ op: "list", limit: 50 }, ctx!);
+    const receipt = setup!.execute(
+      {
+        op: "apply",
+        packages: ["temporary-resources"],
+        agents: ["worker"],
+        skills: ["check"],
+        instructions: found.candidates.filter((c) => c.kind === "instructions").map((c) => c.id),
+      },
+      ctx!,
+    );
     assert.deepEqual(receipt.selected.agents, ["worker"]);
     assert.deepEqual(receipt.selected.skills, ["check"]);
     assert.equal(receipt.selected.instructions.length, 1);

@@ -74,6 +74,23 @@ with the headless session-type filter; the parent's temporary overrides do not p
 `session_setup` inspects, applies or resets guidance and active tools. It never installs or reloads
 packages. See [tools](tools.md#session-setup).
 
+## Package availability
+
+Native `packages` entries register sources in personal or project Pi settings. Registration loads
+extensions and discovers allowed resources. It is separate from the picker choices:
+
+```json
+{
+  "resourcePackages": { "personal-general": true, "personal-interactive": true },
+  "resourceSessionTypes": { "packages": { "personal-interactive": "interactive" } }
+}
+```
+
+An enabled package exposes resources for individual selection; it does not select all of them.
+The setting above exposes the general package in every session type and interactive assets only
+in TUI sessions. Interactive extension code should also use Pi's `ctx.mode === "tui"` guard;
+resource session types do not unload JavaScript. Session-only package choices do not pass to children.
+
 ## Local context settings
 
 `pi-context` keeps project context (`AGENTS.md`, `AGENTS.local.md`) apart from selected snippets.

@@ -9,7 +9,7 @@ const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
   lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
 };
 
-export type ResourceKind = "skills" | "agents" | "instructions";
+export type ResourceKind = "packages" | "skills" | "agents" | "instructions";
 export type ResourceDefaultState = "inherit" | "on" | "off";
 export type ResourceSelectionValue = Record<string, boolean> | undefined;
 export type ResourceMode = "any" | "interactive";
@@ -17,6 +17,7 @@ export type ResourceModeState = "inherit" | ResourceMode;
 export type ResourceModes = Record<string, ResourceMode> | undefined;
 
 type ResourceSettings = {
+  resourcePackages?: ResourceSelectionValue;
   subagents?: { agents?: ResourceSelectionValue; skills?: ResourceSelectionValue };
   localContext?: { instructions?: ResourceSelectionValue };
   resourceSessionTypes?: Partial<Record<ResourceKind, ResourceModes>>;
@@ -77,14 +78,31 @@ export function resourceApplies(
   kind: ResourceKind,
   id: string,
   interactive: boolean,
+  packName?: string,
 ): boolean {
   return (
-    interactive ||
-    resolveResourceMode(
-      readResourceModes(settings, "global", kind),
-      readResourceModes(settings, "project", kind),
-      id,
-    ).mode === "any"
+    (!packName || packageApplies(settings, packName, interactive)) &&
+    (interactive ||
+      resolveResourceMode(
+        readResourceModes(settings, "global", kind),
+        readResourceModes(settings, "project", kind),
+        id,
+      ).mode === "any")
+  );
+}
+
+export function packageApplies(
+  settings: SettingsManager,
+  name: string,
+  interactive: boolean,
+): boolean {
+  return (
+    resolveResourceSelection(
+      readResourceSelection(settings, "global", "packages"),
+      readResourceSelection(settings, "project", "packages"),
+      name,
+      true,
+    ).effective && resourceApplies(settings, "packages", name, interactive)
   );
 }
 
@@ -111,6 +129,7 @@ function hasExplicitSelection(value: ResourceSelectionValue): boolean {
 }
 
 function selectionValue(settings: ResourceSettings, kind: ResourceKind): ResourceSelectionValue {
+  if (kind === "packages") return settings.resourcePackages;
   if (kind === "skills" || kind === "agents") {
     if (
       settings.subagents !== undefined &&
@@ -149,7 +168,7 @@ export function validateResourceSelection(
   if (value === undefined) return undefined;
   if (Array.isArray(value))
     throw Error(
-      `${kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
+      `${kind === "packages" ? "resourcePackages" : kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
     );
   if (!value || typeof value !== "object")
     throw Error(`${kind} selection must be an ID-to-boolean map`);
@@ -197,7 +216,10 @@ function writeSelectionValue(
   kind: ResourceKind,
   value: ResourceSelectionValue,
 ) {
-  if (kind === "skills" || kind === "agents") {
+  if (kind === "packages") {
+    if (value === undefined) delete settings.resourcePackages;
+    else settings.resourcePackages = value;
+  } else if (kind === "skills" || kind === "agents") {
     const subagents = settings.subagents;
     if (
       subagents !== undefined &&
@@ -281,7 +303,7 @@ export function writeResourceDefault(options: ResourceDefaultWrite): Promise<voi
 
 export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<void> {
   return settingsFileUpdate(options.scope, options, (settings) => {
-    for (const kind of ["skills", "agents", "instructions"] as const) {
+    for (const kind of ["packages", "skills", "agents", "instructions"] as const) {
       const selection = options.selections[kind];
       if (!selection) continue;
       const before = selectionValue(settings as ResourceSettings, kind);
@@ -378,7 +400,7 @@ export function configuredSkillChoices(
         description: details?.description ?? "Currently loaded by Pi",
         path: skill.path,
         toggleable: true,
-        defaultSelected: true,
+        defaultSelected: !pack,
         ...(details?.disableModelInvocation ? { manualOnly: true } : {}),
         ...(pack ? { packName: pack.name, packKeywords: resourcePackageKeywords(pack) } : {}),
       };
@@ -409,7 +431,7 @@ export function selectedSkills(
     .filter(
       (choice) =>
         choice.toggleable &&
-        resourceApplies(settings, "skills", choice.name, interactive) &&
+        resourceApplies(settings, "skills", choice.name, interactive, choice.packName) &&
         resolveResourceSelection(globalRaw, projectRaw, choice.name, choice.defaultSelected)
           .effective,
     )
@@ -480,7 +502,9 @@ export function filterPromptSkills<T extends { name: string }>(
   return skills.filter((skill) => names.has(skill.name));
 }
 
-export function selectedAgents<T extends { name: string; catalogueOnly?: boolean }>(
+export function selectedAgents<
+  T extends { name: string; catalogueOnly?: boolean; packName?: string },
+>(
   settings: SettingsManager,
   agents: T[],
   globalSnapshot?: GlobalSelectionSnapshot,
@@ -518,7 +542,7 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
   return {
     agents: agents.filter(
       (agent) =>
-        resourceApplies(settings, "agents", agent.name, interactive) &&
+        resourceApplies(settings, "agents", agent.name, interactive, agent.packName) &&
         resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
     ),
     configured,

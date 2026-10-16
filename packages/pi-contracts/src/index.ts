@@ -7,7 +7,7 @@ export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
 export const SESSION_SETUP_REFRESH = "pi-session-setup:refresh:v1";
-export type SessionSetupResourceKind = "skills" | "agents" | "instructions";
+export type SessionSetupResourceKind = "packages" | "skills" | "agents" | "instructions";
 export type SessionSetupSelectionState = "inherit" | "on" | "off";
 export type SessionSetupMode = "any" | "interactive";
 export type SessionSetupModeState = "inherit" | SessionSetupMode;
@@ -37,7 +37,7 @@ export interface SavedInstructionContextRequest {
   reject(reason: string): void;
 }
 export type SessionSetupKind = "packages" | "skills" | "agents" | "instructions" | "tools";
-export type SessionSetupSelectionKind = Exclude<SessionSetupKind, "packages">;
+export type SessionSetupSelectionKind = SessionSetupKind;
 export type SessionSetupOverrides = Partial<Record<SessionSetupSelectionKind, string[]>>;
 export interface SessionSetupCandidate {
   kind: SessionSetupKind;

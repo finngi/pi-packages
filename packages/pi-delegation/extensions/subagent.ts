@@ -756,6 +756,13 @@ export default function (pi: ExtensionAPI) {
         }
       }
       const full = discoverAgents(ctx);
+      const available = new Set(
+        setup
+          .inspect(ctx)
+          .find((value) => value.kind === "agents")
+          ?.candidates.map((candidate) => candidate.id),
+      );
+      full.agents = full.agents.filter((agent) => !agent.packName || available.has(agent.name));
       const manager = settingsManager(ctx);
       let current = selectedAgents(manager, full.agents, undefined, ctx.mode === "tui");
       const sessionNames = setup.selection("agents");

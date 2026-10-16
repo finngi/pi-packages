@@ -23,19 +23,19 @@ does not list it for the model or load its body.
 Use the exact package names, skill and agent names, instruction IDs and tool names it returns:
 
 ```json
-{"op":"apply","packages":["@finngi2/pi-evidence-research"],"tools":["read","write","bash","subagent","agent_list","subagent_check","subagent_close"]}
+{"op":"apply","packages":["@example/research"],"skills":["check-evidence"],"agents":["evidence-verifier"],"tools":["read","write","bash","subagent","agent_list","subagent_check","subagent_close"]}
 ```
 
 | Input | Effect |
 |---|---|
 | `op: "list"` | Show the current selection and what is available; optional `query`, `kinds` and `limit` (1–50) |
 | `op: "apply"` with `skills`, `agents`, `instructions` or `tools` | Replace each category you pass; others stay as they are; `[]` clears one |
-| `packages` with `apply` | Replace skills, agents and instructions with those packages' public resources plus any individual choices in the same call; `[]` clears all three; tools are separate |
+| `packages` with `apply` | Set available packages; `[]` hides package resources without erasing their individual choices; tools stay unchanged |
 | `op: "reset"` | Drop the session's choices and use saved defaults. `kinds: ["agents"]` resets only that category |
 
 Package IDs are `package.json` names, including any npm scope. Skills that Pi's filters or CLI
-flags excluded cannot be brought back by selecting their package. Selecting packages changes only
-skills, agents and instructions, never which code is loaded. To add a package, use `pi install` or
+flags excluded cannot be brought back by selecting their package. Selecting a package makes its resources discoverable, without selecting their contents or changing
+which code is loaded. To add a package, use `pi install` or
 start a new run with `-e`; extension code changes need an idle `/reload`. Configured and `-e`
 packages are found through Pi's resolver, including ones with no skills. Before restarting with
 running children, keep their collected files. An unknown package ID returns these next steps and
@@ -288,7 +288,7 @@ the request and ignores late results. Source and tests:
 | `/agents` | `pi-delegation` | Browse and select agents, with settings and diagnostics |
 | `/agents trust [directory]` | `pi-delegation` | Trust a discovered project agent folder for this session |
 | `/skills` | `pi-resources` | Browse and select skills |
-| `/packages` | `pi-resources` | Turn package guidance on or off; Ctrl+S saves project defaults, Ctrl+Shift+S personal defaults |
+| `/packages` | `pi-resources` | Make package resources available or hidden; Ctrl+S saves project defaults, Ctrl+Shift+S personal defaults |
 | `/instructions` | `pi-context` | Browse and select instruction snippets |
 | `/permissions [off\|ask\|auto]` | `pi-permissions` | Show rules, or switch mode for this session |
 | `/goal <objective>` | `pi-goal` | Start or replace the goal and send its objective |

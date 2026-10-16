@@ -182,7 +182,33 @@ for (const names of scenarios)
       const initial = setup!.execute({ op: "list" }, ctx!);
       if (!names.includes("resources")) assert.equal(initial.overrides.skills, undefined);
       const tools = session!.getActiveToolNames();
-      const selected = setup!.execute({ op: "apply", packages: ["fixture-resources"] }, ctx!);
+      const available = setup!.execute({ op: "apply", packages: ["fixture-resources"] }, ctx!);
+      assert.deepEqual(available.selected.skills, initial.selected.skills);
+      assert.deepEqual(available.selected.agents, initial.selected.agents);
+      assert.deepEqual(available.selected.instructions, initial.selected.instructions);
+      const unselectedPrompt = await session!.extensionRunner!.emitBeforeAgentStart(
+        { messageType: "user", prompt: "Available only" },
+        session!._baseSystemPromptOptions,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(unselectedPrompt?.systemPromptOptions),
+        /EAGER_INSTRUCTION_BODY/,
+      );
+      const selected = setup!.execute(
+        {
+          op: "apply",
+          ...(names.includes("resources") ? { skills: ["check"] } : {}),
+          ...(names.includes("delegation") ? { agents: ["worker"] } : {}),
+          ...(names.includes("context")
+            ? {
+                instructions: available.candidates
+                  .filter((c) => c.kind === "instructions")
+                  .map((c) => c.id),
+              }
+            : {}),
+        },
+        ctx!,
+      );
       assert.deepEqual(selected.selected.skills, names.includes("resources") ? ["check"] : []);
       assert.deepEqual(selected.selected.agents, names.includes("delegation") ? ["worker"] : []);
       assert.equal(selected.selected.instructions.length, names.includes("context") ? 1 : 0);
@@ -194,6 +220,20 @@ for (const names of scenarios)
       const options = JSON.stringify(prompt?.systemPromptOptions);
       if (names.includes("context")) assert.match(options, /EAGER_INSTRUCTION_BODY/);
       assert.doesNotMatch(options, /LAZY_SKILL_BODY|CHILD_BODY/);
+      setup!.execute({ op: "apply", packages: [] }, ctx!);
+      const hidden = await session!.extensionRunner!.emitBeforeAgentStart(
+        { messageType: "user", prompt: "Package off" },
+        session!._baseSystemPromptOptions,
+      );
+      assert.doesNotMatch(JSON.stringify(hidden?.systemPromptOptions), /EAGER_INSTRUCTION_BODY/);
+      setup!.execute({ op: "apply", packages: ["fixture-resources"] }, ctx!);
+      assert.deepEqual(setup!.execute({ op: "list" }, ctx!).selected, selected.selected);
+      const restoredPrompt = await session!.extensionRunner!.emitBeforeAgentStart(
+        { messageType: "user", prompt: "Package on again" },
+        session!._baseSystemPromptOptions,
+      );
+      if (names.includes("context"))
+        assert.match(JSON.stringify(restoredPrompt?.systemPromptOptions), /EAGER_INSTRUCTION_BODY/);
       assert.equal(await readFile(settingsFile, "utf8"), JSON.stringify(defaults));
       assert.equal(
         await readFile(join(cwd, ".pi/settings.json")).catch(() => undefined),
@@ -206,6 +246,12 @@ for (const names of scenarios)
       // Resume must retain choices rather than reapply the saved empty defaults.
       await open(sdk.SessionManager.open(file));
       assert.deepEqual(setup!.execute({ op: "list" }, ctx!).selected, selected.selected);
+      const resumedPrompt = await session!.extensionRunner!.emitBeforeAgentStart(
+        { messageType: "user", prompt: "Package on again" },
+        session!._baseSystemPromptOptions,
+      );
+      if (names.includes("context"))
+        assert.match(JSON.stringify(resumedPrompt?.systemPromptOptions), /EAGER_INSTRUCTION_BODY/);
       await close();
     } finally {
       await session?.extensionRunner?.emit({ type: "session_shutdown", reason: "exit" });

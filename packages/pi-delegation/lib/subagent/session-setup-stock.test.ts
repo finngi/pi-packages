@@ -1,3 +1,4 @@
+import { catalogueInstructionId } from "../../../pi-context/lib/instruction-selection.ts";
 import resources from "../../../pi-resources/extensions/resources.ts";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -143,7 +144,14 @@ test(
                 arguments: {
                   op: "apply",
                   packages: ["fixture-pack"],
-                  skills: ["native"],
+                  skills: ["native", "pack-public"],
+                  agents: ["worker"],
+                  instructions: [
+                    catalogueInstructionId(
+                      join(pack, "io.github.finngi2.pi/instructions"),
+                      "behavior.md",
+                    ),
+                  ],
                   tools: [
                     "read",
                     "bash",

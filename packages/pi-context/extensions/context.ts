@@ -29,6 +29,7 @@ import { SESSION_SETUP_REFRESH, type SessionSetupRefreshRequest } from "pi-contr
 import { resourcePickerControls } from "pi-resources/picker";
 import { stripFrontmatter } from "../lib/frontmatter.ts";
 import { instructionCatalogue } from "../lib/instruction-catalogue.ts";
+import { packageApplies } from "pi-resources/selection";
 import {
   catalogueInstructionId,
   effectiveInstructions,
@@ -153,9 +154,10 @@ export default function (pi: ExtensionAPI) {
         trusted ? (manager.getProjectSettings() as InstructionSettings) : {},
         [
           ...localNames,
-          ...instructionFiles().map((file) =>
-            catalogueInstructionId(file.catalogue, basename(file.path)),
-          ),
+          ...packageResources.packs
+            .filter((pack) => packageApplies(manager, pack.name, false))
+            .flatMap((pack) => pack.instructions)
+            .map((file) => catalogueInstructionId(file.catalogue, basename(file.path))),
         ],
         localNames,
         false,
@@ -179,8 +181,18 @@ export default function (pi: ExtensionAPI) {
       const project = manager.getProjectSettings() as InstructionSettings;
       const packs = packageResources;
       if (packs.problems.length) ctx.ui.notify(packs.problems.join("\n"), "warning");
+      const available = new Set(
+        setup
+          .inspect(ctx)
+          .find((value) => value.kind === "instructions")
+          ?.candidates.map((candidate) => candidate.id),
+      );
       const packFiles = packs.packs.flatMap((pack) =>
-        pack.instructions.map((file) => ({ ...file, pack })),
+        pack.instructions
+          .filter((file) =>
+            available.has(catalogueInstructionId(file.catalogue, basename(file.path))),
+          )
+          .map((file) => ({ ...file, pack })),
       );
       const discovered = instructionCatalogue(
         global,
@@ -290,9 +302,9 @@ export default function (pi: ExtensionAPI) {
       : undefined;
     const packs = global ? packageResources : { packs: [], problems: [] };
     if (ctx.hasUI && packs.problems.length) ctx.ui.notify(packs.problems.join("\n"), "warning");
-    const packFiles = packs.packs.flatMap((pack) =>
-      pack.instructions.map((file) => ({ ...file, pack })),
-    );
+    const packFiles = packs.packs
+      .filter((pack) => !manager || packageApplies(manager, pack.name, ctx.mode === "tui"))
+      .flatMap((pack) => pack.instructions.map((file) => ({ ...file, pack })));
     const localChoices =
       typeof options.cwd === "string" ? localInstructionChoices(options.cwd) : [];
     const localNames = localChoices.map((file) => `local:${relative(options.cwd, file.path)}`);

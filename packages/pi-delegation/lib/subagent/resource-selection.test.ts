@@ -74,7 +74,7 @@ test("only native loaded skill identities become choices; package metadata does 
     const choices = configuredSkillChoices(root, root, [{ name: "one", path: one }], [pack]);
     assert.deepEqual(
       choices.map((choice) => [choice.name, choice.path, choice.packName, choice.defaultSelected]),
-      [["one", one, "sample", true]],
+      [["one", one, "sample", false]],
     );
     const settings = SettingsManager.inMemory({
       subagents: { skills: { one: false, excluded: true } },
