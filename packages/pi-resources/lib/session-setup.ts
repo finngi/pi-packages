@@ -1,4 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  getAgentDir,
+  SettingsManager,
+  type ExtensionAPI,
+  type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import {
   SESSION_SETUP_CONTRIBUTIONS,
   SESSION_SETUP_SERVICE,
@@ -8,9 +13,22 @@ import {
   type SessionSetupOverrides,
   type SessionSetupRequest,
   type SessionSetupService,
+  type SessionSetupResourceKind,
+  type SessionSetupResourceState,
+  type SessionSetupSelectionState,
 } from "pi-contracts";
 import { ResourceSearch } from "pi-resource-browser/search";
 import { Type } from "typebox";
+import {
+  readResourceSelection,
+  readResourceModes,
+  resolveResourceSelection,
+  resolveResourceMode,
+  resourceModeState,
+  resourceSelectionState,
+  type ResourceSelectionValue,
+  type ResourceModes,
+} from "./resource-selection.ts";
 
 export {
   SESSION_SETUP_CONTRIBUTIONS,
@@ -24,10 +42,16 @@ export {
   type SessionSetupRequest,
   type SessionSetupSelectionKind,
   type SessionSetupService,
+  type SessionSetupResourceKind,
+  type SessionSetupResourceState,
+  type SessionSetupSelectionState,
 } from "pi-contracts";
 
 const kinds = ["packages", "skills", "agents", "instructions", "tools"] as const;
 const selections = ["skills", "agents", "instructions", "tools"] as const;
+const resources = ["skills", "agents", "instructions"] as const;
+type ResourceStates = Partial<Record<SessionSetupResourceKind, Record<string, boolean>>>;
+type ResourceSessionModes = Partial<Record<SessionSetupResourceKind, ResourceModes>>;
 const ids = (value: unknown, label: string): string[] => {
   if (
     !Array.isArray(value) ||
@@ -154,11 +178,100 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
   let overrides: SessionSetupOverrides = {},
     baseTools: string[] = [],
     sessionId = "",
-    restoreError: string | undefined;
+    restoreError: string | undefined,
+    defaultErrors: string[] = [];
   let resourceUniverse: SessionSetupCandidate[] | undefined;
+  let states: ResourceStates = {};
+  let initialized = false,
+    interactive = false;
+  let resolved: Partial<Record<SessionSetupResourceKind, string[]>> = {};
+  let defaults: Record<
+    "global" | "project",
+    Partial<Record<SessionSetupResourceKind, ResourceSelectionValue>>
+  > = { global: {}, project: {} };
+  let defaultModes: Record<"global" | "project", ResourceSessionModes> = {
+    global: {},
+    project: {},
+  };
+  let nativeDefaults: Partial<Record<SessionSetupResourceKind, Record<string, boolean>>> = {};
   let service: SessionSetupService;
-  const selection = (kind: (typeof selections)[number]) =>
-    overrides[kind] === undefined ? undefined : [...overrides[kind]!];
+  const selection = (kind: (typeof selections)[number]) => {
+    if (kind === "tools") return overrides.tools === undefined ? undefined : [...overrides.tools];
+    return !initialized ? undefined : [...(resolved[kind] ?? [])];
+  };
+  // Only loaded providers read their saved defaults. An invalid value affects its own kind,
+  // which falls back to native defaults; it never clears other kinds or active tools.
+  const snapshotDefaults = (ctx: ExtensionContext, loaded: SessionSetupResourceKind[]) => {
+    defaults = { global: {}, project: {} };
+    defaultModes = { global: {}, project: {} };
+    defaultErrors = [];
+    for (const kind of loaded)
+      try {
+        const manager = SettingsManager.create(ctx.cwd, getAgentDir(), {
+          projectTrusted: ctx.isProjectTrusted(),
+        });
+        const values = (["global", "project"] as const).map((scope) => ({
+          scope,
+          selection: structuredClone(readResourceSelection(manager, scope, kind)),
+          modes: structuredClone(readResourceModes(manager, scope, kind)),
+        }));
+        for (const { scope, selection, modes } of values) {
+          defaults[scope][kind] = selection;
+          defaultModes[scope][kind] = modes;
+        }
+      } catch (error) {
+        defaultErrors.push(
+          `Saved ${kind} defaults were ignored; using native defaults until settings are fixed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    interactive = ctx.mode === "tui";
+  };
+  const state = (
+    kind: SessionSetupResourceKind,
+    id: string,
+    nativeDefault = false,
+  ): SessionSetupResourceState => {
+    const sessionValue = {
+      ...(overrides[kind] === undefined ? {} : { [id]: overrides[kind]!.includes(id) }),
+      ...states[kind],
+    };
+    const chosen = resolveResourceSelection(
+      defaults.global[kind],
+      defaults.project[kind],
+      id,
+      nativeDefaults[kind]?.[id] ?? nativeDefault,
+      sessionValue,
+    );
+    const mode = resolveResourceMode(defaultModes.global[kind], defaultModes.project[kind], id);
+    return {
+      sessionState: resourceSelectionState(sessionValue, id),
+      projectState: chosen.projectState,
+      globalState: chosen.globalState,
+      selected: chosen.effective && (mode.mode !== "interactive" || interactive),
+      effectiveSource: chosen.source,
+      projectMode: resourceModeState(defaultModes.project[kind], id),
+      globalMode: resourceModeState(defaultModes.global[kind], id),
+      mode: mode.mode,
+      modeSource: mode.source,
+    };
+  };
+  const resolveSelections = () => {
+    resolved = {};
+    for (const kind of resources)
+      resolved[kind] = (resourceUniverse ?? [])
+        .filter((candidate) => candidate.kind === kind && state(kind, candidate.id).selected)
+        .map((candidate) => candidate.id);
+  };
+  const persist = (nextOverrides = overrides, nextStates = states) => {
+    pi.appendEntry(SESSION_SETUP_STATE, {
+      version: 2,
+      overrides: nextOverrides,
+      states: nextStates,
+      baseTools,
+    });
+  };
   pi.events.on(SESSION_SETUP_SERVICE, (value: any) => {
     if (value?.version === 1) value.respond(service);
   });
@@ -265,62 +378,87 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     const missing = desired.filter((name) => !active.has(name));
     if (missing.length) throw Error(`Native tool activation refused: ${missing.join(", ")}`);
   };
-  const restore = (ctx: ExtensionContext, refreshUniverse = false, captureDefaults = false) => {
+  const restore = (ctx: ExtensionContext, refreshUniverse = false, restoreTools = true) => {
     const currentSessionId = ctx.sessionManager.getSessionId();
-    if (sessionId !== currentSessionId) {
+    const switched = sessionId !== currentSessionId;
+    if (switched) {
       sessionId = currentSessionId;
       baseTools = pi.getActiveTools();
       resourceUniverse = undefined;
     }
-    if (refreshUniverse) resourceUniverse = undefined;
+    if (refreshUniverse || switched) {
+      resourceUniverse = undefined;
+      initialized = false;
+    }
     const entry = [...ctx.sessionManager.getBranch()]
       .reverse()
       .find((entry) => entry.type === "custom" && entry.customType === SESSION_SETUP_STATE);
     try {
       const contributions = collect(ctx);
+      if (!initialized) {
+        snapshotDefaults(
+          ctx,
+          resources.filter((kind) => contributions.some((value) => value.kind === kind)),
+        );
+        if (ctx.hasUI) for (const warning of defaultErrors) ctx.ui.notify(warning, "warning");
+      }
       let next: SessionSetupOverrides = {};
+      let nextStates: ResourceStates = {};
       let restoredBase = baseTools;
       if (entry?.type === "custom") {
         const data = entry.data as {
           version?: number;
           overrides?: SessionSetupOverrides;
+          states?: ResourceStates;
           baseTools?: string[];
         };
         if (
-          data?.version !== 1 ||
+          ![1, 2].includes(data?.version ?? 0) ||
           !data.overrides ||
           typeof data.overrides !== "object" ||
-          Array.isArray(data.overrides) ||
-          Object.keys(data.overrides).some(
-            (key) => !selections.includes(key as (typeof selections)[number]),
-          )
+          Array.isArray(data.overrides)
         )
           throw Error("Invalid session setup entry");
-        next = planSessionSetup(
-          validateSessionSetupRequest({ ...data.overrides, op: "apply" }),
-          {},
-          contributions,
-        );
+        // Missing resource providers/candidates are ignored until they are discovered again.
+        // Tool overrides still validate against the actual native registry.
+        const request = validateSessionSetupRequest({ ...data.overrides, op: "apply" });
+        next = {};
+        for (const kind of selections) if (request[kind] !== undefined) next[kind] = request[kind];
+        if (next.tools) planSessionSetup({ op: "apply", tools: next.tools }, {}, contributions);
+        for (const kind of resources) {
+          const saved = data.states?.[kind];
+          if (
+            saved !== undefined &&
+            (!saved ||
+              typeof saved !== "object" ||
+              Array.isArray(saved) ||
+              Object.entries(saved).some(([id, value]) => !id.trim() || typeof value !== "boolean"))
+          )
+            throw Error("Invalid session resource override");
+          if (saved) nextStates[kind] = structuredClone(saved);
+        }
+        // Earlier entries may also record session types; those are ignored.
         if (data.baseTools) restoredBase = ids(data.baseTools, "baseTools");
       }
-      if (!entry && captureDefaults) {
-        for (const kind of ["skills", "agents", "instructions"] as const)
-          if (contributions.some((value) => value.kind === kind))
-            next[kind] = contributions
-              .filter((value) => value.kind === kind)
-              .flatMap((value) => value.selected);
-        next = planSessionSetup({ op: "apply", ...next }, {}, contributions);
-        // Save resource choices at session birth; later personal defaults must not rewrite a resumed session.
-        pi.appendEntry(SESSION_SETUP_STATE, {
-          version: 1,
-          overrides: next,
-          baseTools: restoredBase,
-        });
+      if (restoreTools) {
+        setTools(restoredBase);
+        setTools(next.tools ?? restoredBase);
       }
-      setTools(restoredBase);
-      setTools(next.tools ?? restoredBase);
       baseTools = restoredBase;
       overrides = next;
+      states = nextStates;
+      for (const contribution of contributions)
+        if (resources.includes(contribution.kind as SessionSetupResourceKind)) {
+          const kind = contribution.kind as SessionSetupResourceKind;
+          nativeDefaults[kind] = Object.fromEntries(
+            contribution.candidates.map((candidate) => [
+              candidate.id,
+              candidate.nativeDefault ?? contribution.selected.includes(candidate.id),
+            ]),
+          );
+        }
+      initialized = true;
+      resolveSelections();
       restoreError = undefined;
     } catch (error) {
       // Removed registrations cannot remain in the reset ceiling. Never add new tools here.
@@ -333,7 +471,10 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       baseTools = baseTools.filter((name) => available.has(name));
       // Invalid branch state must not widen back to saved defaults; reset remains available.
       overrides = { skills: [], agents: [], instructions: [], tools: [] };
-      pi.setActiveTools(["session_setup"]);
+      states = {};
+      initialized = true;
+      resolveSelections();
+      if (restoreTools) pi.setActiveTools(["session_setup"]);
       restoreError = error instanceof Error ? error.message : String(error);
       if (ctx.hasUI)
         ctx.ui.notify(
@@ -343,43 +484,114 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     }
   };
   // Native package discovery finishes in session_start before this resource boundary.
-  pi.on("resources_discover", (_event, ctx) => restore(ctx, true, true));
+  pi.on("resources_discover", (_event, ctx) => restore(ctx, true));
   pi.on("session_tree", (_event, ctx) => restore(ctx));
   service = {
     version: 1,
     inspect: collect,
     restore,
     selection,
+    state,
+    setState(kind, id, chosen, ctx) {
+      service.setStates(kind, { [id]: chosen }, ctx);
+    },
+    setStates(kind, chosen, ctx) {
+      if (Object.values(chosen).some((value) => !["inherit", "on", "off"].includes(value)))
+        throw Error("Invalid session selection state");
+      const candidates = collect(ctx)
+        .flatMap((value) => value.candidates)
+        .filter((candidate) => candidate.kind === kind);
+      const missing = Object.keys(chosen).filter(
+        (id) => !candidates.some((candidate) => candidate.id === id),
+      );
+      if (missing.length) throw Error(`Unknown or unavailable ${kind} ID: ${missing.join(", ")}`);
+      const next = structuredClone(states),
+        nextOverrides = structuredClone(overrides);
+      next[kind] ??= {};
+      if (nextOverrides[kind] !== undefined) {
+        for (const candidate of candidates)
+          if (!Object.hasOwn(next[kind]!, candidate.id))
+            next[kind]![candidate.id] = nextOverrides[kind]!.includes(candidate.id);
+        delete nextOverrides[kind];
+      }
+      for (const [id, value] of Object.entries(chosen))
+        if (value === "inherit") delete next[kind]![id];
+        else next[kind]![id] = value === "on";
+      persist(nextOverrides, next);
+      overrides = nextOverrides;
+      states = next;
+      resolveSelections();
+    },
+    refresh(ctx) {
+      restore(ctx, true, false);
+    },
     execute(input: unknown, ctx: ExtensionContext) {
       const request = validateSessionSetupRequest(input),
-        contributions = collect(ctx);
+        contributions = collect(ctx),
+        warnings = [...defaultErrors];
       if (request.op !== "list") {
         ids(baseTools, "baseTools");
-        const next = planSessionSetup(request, overrides, contributions),
+        const next = planSessionSetup(request, {}, contributions),
           previousTools = pi.getActiveTools();
+        // Planning validates this request; sparse picker overrides in untouched kinds remain intact.
+        for (const kind of selections)
+          if (request.op === "apply" && next[kind] === undefined && overrides[kind] !== undefined)
+            next[kind] = overrides[kind];
+        const nextStates = structuredClone(states);
+        for (const kind of resources) {
+          const reset =
+            request.op === "reset" &&
+            (!request.kinds || request.kinds.includes(kind) || request.kinds.includes("packages"));
+          if (
+            reset ||
+            (request.op === "apply" &&
+              (request[kind] !== undefined ||
+                (request.packages !== undefined &&
+                  contributions.some((value) => value.kind === kind))))
+          )
+            delete nextStates[kind];
+          if (request.op === "reset" && !reset && overrides[kind] !== undefined)
+            next[kind] = overrides[kind];
+        }
+        if (
+          request.op === "reset" &&
+          request.kinds &&
+          !request.kinds.includes("tools") &&
+          overrides.tools !== undefined
+        )
+          next.tools = overrides.tools;
         try {
           if (
             (request.op === "reset" && (!request.kinds || request.kinds.includes("tools"))) ||
             request.tools !== undefined
           )
             setTools(next.tools ?? baseTools);
-          pi.appendEntry(SESSION_SETUP_STATE, { version: 1, overrides: next, baseTools });
+          persist(next, nextStates);
           overrides = next;
+          states = nextStates;
+          resolveSelections();
           restoreError = undefined;
         } catch (error) {
           pi.setActiveTools(previousTools);
           throw error;
         }
+        // Requested interactive-only resources stay out of RPC, print and child sessions.
+        if (request.op === "apply" && !interactive)
+          for (const kind of resources) {
+            if (request[kind] === undefined && request.packages === undefined) continue;
+            const skipped = (overrides[kind] ?? []).filter(
+              (id) => state(kind, id).mode === "interactive",
+            );
+            if (skipped.length)
+              warnings.push(
+                `Left out interactive-only ${kind}: ${skipped.join(", ")}. They load only in an interactive terminal session.`,
+              );
+          }
       }
       const selected = Object.fromEntries(
         selections.map((kind) => [
           kind,
-          kind === "tools"
-            ? pi.getActiveTools()
-            : (overrides[kind] ??
-              contributions
-                .filter((value) => value.kind === kind)
-                .flatMap((value) => value.selected)),
+          kind === "tools" ? pi.getActiveTools() : (selection(kind) ?? []),
         ]),
       );
       const candidates = new ResourceSearch(
@@ -398,6 +610,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         selected: selected as Record<(typeof selections)[number], string[]>,
         overrides: structuredClone(overrides),
         ...(restoreError ? { error: restoreError } : {}),
+        ...(warnings.length ? { warnings } : {}),
         candidates: candidates.slice(0, request.limit ?? 20),
         total: candidates.length,
         effects: {

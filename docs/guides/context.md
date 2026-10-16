@@ -35,8 +35,9 @@ Order in `<instructions>`: selected project snippets, in directory-walk and file
 selected package snippets.
 
 Saved choices are maps from snippet ID to `true` or `false`; a missing ID inherits from the next
-level. Session choices are saved in the session and come back on resume. In the picker, Ctrl+S
-saves project defaults and Ctrl+Shift+S saves personal defaults for new sessions.
+level. Explicit session choices come back on resume; inherited choices refresh from saved defaults.
+Editing a saved scope in the picker rereads defaults for this session. Ctrl+S saves project
+defaults and Ctrl+Shift+S saves personal defaults for new sessions.
 
 A selected snippet's text goes into the prompt in full. Skills are different: only their
 description is listed until the model reads them.

@@ -9,8 +9,11 @@ shows what each one can do, launches children over RPC, and routes messages and 
 An agent is a Markdown file, or a bundle folder with its own private skills and files. Use `/agents`
 to search agents, see their details and turn them on or off for this session. Ctrl+S saves project
 defaults; Ctrl+Shift+S saves personal defaults for new sessions. Project defaults win, even an empty
-selection. Resumed sessions keep their choices, `inherit` resets this session to saved defaults,
+selection. Resumed sessions keep explicit choices and refresh inherited defaults; `inherit` resets this session to saved defaults,
 and nothing reloads Pi or stops children. Agents from packages are off until selected.
+Project and Global can also limit a resource to interactive TUI sessions. New children exclude
+saved interactive-only skills and instructions, with a warning when an agent names one.
+`/agents enable NAME` and `disable NAME` change one agent for this session; others keep inheriting.
 
 ## What a child gets
 

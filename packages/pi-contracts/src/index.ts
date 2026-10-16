@@ -6,6 +6,22 @@ export const USAGE_EVENT = "pi-runtime:usage:v1";
 export const SESSION_SETUP_SERVICE = "pi-session-setup:service:v1";
 export const SESSION_SETUP_CONTRIBUTIONS = "pi-session-setup:contribute:v1";
 export const SESSION_SETUP_STATE = "pi-session-setup:v1";
+export type SessionSetupResourceKind = "skills" | "agents" | "instructions";
+export type SessionSetupSelectionState = "inherit" | "on" | "off";
+export type SessionSetupMode = "any" | "interactive";
+export type SessionSetupModeState = "inherit" | SessionSetupMode;
+export interface SessionSetupResourceState {
+  sessionState: SessionSetupSelectionState;
+  projectState: SessionSetupSelectionState;
+  globalState: SessionSetupSelectionState;
+  selected: boolean;
+  effectiveSource: "session" | "project" | "global" | "native";
+  /** Session types are saved only at project and global scope. */
+  projectMode: SessionSetupModeState;
+  globalMode: SessionSetupModeState;
+  mode: SessionSetupMode;
+  modeSource: "project" | "global" | "native";
+}
 /** Saved behavioral defaults for a child, independent of temporary parent selections. */
 export const SAVED_INSTRUCTION_CONTEXT = "pi-context:saved-instructions:v1";
 export interface SavedInstructionContextRequest {
@@ -46,10 +62,29 @@ export interface SessionSetupContributionRequest {
 }
 export interface SessionSetupService {
   version: 1;
-  /** Undefined inherits saved defaults; an empty array deliberately clears this subset. */
+  /** Undefined before discovery; afterwards the frozen effective selection for this session. */
   selection(kind: SessionSetupSelectionKind): string[] | undefined;
   inspect(ctx: ExtensionContext): SessionSetupContribution[];
   restore(ctx: ExtensionContext, refreshUniverse?: boolean): void;
+  state(
+    kind: SessionSetupResourceKind,
+    id: string,
+    nativeDefault?: boolean,
+  ): SessionSetupResourceState;
+  setState(
+    kind: SessionSetupResourceKind,
+    id: string,
+    state: SessionSetupSelectionState,
+    ctx: ExtensionContext,
+  ): void;
+  /** Set several session choices of one kind in one recorded entry; unlisted IDs keep theirs. */
+  setStates(
+    kind: SessionSetupResourceKind,
+    states: Record<string, SessionSetupSelectionState>,
+    ctx: ExtensionContext,
+  ): void;
+  /** Reread saved defaults after they change, keeping session choices and active tools. */
+  refresh(ctx: ExtensionContext): void;
   execute(input: unknown, ctx: ExtensionContext): SessionSetupResult;
 }
 export interface SessionSetupResult {
@@ -60,6 +95,8 @@ export interface SessionSetupResult {
   total: number;
   effects: Record<string, string>;
   error?: string;
+  /** Settings that were ignored, or requested resources left out of this session. */
+  warnings?: string[];
 }
 export interface SessionSetupRequest {
   op: "list" | "apply" | "reset";

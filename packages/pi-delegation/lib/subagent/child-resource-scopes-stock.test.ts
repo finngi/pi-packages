@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import * as sdk from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { sessionSetupService } from "pi-resources/session-setup";
 import context from "../../../pi-context/extensions/context.ts";
 import { catalogueInstructionId } from "../../../pi-context/lib/instruction-selection.ts";
 import resources from "../../../pi-resources/extensions/resources.ts";
@@ -55,7 +56,8 @@ test(
       },
       {
         name: "named",
-        declaration: "skills: [explicit-only, collision, native-winner, missing]\n",
+        declaration:
+          "skills: [explicit-only, collision, native-winner, interactive-only, missing]\n",
         expected: ["explicit-only", "collision", "native-winner"],
       },
       { name: "empty", declaration: "skills: []\n", expected: [] },
@@ -71,6 +73,10 @@ test(
       "# Temporary guidance\nTEMPORARY_PARENT_INSTRUCTION",
     );
     await put(
+      join(instructionDir, "interactive.md"),
+      "# Interactive guidance\nINTERACTIVE_PARENT_INSTRUCTION",
+    );
+    await put(
       join(project, ".agents/instructions/project.md"),
       "# Project guidance\nSAVED_PROJECT_INSTRUCTION",
     );
@@ -82,7 +88,8 @@ test(
       }),
     );
     const personalInstruction = catalogueInstructionId(instructionDir, "personal.md"),
-      temporaryInstruction = catalogueInstructionId(instructionDir, "temporary.md");
+      temporaryInstruction = catalogueInstructionId(instructionDir, "temporary.md"),
+      interactiveInstruction = catalogueInstructionId(instructionDir, "interactive.md");
     const globalSettings = JSON.stringify({
       packages: [pack],
       subagents: {
@@ -93,11 +100,20 @@ test(
           collision: true,
           "native-winner": true,
           "explicit-only": false,
+          "interactive-only": true,
         },
       },
       localContext: {
         autoGitIgnore: false,
-        instructions: { [personalInstruction]: true, [temporaryInstruction]: false },
+        instructions: {
+          [personalInstruction]: true,
+          [temporaryInstruction]: false,
+          [interactiveInstruction]: true,
+        },
+      },
+      resourceSessionTypes: {
+        skills: { "interactive-only": "interactive" },
+        instructions: { [interactiveInstruction]: "interactive" },
       },
     });
     const projectSettings = JSON.stringify({
@@ -106,7 +122,14 @@ test(
     });
     await put(join(agentDir, "settings.json"), globalSettings);
     await put(join(project, ".pi/settings.json"), projectSettings);
-    for (const name of ["personal", "temporary", "collision", "native-winner", "explicit-only"])
+    for (const name of [
+      "personal",
+      "temporary",
+      "collision",
+      "native-winner",
+      "explicit-only",
+      "interactive-only",
+    ])
       await put(
         join(agentDir, "skills", name, "SKILL.md"),
         skill(name, `USER_${name.toUpperCase().replaceAll("-", "_")}`),
@@ -255,7 +278,7 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
                 label: "Capture child",
                 description: "Wait for the actual child model prompt",
                 parameters: Type.Object({ name: Type.String() }),
-                async execute(_id, args) {
+                async execute(_id, args, _signal, _update, ctx) {
                   const file = join(root, `${args.name}.json`),
                     deadline = Date.now() + 20000;
                   let text = "";
@@ -265,7 +288,13 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
                   )
                     await new Promise((resolve) => setTimeout(resolve, 25));
                   assert.ok(text, `Child ${args.name} did not reach its model provider`);
-                  captures.push(JSON.parse(text));
+                  const capture = JSON.parse(text);
+                  captures.push(capture);
+                  await sessionSetupService(pi.events)!.refresh(ctx);
+                  assert.doesNotThrow(
+                    () => process.kill(capture.pid, 0),
+                    "resource refresh leaves the running child process intact",
+                  );
                   return {
                     content: [{ type: "text", text: "Captured child prompt" }],
                     details: {},
@@ -294,6 +323,7 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
         sessionManager: sdk.SessionManager.inMemory(project),
       }));
       await session.bindExtensions({
+        mode: "tui",
         onError: (error) => {
           throw error;
         },
@@ -303,6 +333,8 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
           results.push(event.message);
       });
       await session.prompt("Choose temporary parent guidance.");
+      assert.match(parentPrompts[0], /INTERACTIVE_PARENT_INSTRUCTION/);
+      assert.match(parentPrompts[0], /USER_INTERACTIVE_ONLY_DESCRIPTION/);
       assert(
         results.every((result) => !result.isError),
         JSON.stringify(results),
@@ -338,7 +370,7 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
         );
         assert.doesNotMatch(
           capture.prompt,
-          /TEMPORARY_PARENT_INSTRUCTION|USER_TEMPORARY_DESCRIPTION|_BODY/,
+          /TEMPORARY_PARENT_INSTRUCTION|USER_TEMPORARY_DESCRIPTION|INTERACTIVE_PARENT_INSTRUCTION|USER_INTERACTIVE_ONLY_DESCRIPTION|_BODY/,
         );
         assert.deepEqual(
           capture.skills.map((skill: any) => skill.name).sort(),
@@ -357,6 +389,10 @@ queueMicrotask(()=>{stream.push({type:'start',partial:message});stream.push({typ
       }
       const namedLaunch = results.filter((result) => result.toolName === "subagent")[3];
       assert.match(JSON.stringify(namedLaunch), /missing.*not found.*omitted/i);
+      assert.match(
+        JSON.stringify(namedLaunch),
+        /interactive-only\\" is interactive-only and was left out of the child/,
+      );
       assert.equal(await readFile(join(agentDir, "settings.json"), "utf8"), globalSettings);
       assert.equal(await readFile(join(project, ".pi/settings.json"), "utf8"), projectSettings);
     } finally {
