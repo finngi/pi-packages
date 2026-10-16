@@ -11,6 +11,7 @@ initTheme("dark", false);
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import extension from "../../extensions/subagent.ts";
+import { sessionSetupService } from "pi-resources/session-setup";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "pi-subagent-command-lifecycle-"));
@@ -78,6 +79,7 @@ function fixture() {
   resources(pi as any);
 
   return {
+    pi,
     root,
     project,
     agentDir,
@@ -704,3 +706,54 @@ function registerNativeSkill(f: ReturnType<typeof fixture>, file: string) {
       sourceInfo: { path: file, scope: "user" },
     });
 }
+
+test("text enable/disable changes one row; other rows keep inheriting saved defaults", async () => {
+  const f = fixture();
+  const previousSubagent = process.env.PI_SUBAGENT;
+  delete process.env.PI_SUBAGENT;
+  const catalogue = join(f.root, "catalogue");
+  for (const name of ["a", "b"]) registerNativeSkill(f, addSkill(catalogue, name));
+  for (const name of ["reviewer", "helper"]) {
+    const bundle = join(f.agentDir, "agents", name);
+    mkdirSync(bundle, { recursive: true });
+    writeFileSync(
+      join(bundle, `${name}.md`),
+      `---\nname: ${name}\ndescription: ${name} fixture\n---\nWork.`,
+    );
+  }
+  try {
+    await withAgentDir(f.agentDir, async () => {
+      const context = guardedContext(f.project);
+      const entries: unknown[] = [];
+      (f.pi as any).appendEntry = (customType: string, data: unknown) =>
+        entries.push({ type: "custom", customType, data });
+      (context.context.sessionManager as any).getBranch = () => entries;
+      await f.handlers.get("session_start")!({}, context.context);
+      await f.handlers.get("resources_discover")!({}, context.context);
+      const setup = sessionSetupService(f.pi.events as any)!;
+      await f.commands.get("skills")!.handler("disable a", context.context);
+      await f.commands.get("agents")!.handler("disable reviewer", context.context);
+      assert.deepEqual(setup.selection("skills"), ["b"]);
+      assert.deepEqual(setup.selection("agents"), ["helper"]);
+      writeFileSync(
+        join(f.project, ".pi/settings.json"),
+        JSON.stringify({ subagents: { skills: { b: false }, agents: { helper: false } } }),
+      );
+      setup.refresh(context.context);
+      assert.deepEqual(setup.selection("skills"), [], "project OFF for b takes effect");
+      assert.deepEqual(setup.selection("agents"), [], "project OFF for helper takes effect");
+      assert.equal(setup.state("skills", "a").sessionState, "off");
+      assert.equal(setup.state("skills", "b").sessionState, "inherit");
+      await f.commands.get("skills")!.handler("all", context.context);
+      assert.deepEqual(setup.selection("skills"), ["a", "b"]);
+      assert.equal(setup.state("skills", "b").sessionState, "on");
+      await f.commands.get("skills")!.handler("none", context.context);
+      assert.deepEqual(setup.selection("skills"), []);
+      assert.equal(setup.state("skills", "a").sessionState, "off");
+    });
+  } finally {
+    if (previousSubagent === undefined) delete process.env.PI_SUBAGENT;
+    else process.env.PI_SUBAGENT = previousSubagent;
+    f.dispose();
+  }
+});

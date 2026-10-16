@@ -46,10 +46,6 @@ export function resourcePickerControls(options: {
         states.map((state) => state.globalState),
         "mixed",
       );
-      entry.sessionMode = aggregate(
-        states.map((state) => state.sessionMode),
-        "mixed",
-      );
       entry.projectMode = aggregate(
         states.map((state) => state.projectMode),
         "mixed",
@@ -90,12 +86,9 @@ export function resourcePickerControls(options: {
       throw Error("Saving defaults requires a trusted project");
     const selections: Parameters<typeof writeResourceDefaults>[0]["selections"] = {};
     const targets = rows.flatMap((entry) => eligible(entry, scope));
+    // Bulk snapshots save On/Off; session types change only through the saved-scope menu.
     for (const member of targets) {
-      const selection = (selections[member.kind] ??= {
-        knownIds: [],
-        values: {},
-        ...(state === undefined ? { modes: {} } : {}),
-      });
+      const selection = (selections[member.kind] ??= { knownIds: [], values: {} });
       selection.knownIds.push(member.id);
       selection.values[member.id] =
         state === undefined
@@ -103,45 +96,44 @@ export function resourcePickerControls(options: {
           : state === "inherit"
             ? undefined
             : state === "on";
-      if (selection.modes)
-        selection.modes[member.id] = setup.state(member.kind, member.id, member.nativeDefault).mode;
     }
     await writeResourceDefaults({ scope, selections, cwd: ctx.cwd, agentDir: getAgentDir() });
-    await setup.refresh(ctx);
+    setup.refresh(ctx);
+    refresh();
+  };
+  const setSession = (entry: ResourceEntry, state: ResourceDefaultState) => {
+    const byKind = new Map<ResourceKind, Record<string, ResourceDefaultState>>();
+    for (const member of members(entry))
+      byKind.set(member.kind, { ...byKind.get(member.kind), [member.id]: state });
+    for (const [kind, states] of byKind) setup.setStates(kind, states, ctx);
     refresh();
   };
   refresh();
   return {
     refresh,
     toggle: async (entry: ResourceEntry, selected: boolean) => {
-      for (const member of members(entry))
-        setup.setState(member.kind, member.id, selected ? "on" : "off", ctx);
-      refresh();
+      setSession(entry, selected ? "on" : "off");
     },
     setSession: async (entry: ResourceEntry, state: ResourceDefaultState) => {
-      for (const member of members(entry)) setup.setState(member.kind, member.id, state, ctx);
-      refresh();
+      setSession(entry, state);
     },
     setDefault: (entry: ResourceEntry, state: ResourceDefaultState, scope: "project" | "global") =>
       saved(scope, [entry], state),
     setMode: async (
       entry: ResourceEntry,
       mode: ResourceSessionMode,
-      scope: "session" | "project" | "global",
+      scope: "project" | "global",
     ) => {
-      for (const member of scope === "session" ? members(entry) : eligible(entry, scope)) {
-        if (scope === "session") setup.setMode(member.kind, member.id, mode, ctx);
-        else
-          await writeResourceMode({
-            scope,
-            kind: member.kind,
-            id: member.id,
-            mode,
-            cwd: ctx.cwd,
-            agentDir: getAgentDir(),
-          });
-      }
-      if (scope !== "session") await setup.refresh(ctx);
+      for (const member of eligible(entry, scope))
+        await writeResourceMode({
+          scope,
+          kind: member.kind,
+          id: member.id,
+          mode,
+          cwd: ctx.cwd,
+          agentDir: getAgentDir(),
+        });
+      setup.refresh(ctx);
       refresh();
     },
     saveDefaults: (rows: ResourceEntry[]) => saved("project", rows),

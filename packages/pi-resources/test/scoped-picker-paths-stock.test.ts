@@ -429,14 +429,20 @@ test(
           await chooseDefault(browser, "project", "inherit");
           for (const kind of targetKinds)
             assert(f.selected()[kind].includes(f.ids.global[kind]), "project inherits global ON");
-          for (const scope of ["session", "project", "global"] as const) {
+          browser.handleInput("s");
+          assert.doesNotMatch(text(browser), /Interactive only/, "session has no type control");
+          browser.handleInput("\x1b");
+          await settled(browser);
+          for (const scope of ["project", "global"] as const) {
             const before = await f.settings();
             await chooseOption(browser, scope, "Interactive only", true);
             for (const kind of targetKinds)
               assert.equal(state(kind)[`${scope}Mode`], "interactive");
             const after = await f.settings();
-            if (scope !== "global") assert.deepEqual(after.global, before.global);
-            if (scope !== "project") assert.deepEqual(after.project, before.project);
+            assert.deepEqual(
+              scope === "global" ? after.project : after.global,
+              scope === "global" ? before.project : before.global,
+            );
             for (const kind of targetKinds) {
               assert.deepEqual(leaf(after.global, kind), leaf(before.global, kind));
               assert.deepEqual(leaf(after.project, kind), leaf(before.project, kind));
@@ -454,7 +460,8 @@ test(
           f.capture(`${choice.command}-inherited-global-on`, browser);
           assert.match(text(browser), /Session: INHERIT/);
           assert.match(text(browser), /\[x\]/);
-          // Bulk saves are explicit snapshots, unlike one-row edits.
+          // Bulk saves are explicit ON/OFF snapshots, unlike one-row edits.
+          await chooseOption(browser, "global", "Interactive only");
           browser.handleInput("\x13");
           await settled(browser);
           setKittyProtocolActive(true);
@@ -467,6 +474,13 @@ test(
             assert.equal(leaf(saved.project, kind)[f.ids.global[kind]], true);
             assert.equal(leaf(saved.global, kind)[f.ids.sibling[kind]], true);
           }
+          assert.equal(saved.project.resourceSessionTypes, undefined, "bulk saves skip types");
+          for (const kind of targetKinds)
+            assert.equal(
+              saved.global.resourceSessionTypes[kind][f.ids.global[kind]],
+              "interactive",
+            );
+          await chooseOption(browser, "global", "Type: Inherit");
           assert.equal(saved.global.theme, "dark");
           assert.equal(saved.global.subagents.model, "inherit");
           assert.equal(saved.project.keep, "project");
@@ -597,7 +611,7 @@ test(
 );
 
 test(
-  "refresh and resume update inherited defaults while retaining explicit session choices",
+  "resume updates inherited defaults while retaining explicit session choices",
   { timeout: 30000 },
   async (t) => {
     const f = await fixture(t);
@@ -611,12 +625,8 @@ test(
         !f.selected()[kind].includes(f.ids.global[kind]),
         "external defaults do not alter a running session",
       );
-    await f.run("refresh", async () => {});
-    for (const kind of kinds) assert(f.selected()[kind].includes(f.ids.global[kind]));
+    assert.equal(f.session.extensionRunner!.getCommand("refresh"), undefined);
     f.setup.setState("skills", f.ids.global.skills, "off", ctx());
-    for (const kind of kinds) leaf(saved, kind)[f.ids.global[kind]] = false;
-    await writeFile(f.globalFile, JSON.stringify(saved));
-    assert(f.selected().agents.includes(f.ids.global.agents));
     f.session.sessionManager.appendMessage({
       role: "user",
       content: "Save refresh fixture",
@@ -625,14 +635,11 @@ test(
     const sessionFile = f.session.sessionManager.getSessionFile()!;
     await f.close();
     await f.open(sdk.SessionManager.open(sessionFile), "resume");
-    for (const kind of kinds) assert(!f.selected()[kind].includes(f.ids.global[kind]));
+    assert(!f.selected().skills.includes(f.ids.global.skills), "resume preserves explicit OFF");
+    assert(f.selected().agents.includes(f.ids.global.agents));
+    assert(f.selected().instructions.includes(f.ids.global.instructions));
     assert.equal(f.setup.state("skills", f.ids.global.skills).sessionState, "off");
     assert.equal(f.setup.state("agents", f.ids.global.agents).sessionState, "inherit");
-    for (const kind of kinds) leaf(saved, kind)[f.ids.global[kind]] = true;
-    await writeFile(f.globalFile, JSON.stringify(saved));
-    await f.run("refresh", async () => {});
-    assert(!f.selected().skills.includes(f.ids.global.skills), "refresh preserves explicit OFF");
-    assert(f.selected().agents.includes(f.ids.global.agents));
     await f.close();
     await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
     assert(
@@ -674,26 +681,5 @@ test(
         "ordinary guidance remains available",
       );
     }
-  },
-);
-
-test(
-  "refresh hides deleted package resources without reloading extensions",
-  { timeout: 30000 },
-  async (t) => {
-    const f = await fixture(t);
-    await rm(f.packs.global, { recursive: true, force: true });
-    await f.run("refresh", async () => {});
-    const listed = f.setup.execute(
-      { op: "list", limit: 50 },
-      f.session.extensionRunner!.createContext(),
-    );
-    for (const id of Object.values(f.ids.global))
-      assert(!listed.candidates.some((candidate) => candidate.id === id));
-    assert(f.selected().skills.includes(f.ids.sibling.skills));
-    assert(
-      f.session.extensionRunner!.getCommand("agents"),
-      "refresh retains the loaded delegation extension",
-    );
   },
 );

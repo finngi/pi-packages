@@ -55,6 +55,14 @@ test("unavailable model and inactive tool refuse; missing skill warns and is omi
   const missing = resolveSettings({ ...agent, skills: ["unselected"] }, parent);
   assert.deepEqual(missing.skills, []);
   assert.match(missing.warnings?.[0] ?? "", /Skill "unselected".*omitted/);
+  const terminalOnly = resolveSettings(
+    { ...agent, skills: ["terminal"] },
+    { ...parent, interactiveOnlySkills: ["terminal"] },
+  );
+  assert.deepEqual(terminalOnly.skills, []);
+  assert.deepEqual(terminalOnly.warnings, [
+    'Skill "terminal" is interactive-only and was left out of the child.',
+  ]);
   assert.throws(() => resolveSettings({ ...agent, tools: ["write"] }, parent), /unavailable/);
 });
 

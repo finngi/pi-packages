@@ -8,12 +8,7 @@ import {
   parseFrontmatter,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  SESSION_SETUP_CONTRIBUTIONS,
-  SESSION_SETUP_REFRESH,
-  type SessionSetupContributionRequest,
-  type SessionSetupRefreshRequest,
-} from "pi-contracts";
+import { SESSION_SETUP_CONTRIBUTIONS, type SessionSetupContributionRequest } from "pi-contracts";
 import {
   showResourceBrowser,
   resourceBrowserNavigation,
@@ -140,11 +135,6 @@ export default function (pi: ExtensionAPI) {
     });
   };
   pi.on("session_start", async (_input, ctx) => refreshResources(ctx));
-  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
-    const request = value as SessionSetupRefreshRequest;
-    if (request?.version === 1 && typeof request.waitUntil === "function")
-      request.waitUntil(refreshResources(request.ctx));
-  });
   pi.on("input", (event, ctx) => {
     const match = /^\/skill:([^\s]+)(?:\s|$)/.exec(event.text);
     if (!match) return;
@@ -258,32 +248,28 @@ export default function (pi: ExtensionAPI) {
         setup.selection("skills") ?? selected.map((skill) => skill.name),
       );
       if (action) {
-        let next = new Map(
-          choices
-            .filter((skill) => selectedNames.has(skill.name) && skill.toggleable)
-            .map((skill) => [skill.name, skill]),
-        );
-        if (action.action === "none") next.clear();
-        else if (action.action === "all")
-          next = new Map(
-            choices.filter((skill) => skill.toggleable).map((skill) => [skill.name, skill]),
+        // Session choices are per skill, like the picker; unlisted skills keep inheriting.
+        const toggleable = choices.filter((skill) => skill.toggleable);
+        if (action.action === "none" || action.action === "all") {
+          const state = action.action === "all" ? "on" : "off";
+          setup.setStates(
+            "skills",
+            Object.fromEntries(toggleable.map((skill) => [skill.name, state])),
+            ctx,
           );
-        else if (action.action === "inherit") {
+          return;
+        } else if (action.action === "inherit") {
           setup.execute({ op: "reset", kinds: ["skills"] }, ctx);
           return;
         } else if (action.action === "enable" || action.action === "disable") {
-          const choice = choices.find((skill) => skill.name === action.name && skill.toggleable);
+          const choice = toggleable.find((skill) => skill.name === action.name);
           if (!choice) throw Error(`Unknown selectable public skill "${action.name ?? ""}"`);
-          if (action.action === "enable") next.set(choice.name, choice);
-          else next.delete(choice.name);
+          setup.setState("skills", choice.name, action.action === "enable" ? "on" : "off", ctx);
+          return;
         } else if (action.action === "inspect" && !action.name) {
           throw Error("Use /skills inspect NAME");
         } else if (action.action !== "inspect") {
           throw Error(`Unsupported skill selection command: ${action.action}`);
-        }
-        if (action.action !== "inspect") {
-          setup.execute({ op: "apply", skills: [...next.keys()] }, ctx);
-          return;
         }
       }
       let inspectName = action?.action === "inspect" ? action.name : undefined;

@@ -48,7 +48,7 @@ async function refreshSession(entry: ResourceEntry, state: "inherit" | "on" | "o
 async function refreshMode(
   entry: ResourceEntry,
   mode: "inherit" | "any" | "interactive",
-  scope: "session" | "project" | "global",
+  scope: "project" | "global",
 ) {
   entry[`${scope}Mode`] = mode;
 }

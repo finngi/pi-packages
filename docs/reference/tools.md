@@ -33,6 +33,9 @@ Use the exact package names, skill and agent names, instruction IDs and tool nam
 | `packages` with `apply` | Set available packages; `[]` hides package resources without erasing their individual choices; tools stay unchanged |
 | `op: "reset"` | Drop the session's choices and use saved defaults. `kinds: ["agents"]` resets only that category |
 
+The result's `warnings` list saved defaults that were ignored because they are invalid, and, in an
+RPC or print session, requested interactive-only resources that `apply` left out.
+
 Package IDs are `package.json` names, including any npm scope. Skills that Pi's filters or CLI
 flags excluded cannot be brought back by selecting their package. Selecting a package makes its resources discoverable, without selecting their contents or changing
 which code is loaded. To add a package, use `pi install` or

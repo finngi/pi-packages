@@ -20,7 +20,6 @@ function fixture() {
     projectState: "inherit",
     globalState: "on",
     effectiveSource: "session",
-    sessionMode: "inherit",
     projectMode: "interactive",
     globalMode: "any",
     mode: "interactive",
@@ -66,7 +65,7 @@ async function choose(browser: ResourceBrowser, scope: string, label: string) {
   await flush();
 }
 
-test("each scope menu writes only its selection or session type", async () => {
+test("each scope menu writes only its selection or saved session type", async () => {
   const { browser, entry, writes } = fixture();
   await flush();
   for (const scope of ["session", "project", "global"] as const) {
@@ -74,12 +73,18 @@ test("each scope menu writes only its selection or session type", async () => {
     await choose(browser, scope, "Inherit");
     assert.deepEqual(writes.at(-1), [scope, "inherit"]);
     assert.equal(entry[`${scope}State`], "inherit");
-    for (const other of ["session", "project", "global"] as const) {
+    for (const other of ["session", "project", "global"] as const)
       if (other !== scope) assert.equal(entry[`${other}State`], original[`${other}State`]);
-      assert.equal(entry[`${other}Mode`], original[`${other}Mode`]);
-    }
+    assert.equal(entry.projectMode, original.projectMode);
+    assert.equal(entry.globalMode, original.globalMode);
     await choose(browser, scope, "On");
     await choose(browser, scope, "Off");
+    if (scope === "session") {
+      browser.handleInput("s");
+      assert.doesNotMatch(plain(browser), /Interactive only|Type: Inherit/);
+      browser.handleInput("\x1b");
+      continue;
+    }
     await choose(browser, scope, "Interactive only");
     assert.deepEqual(writes.at(-1), [scope, "mode", "interactive"]);
     assert.equal(entry[`${scope}State`], "off", "session type must not select the resource");

@@ -90,13 +90,13 @@ change; native executable changes require a new invocation or deliberate idle re
 
 `pi-resources` owns `/packages` and `/skills`. Delegation owns `/agents` and context owns
 `/instructions`. They use the same scope controls and session history. Each resource or package
-has independent Session, Project and Global On/Off/Inherit choices and a separate Any session or
-Interactive only setting. Package choices save as `resourcePackages` and package session types as
+has independent Session, Project and Global On/Off/Inherit choices. Saved Project and Global scopes also
+offer Any session or Interactive only. Package choices save as `resourcePackages` and package session types as
 `resourceSessionTypes.packages`; saving package defaults never writes member defaults or Pi's
 native `packages` source list.
 
 Global defaults apply across projects; explicit project choices override them. Session overrides
-apply only to that conversation. Resume or `/refresh` reloads inherited defaults while preserving
+apply only to that conversation. Resume or native `/reload` refreshes inherited defaults while preserving
 explicit session choices. New children use saved project/personal resource and package choices
 plus their agent bundle. Parent-only selections do not pass to children.
 
@@ -107,6 +107,17 @@ or instructions. Expanding it into On selections silently adds context and overw
 choices. The former group-checkbox implementation did that and is removed. Availability uses
 the existing scope/state machinery, with one package ID per row; no second installer, manifest
 format or dependency resolver is introduced. Pi's native filters still bound discovery.
+
+## Keep code with its owner
+
+Child start-up, bundle preparation and file collection belong to delegation. Resource discovery
+and selection belong to resources, exposed as library subpaths for context and delegation.
+Processes, accounting, IDs, timers and provider-transfer code stay shared in `pi-runtime` because
+several features use them. Do not turn `pi-runtime` back into a catch-all import. The browser and
+search components stay a separate UI library.
+
+This keeps the accounting and usage interfaces stable and means jobs, goals and permissions no
+longer pull in the browser. No new package, registry or runtime mode was needed.
 
 ## Dependencies
 

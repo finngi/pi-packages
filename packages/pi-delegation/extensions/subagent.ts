@@ -14,8 +14,6 @@ import {
 import type { ChildLaunchService, Communication } from "pi-contracts";
 import {
   SESSION_SETUP_CONTRIBUTIONS,
-  SESSION_SETUP_REFRESH,
-  type SessionSetupRefreshRequest,
   type SessionSetupContributionRequest,
   USAGE_EVENT,
 } from "pi-contracts";
@@ -516,13 +514,10 @@ export default function (pi: ExtensionAPI) {
         toggleable: true,
         defaultSelected: true,
       }));
-      const inheritedSkills = selectedSkills(
-        settingsManager(ctx),
-        choices,
-        false,
-        undefined,
-        false,
-      ).map((skill) => skill.name);
+      const manager = settingsManager(ctx);
+      const inheritedSkills = selectedSkills(manager, choices, false, undefined, false).map(
+        (skill) => skill.name,
+      );
       const resolved = resolveSettings(
         agent,
         {
@@ -532,7 +527,10 @@ export default function (pi: ExtensionAPI) {
           tools: pi.getActiveTools(),
           skills: inheritedSkills,
           availableSkills: choices
-            .filter((skill) => resourceApplies(settingsManager(ctx), "skills", skill.name, false))
+            .filter((skill) => resourceApplies(manager, "skills", skill.name, false))
+            .map((skill) => skill.name),
+          interactiveOnlySkills: choices
+            .filter((skill) => !resourceApplies(manager, "skills", skill.name, false))
             .map((skill) => skill.name),
         },
         model,
@@ -658,11 +656,6 @@ export default function (pi: ExtensionAPI) {
     );
     refreshAgentSelection(ctx);
   };
-  pi.events.on(SESSION_SETUP_REFRESH, (value: unknown) => {
-    const request = value as SessionSetupRefreshRequest;
-    if (request?.version === 1 && typeof request.waitUntil === "function")
-      request.waitUntil(refreshResources(request.ctx));
-  });
   pi.on("session_start", async (_input, ctx) => {
     await cleanup("session_start");
     agentSelectionSnapshot = undefined;
@@ -774,12 +767,14 @@ export default function (pi: ExtensionAPI) {
       let selectionChanged = false;
       const action = selectionArgs(command);
       if (action) {
-        const names = new Set(current.agents.map((agent) => agent.name));
-        if (action.action === "all") {
-          setup.execute({ op: "apply", agents: full.agents.map((agent) => agent.name) }, ctx);
-          selectionChanged = true;
-        } else if (action.action === "none") {
-          setup.execute({ op: "apply", agents: [] }, ctx);
+        // Session choices are per agent, like the picker; unlisted agents keep inheriting.
+        if (action.action === "all" || action.action === "none") {
+          const state = action.action === "all" ? "on" : "off";
+          setup.setStates(
+            "agents",
+            Object.fromEntries(full.agents.map((agent) => [agent.name, state])),
+            ctx,
+          );
           selectionChanged = true;
         } else if (action.action === "inherit") {
           setup.execute({ op: "reset", kinds: ["agents"] }, ctx);
@@ -787,9 +782,7 @@ export default function (pi: ExtensionAPI) {
         } else if (action.action === "enable" || action.action === "disable") {
           if (!action.name || !full.agents.some((agent) => agent.name === action.name))
             throw Error(`Unknown or untrusted named agent "${action.name ?? ""}"`);
-          if (action.action === "enable") names.add(action.name);
-          else names.delete(action.name);
-          setup.execute({ op: "apply", agents: [...names].sort() }, ctx);
+          setup.setState("agents", action.name, action.action === "enable" ? "on" : "off", ctx);
           selectionChanged = true;
         } else if (action.action === "inspect" && !action.name) {
           throw Error("Use /agents inspect NAME");

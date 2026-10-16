@@ -9,10 +9,10 @@ import {
   planSessionSetup,
   SESSION_SETUP_CONTRIBUTIONS,
   SESSION_SETUP_STATE,
-  SESSION_SETUP_REFRESH,
   sessionSetupService,
   validateSessionSetupRequest,
 } from "../lib/session-setup.ts";
+import { resourcePickerControls } from "../lib/picker.ts";
 
 const testRoot = mkdtempSync(join(tmpdir(), "pi-scope-engine-"));
 const agentDir = join(testRoot, "agent");
@@ -540,41 +540,34 @@ test("interactive-only uses native TUI mode, not RPC dialog availability; modes 
   f.save("project", {});
   await f.setup.refresh(f.ctx);
   assert.equal(f.setup.state("skills", "native").globalState, "on");
-  f.setup.setMode("skills", "native", "any", f.ctx);
-  assert.deepEqual(f.setup.selection("skills"), ["native"]);
-  assert.equal(f.setup.state("skills", "native").globalMode, "interactive");
+  assert.deepEqual(f.setup.selection("skills"), []);
   f.setup.setState("skills", "native", "off", f.ctx);
-  f.setup.setMode("skills", "native", "inherit", f.ctx);
   assert.equal(f.setup.state("skills", "native").sessionState, "off");
   f.ctx.mode = "tui";
   f.setup.restore(f.ctx, true);
   assert.deepEqual(f.setup.selection("skills"), []);
 });
 
-test("refresh waits for provider metadata then discovers new candidates without replacing explicit overrides", async () => {
+test("session types recorded by earlier session entries are ignored", () => {
   const f = fixture();
-  f.setup.setState("skills", "native", "off", f.ctx);
-  let refreshed = false;
-  f.events.on(SESSION_SETUP_REFRESH, (request) =>
-    request.waitUntil(
-      Promise.resolve().then(() => {
-        refreshed = true;
-        f.resources
-          .find((value) => value.kind === "skills")!
-          .candidates.push({
-            kind: "skills",
-            id: "new",
-            name: "new",
-            description: "Newly discovered",
-            nativeDefault: true,
-          });
-      }),
-    ),
-  );
-  await f.setup.refresh(f.ctx);
-  assert.equal(refreshed, true);
-  assert.deepEqual(f.setup.selection("skills"), ["new"]);
-  assert.equal(f.setup.state("skills", "native").sessionState, "off");
+  f.save("global", { resourceSessionTypes: { skills: { native: "interactive" } } });
+  f.entries.push({
+    type: "custom",
+    customType: SESSION_SETUP_STATE,
+    data: {
+      version: 2,
+      overrides: {},
+      states: {},
+      modes: { skills: { native: "any" } },
+      baseTools: ["read", "write"],
+    },
+  });
+  f.ctx.mode = "rpc";
+  f.setup.restore(f.ctx, true);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).error, undefined);
+  assert.deepEqual(f.setup.selection("skills"), []);
+  assert.equal(f.setup.state("skills", "native").modeSource, "global");
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
 });
 
 test("refreshing one session does not change another session's frozen defaults", async () => {
@@ -595,4 +588,80 @@ test("resource refresh preserves tools changed by the native session", async () 
   f.setActive(["read", "session_setup"]);
   await f.setup.refresh(f.ctx);
   assert.deepEqual(f.active(), ["read", "session_setup"]);
+});
+
+test("bulk saves write ON/OFF only, so a later global session type still applies", async () => {
+  const f = fixture();
+  const entries = ["native", "lexical"].map((id) => ({
+    id,
+    name: id,
+    description: id,
+    selected: true,
+    preview: async () => id,
+  }));
+  const controls = resourcePickerControls({
+    ctx: f.ctx,
+    setup: f.setup,
+    entries,
+    members: (entry) => [{ kind: "skills", id: entry.id, nativeDefault: true }],
+  });
+  await controls.saveDefaults(entries);
+  const project = JSON.parse(readFileSync(join(f.ctx.cwd, ".pi", "settings.json"), "utf8"));
+  assert.deepEqual(project.subagents.skills, { native: true, lexical: false });
+  assert.equal(project.resourceSessionTypes, undefined);
+  await controls.setMode(entries[0]!, "interactive", "global");
+  const state = f.setup.state("skills", "native", true);
+  assert.equal(state.mode, "interactive");
+  assert.equal(state.modeSource, "global");
+});
+
+test("malformed or old-format defaults fall back per kind and never remove tools", async () => {
+  const f = fixture();
+  f.save("global", {
+    subagents: { agents: ["x"] },
+    resourceSessionTypes: { instructions: { evidence: "tui" } },
+  });
+  f.setup.restore(f.ctx, true);
+  const listed = f.setup.execute({ op: "list" }, f.ctx);
+  assert.equal(listed.error, undefined);
+  assert.equal(listed.warnings?.length, 2);
+  assert.match(listed.warnings![0]!, /agents defaults were ignored.*old list format/);
+  assert.match(listed.warnings![1]!, /instructions defaults were ignored.*any or interactive/);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(f.setup.selection("skills"), ["native"]);
+  f.setup.setState("skills", "lexical", "on", f.ctx);
+  f.setup.refresh(f.ctx);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+  assert.deepEqual(f.setup.selection("skills"), ["native", "lexical"]);
+  f.save("global", {});
+  f.setup.refresh(f.ctx);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+});
+
+test("settings for an unloaded provider are not read", () => {
+  const f = fixture();
+  f.resources.splice(
+    f.resources.findIndex((value) => value.kind === "agents"),
+    1,
+  );
+  f.save("global", { subagents: { agents: ["x"] } });
+  f.setup.restore(f.ctx, true);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+  assert.deepEqual(f.active(), ["read", "write", "session_setup"]);
+});
+
+test("RPC apply names interactive-only resources it leaves out", () => {
+  const f = fixture();
+  f.save("global", { resourceSessionTypes: { skills: { native: "interactive" } } });
+  f.ctx.mode = "rpc";
+  f.setup.restore(f.ctx, true);
+  const result = f.setup.execute({ op: "apply", skills: ["native", "lexical"] }, f.ctx);
+  assert.deepEqual(result.selected.skills, ["lexical"]);
+  assert.deepEqual(result.warnings, [
+    "Left out interactive-only skills: native. They load only in an interactive terminal session.",
+  ]);
+  assert.equal(f.setup.execute({ op: "list" }, f.ctx).warnings, undefined);
+  f.ctx.mode = "tui";
+  f.setup.restore(f.ctx, true);
+  assert.equal(f.setup.execute({ op: "apply", skills: ["native"] }, f.ctx).warnings, undefined);
 });

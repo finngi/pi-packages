@@ -18,24 +18,33 @@ explicit choice wins; Inherit follows the broader scope, ending at Pi's default.
 off for this session leaves its project and global choices intact. The picker shows the effective
 choice and where it came from separately.
 
-Each scope also offers **Any session**, **Interactive only** or **Type: Inherit**. Interactive
-means Pi's TUI; RPC (even with dialogs), print mode and delegated children are excluded. Session
-type does not turn a resource on or off. Project and session types can override a broader type.
+Project and Global also offer a session type: **Any session**, **Interactive only** or
+**Type: Inherit**. Interactive means Pi's TUI; RPC (even with dialogs), print mode and delegated
+children are excluded. Session type does not turn a resource on or off. A project type overrides
+the global one. Session has no type of its own.
 
-Ctrl+S copies eligible current selections and session types to project defaults; Ctrl+Shift+S
-copies them to personal defaults. These bulk saves are explicit; changing a single scope control
-only writes that resource at that scope. Editing defaults here refreshes this session without
+Ctrl+S copies eligible current On/Off selections to project defaults; Ctrl+Shift+S copies them to
+personal defaults. Bulk saves leave session types alone. Changing a single scope control only
+writes that resource at that scope. Editing defaults here rereads them for this session without
 replacing its explicit overrides. Other running sessions keep their current defaults.
 
-`/refresh` rereads saved defaults and metadata for Pi's already-loaded resources. Leaving and
-resuming a session does the same. Both preserve explicit session choices and session types;
-inherited choices follow the refreshed defaults. Neither reloads executable extensions or stops
+`/skills enable NAME` and `/skills disable NAME` set one skill's session choice, like the picker;
+other skills keep inheriting. `/skills all` and `/skills none` turn every listed skill on or off
+for this session, and `/skills inherit` clears this session's skill choices.
+
+Leaving and resuming a session rereads saved defaults. Explicit session choices stay; inherited
+choices follow the current defaults. Resuming never reloads executable extensions or stops
 children. New package registrations and native skill paths still need Pi's idle `/reload` or a
 new invocation.
 
+If a saved choice or session type is not valid (for example an old list instead of an ID map), that
+category uses Pi's defaults and Pi shows a warning; `session_setup` also returns it. Other
+categories and the active tools are unaffected. In an RPC or print session, `session_setup apply`
+names any requested interactive-only resources it leaves out.
+
 Older session records contain complete selection snapshots rather than per-item overrides. Those
 snapshots stay explicit so an upgrade cannot guess which choices you meant to keep. Choose Inherit
-for a row, or reset that category with `session_setup`, to follow refreshed defaults again.
+for a row, or reset that category with `session_setup`, to follow saved defaults again.
 
 A grey Global control means the resource only exists in this project or this `-e` run. The reason
 shows in Overview and when you use the control. To make a package available in every project,

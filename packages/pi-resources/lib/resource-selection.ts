@@ -60,10 +60,8 @@ export function resolveResourceMode(
   global: ResourceModes,
   project: ResourceModes,
   id: string,
-  session?: ResourceModes,
-): { mode: ResourceMode; source: "session" | "project" | "global" | "native" } {
+): { mode: ResourceMode; source: "project" | "global" | "native" } {
   for (const [source, values] of [
-    ["session", session],
     ["project", project],
     ["global", global],
   ] as const) {
@@ -263,7 +261,6 @@ export interface ResourceDefaultsWrite {
       ResourceKind,
       {
         values: Record<string, boolean | undefined>;
-        modes?: Record<string, ResourceMode | undefined>;
         knownIds: string[];
         /** Bulk save: discard saved IDs that are no longer known in this category. */
         snapshot?: boolean;
@@ -321,13 +318,6 @@ export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<v
       }
       const value = Object.keys(next).length ? next : undefined;
       writeSelectionValue(settings, kind, value);
-      if (selection.modes)
-        writeModeValues(
-          settings,
-          kind,
-          selection.modes,
-          selection.snapshot ? selection.knownIds : undefined,
-        );
     }
   });
 }
@@ -337,14 +327,12 @@ function writeModeValues(
   settings: Record<string, unknown>,
   kind: ResourceKind,
   values: Record<string, ResourceMode | undefined>,
-  knownIds?: string[],
 ) {
   const raw = settings.resourceSessionTypes;
   if (raw !== undefined && (!raw || typeof raw !== "object" || Array.isArray(raw)))
     throw Error("resourceSessionTypes must be an object");
   const modes = { ...(raw as Partial<Record<ResourceKind, ResourceModes>> | undefined) };
   const next = { ...validateResourceModes(modes[kind]) };
-  if (knownIds) for (const id of Object.keys(next)) if (!knownIds.includes(id)) delete next[id];
   for (const [id, mode] of Object.entries(values)) {
     if (mode === undefined) delete next[id];
     else next[id] = mode;
@@ -525,12 +513,17 @@ export function selectedAgents<
   )
     return { agents: [], configured: true, error: "subagents must be an object" };
   let projectRaw: ResourceSelectionValue, globalRaw: ResourceSelectionValue;
+  let applies: (id: string) => boolean;
   try {
     projectRaw = readResourceSelection(settings, "project", "agents");
     const currentGlobalRaw = readResourceSelection(settings, "global", "agents");
     globalRaw = globalSnapshot
       ? validateResourceSelection(snapshotValue(globalSnapshot), "agents")
       : currentGlobalRaw;
+    const globalModes = readResourceModes(settings, "global", "agents");
+    const projectModes = readResourceModes(settings, "project", "agents");
+    applies = (id) =>
+      interactive || resolveResourceMode(globalModes, projectModes, id).mode === "any";
   } catch (error) {
     return {
       agents: [],
@@ -542,7 +535,8 @@ export function selectedAgents<
   return {
     agents: agents.filter(
       (agent) =>
-        resourceApplies(settings, "agents", agent.name, interactive, agent.packName) &&
+        applies(agent.name) &&
+        (!agent.packName || packageApplies(settings, agent.packName, interactive)) &&
         resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
     ),
     configured,
