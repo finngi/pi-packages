@@ -51,7 +51,7 @@ Nothing is published.
 
 ## Prepare a public alpha
 
-Only the seven capability packages are gallery entries. Their shared libraries stay bundled;
+Only the seven capability packages receive gallery metadata. Their shared libraries stay bundled;
 users do not install or register those separately. Source manifests remain private to prevent
 accidentally publishing the TypeScript development layout.
 
@@ -85,6 +85,19 @@ an authenticated npm account with permission to use that scope.
 A Git checkout can run the TypeScript helpers directly with Node 24. Installed packages run the
 built JavaScript from `node_modules`. See [packages](../reference/packages.md) for dependencies and
 versions.
+
+## Verify catalog discovery separately
+
+An npm release and its Pi catalog listing are separate checks. Verify the public version and
+download first, then npm name search and Pi's catalog filter. A working direct Pi detail page does
+not establish that the package appears in catalog search.
+
+The `pi-package` keyword establishes eligibility, not a listing guarantee. npm documents that new
+packages [can take up to two weeks to appear in search](https://docs.npmjs.com/searching-for-and-choosing-packages-to-download/).
+`searchScore` is a query-ranking value, not a code-quality verdict. If discovery remains missing,
+collect package names, publish times, metadata and failing search queries for
+[npm registry support](https://www.npmjs.com/support). A metadata-only version bump is not a
+documented indexing fix; publish again when a concrete package change justifies it.
 
 ## Embed with the Pi 1.2.0 SDK
 
