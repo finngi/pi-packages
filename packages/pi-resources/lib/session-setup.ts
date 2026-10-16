@@ -193,7 +193,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     global: {},
     project: {},
   };
-  let nativeDefaults: Partial<Record<SessionSetupResourceKind, Record<string, boolean>>> = {};
+  const nativeDefaults: Partial<Record<SessionSetupResourceKind, Record<string, boolean>>> = {};
   let service: SessionSetupService;
   const selection = (kind: (typeof selections)[number]) => {
     if (kind === "tools") return overrides.tools === undefined ? undefined : [...overrides.tools];
@@ -403,7 +403,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         if (ctx.hasUI) for (const warning of defaultErrors) ctx.ui.notify(warning, "warning");
       }
       let next: SessionSetupOverrides = {};
-      let nextStates: ResourceStates = {};
+      const nextStates: ResourceStates = {};
       let restoredBase = baseTools;
       if (entry?.type === "custom") {
         const data = entry.data as {

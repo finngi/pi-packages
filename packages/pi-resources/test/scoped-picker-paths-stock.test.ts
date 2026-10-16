@@ -339,359 +339,340 @@ const choices = [
 const leaf = (settings: any, kind: string) =>
   kind === "instructions" ? settings.localContext?.instructions : settings.subagents?.[kind];
 
-test(
-  "stock commands drive scoped defaults through native keyboard and mouse paths",
-  { timeout: 60000 },
-  async (t) => {
-    const f = await fixture(t);
-    // Browsing preserves native Pi source ownership; it never republishes skill resources.
-    const skillSource = f.api
-      .getCommands()
-      .find((entry) => entry.name === "skill:global-check")?.sourceInfo;
-    assert.equal(
-      skillSource?.scope,
-      "user",
-      "native personal skill ownership must remain unchanged",
-    );
-    const listed = f.setup.execute(
-      { op: "list", kinds: ["skills"], limit: 50 },
-      f.session.extensionRunner!.createContext(),
-    );
-    assert.equal(
-      listed.candidates.find((entry) => entry.id === "global-check")?.globalDefaultable,
-      true,
-    );
-    for (const choice of choices) {
-      await t.test(`/${choice.command}: independent scope and session-type controls`, async () => {
-        await f.run(choice.command, async (browser) => {
-          await search(browser, choice.query);
-          const targetKinds =
-            choice.kind === "packages"
-              ? (["skills", "agents", "instructions"] as const)
-              : [choice.kind];
-          const state = (kind: (typeof targetKinds)[number]) =>
-            f.setup.state(kind, f.ids.global[kind]);
-          await chooseDefault(browser, "session", "off", true);
-          const initialProject = (await f.settings()).project;
-          for (const chosen of ["on", "off", "inherit"] as const) {
-            await chooseDefault(browser, "global", chosen, chosen === "off");
-            const saved = await f.settings();
-            assert.deepEqual(saved.project, initialProject);
-            for (const kind of targetKinds) {
-              assert.equal(
-                leaf(saved.global, kind)?.[f.ids.global[kind]],
-                chosen === "inherit" ? undefined : chosen === "on",
-              );
-              assert.equal(state(kind).sessionState, "off");
-              assert(
-                !f.selected()[kind].includes(f.ids.global[kind]),
-                "global edits preserve session OFF",
-              );
-            }
-          }
-          await chooseDefault(browser, "global", "on");
-          const beforeProject = await f.settings();
-          for (const chosen of ["on", "off", "inherit"] as const) {
-            await chooseDefault(browser, "project", chosen, true);
-            const saved = await f.settings();
-            assert.deepEqual(saved.global, beforeProject.global);
-            for (const kind of targetKinds) {
-              assert.equal(
-                leaf(saved.project, kind)?.[f.ids.global[kind]],
-                chosen === "inherit" ? undefined : chosen === "on",
-              );
-              assert.equal(
-                leaf(saved.project, kind)?.[f.ids.sibling[kind]],
-                leaf(beforeProject.project, kind)?.[f.ids.sibling[kind]],
-                "scope edit leaves sibling default inherited",
-              );
-              assert.equal(state(kind).sessionState, "off");
-              assert(
-                !f.selected()[kind].includes(f.ids.global[kind]),
-                "project edits preserve explicit session OFF",
-              );
-            }
-          }
-          await chooseDefault(browser, "project", "off");
-          await chooseDefault(browser, "session", "on");
-          for (const kind of targetKinds) assert(f.selected()[kind].includes(f.ids.global[kind]));
-          await chooseDefault(browser, "session", "inherit");
-          for (const kind of targetKinds)
+test("stock commands drive scoped defaults through native keyboard and mouse paths", {
+  timeout: 60000,
+}, async (t) => {
+  const f = await fixture(t);
+  // Browsing preserves native Pi source ownership; it never republishes skill resources.
+  const skillSource = f.api
+    .getCommands()
+    .find((entry) => entry.name === "skill:global-check")?.sourceInfo;
+  assert.equal(skillSource?.scope, "user", "native personal skill ownership must remain unchanged");
+  const listed = f.setup.execute(
+    { op: "list", kinds: ["skills"], limit: 50 },
+    f.session.extensionRunner!.createContext(),
+  );
+  assert.equal(
+    listed.candidates.find((entry) => entry.id === "global-check")?.globalDefaultable,
+    true,
+  );
+  for (const choice of choices) {
+    await t.test(`/${choice.command}: independent scope and session-type controls`, async () => {
+      await f.run(choice.command, async (browser) => {
+        await search(browser, choice.query);
+        const targetKinds =
+          choice.kind === "packages"
+            ? (["skills", "agents", "instructions"] as const)
+            : [choice.kind];
+        const state = (kind: (typeof targetKinds)[number]) =>
+          f.setup.state(kind, f.ids.global[kind]);
+        await chooseDefault(browser, "session", "off", true);
+        const initialProject = (await f.settings()).project;
+        for (const chosen of ["on", "off", "inherit"] as const) {
+          await chooseDefault(browser, "global", chosen, chosen === "off");
+          const saved = await f.settings();
+          assert.deepEqual(saved.project, initialProject);
+          for (const kind of targetKinds) {
+            assert.equal(
+              leaf(saved.global, kind)?.[f.ids.global[kind]],
+              chosen === "inherit" ? undefined : chosen === "on",
+            );
+            assert.equal(state(kind).sessionState, "off");
             assert(
               !f.selected()[kind].includes(f.ids.global[kind]),
-              "session inherits project OFF",
+              "global edits preserve session OFF",
             );
-          await chooseDefault(browser, "project", "inherit");
-          for (const kind of targetKinds)
-            assert(f.selected()[kind].includes(f.ids.global[kind]), "project inherits global ON");
-          browser.handleInput("s");
-          assert.doesNotMatch(text(browser), /Interactive only/, "session has no type control");
-          browser.handleInput("\x1b");
-          await settled(browser);
-          for (const scope of ["project", "global"] as const) {
-            const before = await f.settings();
-            await chooseOption(browser, scope, "Interactive only", true);
-            for (const kind of targetKinds)
-              assert.equal(state(kind)[`${scope}Mode`], "interactive");
-            const after = await f.settings();
-            assert.deepEqual(
-              scope === "global" ? after.project : after.global,
-              scope === "global" ? before.project : before.global,
-            );
-            for (const kind of targetKinds) {
-              assert.deepEqual(leaf(after.global, kind), leaf(before.global, kind));
-              assert.deepEqual(leaf(after.project, kind), leaf(before.project, kind));
-            }
-            if (scope === "global") f.capture(`${choice.command}-interactive-only`, browser);
-            for (const kind of targetKinds)
-              assert.equal(
-                state(kind).sessionState,
-                "inherit",
-                "session type does not change selection state",
-              );
-            await chooseOption(browser, scope, "Any session");
-            await chooseOption(browser, scope, "Type: Inherit");
           }
-          f.capture(`${choice.command}-inherited-global-on`, browser);
-          assert.match(text(browser), /Session: INHERIT/);
-          assert.match(text(browser), /\[x\]/);
-          // Bulk saves are explicit ON/OFF snapshots, unlike one-row edits.
-          await chooseOption(browser, "global", "Interactive only");
-          browser.handleInput("\x13");
-          await settled(browser);
-          setKittyProtocolActive(true);
-          browser.handleInput("\x1b[115;6u");
-          await settled(browser);
-          setKittyProtocolActive(false);
+        }
+        await chooseDefault(browser, "global", "on");
+        const beforeProject = await f.settings();
+        for (const chosen of ["on", "off", "inherit"] as const) {
+          await chooseDefault(browser, "project", chosen, true);
           const saved = await f.settings();
+          assert.deepEqual(saved.global, beforeProject.global);
           for (const kind of targetKinds) {
-            assert.equal(leaf(saved.global, kind)[f.ids.global[kind]], true);
-            assert.equal(leaf(saved.project, kind)[f.ids.global[kind]], true);
-            assert.equal(leaf(saved.global, kind)[f.ids.sibling[kind]], true);
+            assert.equal(
+              leaf(saved.project, kind)?.[f.ids.global[kind]],
+              chosen === "inherit" ? undefined : chosen === "on",
+            );
+            assert.equal(
+              leaf(saved.project, kind)?.[f.ids.sibling[kind]],
+              leaf(beforeProject.project, kind)?.[f.ids.sibling[kind]],
+              "scope edit leaves sibling default inherited",
+            );
+            assert.equal(state(kind).sessionState, "off");
+            assert(
+              !f.selected()[kind].includes(f.ids.global[kind]),
+              "project edits preserve explicit session OFF",
+            );
           }
-          assert.equal(saved.project.resourceSessionTypes, undefined, "bulk saves skip types");
+        }
+        await chooseDefault(browser, "project", "off");
+        await chooseDefault(browser, "session", "on");
+        for (const kind of targetKinds) assert(f.selected()[kind].includes(f.ids.global[kind]));
+        await chooseDefault(browser, "session", "inherit");
+        for (const kind of targetKinds)
+          assert(!f.selected()[kind].includes(f.ids.global[kind]), "session inherits project OFF");
+        await chooseDefault(browser, "project", "inherit");
+        for (const kind of targetKinds)
+          assert(f.selected()[kind].includes(f.ids.global[kind]), "project inherits global ON");
+        browser.handleInput("s");
+        assert.doesNotMatch(text(browser), /Interactive only/, "session has no type control");
+        browser.handleInput("\x1b");
+        await settled(browser);
+        for (const scope of ["project", "global"] as const) {
+          const before = await f.settings();
+          await chooseOption(browser, scope, "Interactive only", true);
+          for (const kind of targetKinds) assert.equal(state(kind)[`${scope}Mode`], "interactive");
+          const after = await f.settings();
+          assert.deepEqual(
+            scope === "global" ? after.project : after.global,
+            scope === "global" ? before.project : before.global,
+          );
+          for (const kind of targetKinds) {
+            assert.deepEqual(leaf(after.global, kind), leaf(before.global, kind));
+            assert.deepEqual(leaf(after.project, kind), leaf(before.project, kind));
+          }
+          if (scope === "global") f.capture(`${choice.command}-interactive-only`, browser);
           for (const kind of targetKinds)
             assert.equal(
-              saved.global.resourceSessionTypes[kind][f.ids.global[kind]],
-              "interactive",
+              state(kind).sessionState,
+              "inherit",
+              "session type does not change selection state",
             );
-          await chooseOption(browser, "global", "Type: Inherit");
-          assert.equal(saved.global.theme, "dark");
-          assert.equal(saved.global.subagents.model, "inherit");
-          assert.equal(saved.project.keep, "project");
-          f.capture(`${choice.command}-after-snapshots`, browser);
-        });
+          await chooseOption(browser, scope, "Any session");
+          await chooseOption(browser, scope, "Type: Inherit");
+        }
+        f.capture(`${choice.command}-inherited-global-on`, browser);
+        assert.match(text(browser), /Session: INHERIT/);
+        assert.match(text(browser), /\[x\]/);
+        // Bulk saves are explicit ON/OFF snapshots, unlike one-row edits.
+        await chooseOption(browser, "global", "Interactive only");
+        browser.handleInput("\x13");
+        await settled(browser);
+        setKittyProtocolActive(true);
+        browser.handleInput("\x1b[115;6u");
+        await settled(browser);
+        setKittyProtocolActive(false);
+        const saved = await f.settings();
+        for (const kind of targetKinds) {
+          assert.equal(leaf(saved.global, kind)[f.ids.global[kind]], true);
+          assert.equal(leaf(saved.project, kind)[f.ids.global[kind]], true);
+          assert.equal(leaf(saved.global, kind)[f.ids.sibling[kind]], true);
+        }
+        assert.equal(saved.project.resourceSessionTypes, undefined, "bulk saves skip types");
+        for (const kind of targetKinds)
+          assert.equal(saved.global.resourceSessionTypes[kind][f.ids.global[kind]], "interactive");
+        await chooseOption(browser, "global", "Type: Inherit");
+        assert.equal(saved.global.theme, "dark");
+        assert.equal(saved.global.subagents.model, "inherit");
+        assert.equal(saved.project.keep, "project");
+        f.capture(`${choice.command}-after-snapshots`, browser);
       });
-    }
-    for (const choice of choices) {
-      for (const scope of ["project", "temporary"] as const) {
-        await t.test(
-          `/${choice.command}: actual ${scope} resource disables global editing`,
-          async () => {
-            const query =
-              choice.command === "skills"
-                ? `${scope}-check`
-                : choice.command === "agents"
-                  ? `${scope}-worker`
-                  : choice.command === "instructions"
-                    ? `${scope}-guidance`
-                    : `scope-${scope}`;
-            await f.run(choice.command, async (browser) => {
-              await search(browser, query);
-              const kinds =
-                choice.kind === "packages" ? ["skills", "agents", "instructions"] : [choice.kind];
-              if (!kinds.every((kind) => f.selected()[kind].includes(f.ids[scope][kind]))) {
-                await chooseDefault(browser, "session", "on");
-              }
-              const before = await f.settings();
-              assert.match(text(browser), /Global default unavailable/);
-              browser.handleInput("g");
-              assert.match(text(browser), /Global default unavailable/);
-              clickText(browser, "Global:");
-              assert.match(text(browser), /Global default unavailable/);
-              assert.deepEqual(
-                await f.settings(),
-                before,
-                "disabled mouse and keyboard paths preserve settings",
+    });
+  }
+  for (const choice of choices) {
+    for (const scope of ["project", "temporary"] as const) {
+      await t.test(
+        `/${choice.command}: actual ${scope} resource disables global editing`,
+        async () => {
+          const query =
+            choice.command === "skills"
+              ? `${scope}-check`
+              : choice.command === "agents"
+                ? `${scope}-worker`
+                : choice.command === "instructions"
+                  ? `${scope}-guidance`
+                  : `scope-${scope}`;
+          await f.run(choice.command, async (browser) => {
+            await search(browser, query);
+            const kinds =
+              choice.kind === "packages" ? ["skills", "agents", "instructions"] : [choice.kind];
+            if (!kinds.every((kind) => f.selected()[kind].includes(f.ids[scope][kind]))) {
+              await chooseDefault(browser, "session", "on");
+            }
+            const before = await f.settings();
+            assert.match(text(browser), /Global default unavailable/);
+            browser.handleInput("g");
+            assert.match(text(browser), /Global default unavailable/);
+            clickText(browser, "Global:");
+            assert.match(text(browser), /Global default unavailable/);
+            assert.deepEqual(
+              await f.settings(),
+              before,
+              "disabled mouse and keyboard paths preserve settings",
+            );
+            f.capture(`${choice.command}-${scope}-global-disabled`, browser);
+            setKittyProtocolActive(true);
+            browser.handleInput("\x1b[115;6u");
+            await settled(browser);
+            setKittyProtocolActive(false);
+            assert.match(text(browser), /selected skipped \(ineligible\)/);
+            const after = await f.settings();
+            assert.deepEqual(after.project, before.project);
+            for (const kind of kinds)
+              assert.equal(
+                leaf(after.global, kind)?.[f.ids[scope][kind]],
+                leaf(before.global, kind)?.[f.ids[scope][kind]],
+                "bulk global save skips actual project-only resource",
               );
-              f.capture(`${choice.command}-${scope}-global-disabled`, browser);
-              setKittyProtocolActive(true);
-              browser.handleInput("\x1b[115;6u");
-              await settled(browser);
-              setKittyProtocolActive(false);
-              assert.match(text(browser), /selected skipped \(ineligible\)/);
-              const after = await f.settings();
-              assert.deepEqual(after.project, before.project);
-              for (const kind of kinds)
-                assert.equal(
-                  leaf(after.global, kind)?.[f.ids[scope][kind]],
-                  leaf(before.global, kind)?.[f.ids[scope][kind]],
-                  "bulk global save skips actual project-only resource",
-                );
-            });
-          },
-        );
-      }
+          });
+        },
+      );
     }
-    // Save a conversation entry locally so stock Pi persists the current session choices.
-    // No model/provider request is involved in this lifecycle fixture.
-    await f.run("packages", async (browser) => {
-      await search(browser, "scope-global");
-      await chooseDefault(browser, "session", "off");
+  }
+  // Save a conversation entry locally so stock Pi persists the current session choices.
+  // No model/provider request is involved in this lifecycle fixture.
+  await f.run("packages", async (browser) => {
+    await search(browser, "scope-global");
+    await chooseDefault(browser, "session", "off");
+  });
+  const resumedChoices = structuredClone(f.selected());
+  f.session.sessionManager.appendMessage({
+    role: "user",
+    content: "Persist picker lifecycle fixture",
+    timestamp: Date.now(),
+  });
+  const sessionFile = f.session.sessionManager.getSessionFile()!;
+  await f.close();
+  await f.open(sdk.SessionManager.open(sessionFile), "resume");
+  assert.deepEqual(
+    f.selected(),
+    resumedChoices,
+    "resume restores session choices despite saved defaults",
+  );
+  for (const choice of choices)
+    await f.run(choice.command, async (browser) => {
+      await search(browser, choice.query);
+      assert.match(text(browser), /Session:\s+OFF/);
+      f.capture(`${choice.command}-resumed`, browser);
     });
-    const resumedChoices = structuredClone(f.selected());
-    f.session.sessionManager.appendMessage({
-      role: "user",
-      content: "Persist picker lifecycle fixture",
-      timestamp: Date.now(),
+  await f.close();
+  await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
+  for (const kind of ["skills", "agents", "instructions"] as const)
+    assert(f.selected()[kind].includes(f.ids.global[kind]), "new session uses saved defaults");
+  for (const choice of choices)
+    await f.run(choice.command, async (browser) => {
+      await search(browser, choice.query);
+      assert.match(text(browser), /Session:\s+INHERIT/);
+      assert.match(text(browser), /Global:\s+ON/);
+      f.capture(`${choice.command}-new-session`, browser);
     });
-    const sessionFile = f.session.sessionManager.getSessionFile()!;
-    await f.close();
-    await f.open(sdk.SessionManager.open(sessionFile), "resume");
-    assert.deepEqual(
-      f.selected(),
-      resumedChoices,
-      "resume restores session choices despite saved defaults",
+});
+
+test("stock mixed-eligibility package exposes its member scopes before global snapshots", {
+  timeout: 30000,
+}, async (t) => {
+  const f = await fixture(t, true);
+  const listed = f.setup.execute(
+    { op: "list", kinds: ["skills"], limit: 50 },
+    f.session.extensionRunner!.createContext(),
+  );
+  const main = listed.candidates.find((entry) => entry.id === "global-check");
+  const extra = listed.candidates.find((entry) => entry.id === "global-extra");
+  assert.equal(main?.globalDefaultable, true);
+  assert.equal(extra?.packName, "scope-global");
+  assert.equal(extra?.globalDefaultable, false);
+  await f.run("packages", async (browser) => {
+    await search(browser, "scope-global");
+    assert.match(text(browser), /\[-\] scope-global/);
+    const partialBefore = await f.settings();
+    setKittyProtocolActive(true);
+    browser.handleInput("\x1b[115;6u");
+    await settled(browser);
+    setKittyProtocolActive(false);
+    assert.match(text(browser), /selected skipped/);
+    assert.equal(
+      leaf((await f.settings()).global, "skills")?.["global-check"],
+      leaf(partialBefore.global, "skills")?.["global-check"],
     );
-    for (const choice of choices)
-      await f.run(choice.command, async (browser) => {
-        await search(browser, choice.query);
-        assert.match(text(browser), /Session:\s+OFF/);
-        f.capture(`${choice.command}-resumed`, browser);
-      });
+    await chooseDefault(browser, "session", "on");
+    assert(f.selected().skills.includes("global-extra"));
+    browser.handleInput("g");
+    assert.match(text(browser), /Global default unavailable/);
+    f.capture("mixed-package-before-global-snapshot", browser);
+    const before = await f.settings();
+    setKittyProtocolActive(true);
+    browser.handleInput("\x1b[115;6u");
+    await settled(browser);
+    setKittyProtocolActive(false);
+    f.capture("mixed-package-after-global-snapshot", browser);
+    const after = await f.settings();
+    assert.equal(leaf(after.global, "skills")?.["global-extra"], undefined);
+    assert.equal(
+      leaf(after.global, "skills")?.["global-check"],
+      leaf(before.global, "skills")?.["global-check"],
+      "a package reported as skipped must not save its eligible members behind the disabled control",
+    );
+  });
+});
+
+test("resume updates inherited defaults while retaining explicit session choices", {
+  timeout: 30000,
+}, async (t) => {
+  const f = await fixture(t);
+  const kinds = ["skills", "agents", "instructions"] as const;
+  const ctx = () => f.session.extensionRunner!.createContext();
+  const saved = (await f.settings()).global;
+  for (const kind of kinds) leaf(saved, kind)[f.ids.global[kind]] = true;
+  await writeFile(f.globalFile, JSON.stringify(saved));
+  for (const kind of kinds)
+    assert(
+      !f.selected()[kind].includes(f.ids.global[kind]),
+      "external defaults do not alter a running session",
+    );
+  assert.equal(f.session.extensionRunner!.getCommand("refresh"), undefined);
+  f.setup.setState("skills", f.ids.global.skills, "off", ctx());
+  f.session.sessionManager.appendMessage({
+    role: "user",
+    content: "Save refresh fixture",
+    timestamp: Date.now(),
+  });
+  const sessionFile = f.session.sessionManager.getSessionFile()!;
+  await f.close();
+  await f.open(sdk.SessionManager.open(sessionFile), "resume");
+  assert(!f.selected().skills.includes(f.ids.global.skills), "resume preserves explicit OFF");
+  assert(f.selected().agents.includes(f.ids.global.agents));
+  assert(f.selected().instructions.includes(f.ids.global.instructions));
+  assert.equal(f.setup.state("skills", f.ids.global.skills).sessionState, "off");
+  assert.equal(f.setup.state("agents", f.ids.global.agents).sessionState, "inherit");
+  await f.close();
+  await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
+  assert(
+    f.selected().skills.includes(f.ids.global.skills),
+    "a new session has no previous session override",
+  );
+});
+
+test("interactive-only saved through every picker is excluded from RPC and print sessions", {
+  timeout: 30000,
+}, async (t) => {
+  const f = await fixture(t);
+  for (const choice of choices)
+    await f.run(choice.command, async (browser) => {
+      await search(browser, choice.query);
+      await chooseDefault(browser, "global", "on");
+      await chooseOption(browser, "global", "Interactive only");
+    });
+  for (const kind of ["skills", "agents", "instructions"] as const)
+    assert(f.selected()[kind].includes(f.ids.global[kind]));
+  for (const mode of ["rpc", "print"] as const) {
     await f.close();
-    await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
+    await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new", mode);
+    if (mode === "rpc")
+      assert.equal(
+        f.session.extensionRunner!.createContext().hasUI,
+        true,
+        "RPC offers dialogs but is not an interactive terminal",
+      );
     for (const kind of ["skills", "agents", "instructions"] as const)
-      assert(f.selected()[kind].includes(f.ids.global[kind]), "new session uses saved defaults");
-    for (const choice of choices)
-      await f.run(choice.command, async (browser) => {
-        await search(browser, choice.query);
-        assert.match(text(browser), /Session:\s+INHERIT/);
-        assert.match(text(browser), /Global:\s+ON/);
-        f.capture(`${choice.command}-new-session`, browser);
-      });
-  },
-);
-
-test(
-  "stock mixed-eligibility package exposes its member scopes before global snapshots",
-  { timeout: 30000 },
-  async (t) => {
-    const f = await fixture(t, true);
-    const listed = f.setup.execute(
-      { op: "list", kinds: ["skills"], limit: 50 },
-      f.session.extensionRunner!.createContext(),
-    );
-    const main = listed.candidates.find((entry) => entry.id === "global-check");
-    const extra = listed.candidates.find((entry) => entry.id === "global-extra");
-    assert.equal(main?.globalDefaultable, true);
-    assert.equal(extra?.packName, "scope-global");
-    assert.equal(extra?.globalDefaultable, false);
-    await f.run("packages", async (browser) => {
-      await search(browser, "scope-global");
-      assert.match(text(browser), /\[-\] scope-global/);
-      const partialBefore = await f.settings();
-      setKittyProtocolActive(true);
-      browser.handleInput("\x1b[115;6u");
-      await settled(browser);
-      setKittyProtocolActive(false);
-      assert.match(text(browser), /selected skipped/);
-      assert.equal(
-        leaf((await f.settings()).global, "skills")?.["global-check"],
-        leaf(partialBefore.global, "skills")?.["global-check"],
-      );
-      await chooseDefault(browser, "session", "on");
-      assert(f.selected().skills.includes("global-extra"));
-      browser.handleInput("g");
-      assert.match(text(browser), /Global default unavailable/);
-      f.capture("mixed-package-before-global-snapshot", browser);
-      const before = await f.settings();
-      setKittyProtocolActive(true);
-      browser.handleInput("\x1b[115;6u");
-      await settled(browser);
-      setKittyProtocolActive(false);
-      f.capture("mixed-package-after-global-snapshot", browser);
-      const after = await f.settings();
-      assert.equal(leaf(after.global, "skills")?.["global-extra"], undefined);
-      assert.equal(
-        leaf(after.global, "skills")?.["global-check"],
-        leaf(before.global, "skills")?.["global-check"],
-        "a package reported as skipped must not save its eligible members behind the disabled control",
-      );
-    });
-  },
-);
-
-test(
-  "resume updates inherited defaults while retaining explicit session choices",
-  { timeout: 30000 },
-  async (t) => {
-    const f = await fixture(t);
-    const kinds = ["skills", "agents", "instructions"] as const;
-    const ctx = () => f.session.extensionRunner!.createContext();
-    const saved = (await f.settings()).global;
-    for (const kind of kinds) leaf(saved, kind)[f.ids.global[kind]] = true;
-    await writeFile(f.globalFile, JSON.stringify(saved));
-    for (const kind of kinds)
       assert(
         !f.selected()[kind].includes(f.ids.global[kind]),
-        "external defaults do not alter a running session",
+        `${mode} excludes interactive-only ${kind}`,
       );
-    assert.equal(f.session.extensionRunner!.getCommand("refresh"), undefined);
-    f.setup.setState("skills", f.ids.global.skills, "off", ctx());
-    f.session.sessionManager.appendMessage({
-      role: "user",
-      content: "Save refresh fixture",
-      timestamp: Date.now(),
-    });
-    const sessionFile = f.session.sessionManager.getSessionFile()!;
-    await f.close();
-    await f.open(sdk.SessionManager.open(sessionFile), "resume");
-    assert(!f.selected().skills.includes(f.ids.global.skills), "resume preserves explicit OFF");
-    assert(f.selected().agents.includes(f.ids.global.agents));
-    assert(f.selected().instructions.includes(f.ids.global.instructions));
-    assert.equal(f.setup.state("skills", f.ids.global.skills).sessionState, "off");
-    assert.equal(f.setup.state("agents", f.ids.global.agents).sessionState, "inherit");
-    await f.close();
-    await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
     assert(
-      f.selected().skills.includes(f.ids.global.skills),
-      "a new session has no previous session override",
+      f.selected().skills.includes(f.ids.sibling.skills),
+      "ordinary guidance remains available",
     );
-  },
-);
-
-test(
-  "interactive-only saved through every picker is excluded from RPC and print sessions",
-  { timeout: 30000 },
-  async (t) => {
-    const f = await fixture(t);
-    for (const choice of choices)
-      await f.run(choice.command, async (browser) => {
-        await search(browser, choice.query);
-        await chooseDefault(browser, "global", "on");
-        await chooseOption(browser, "global", "Interactive only");
-      });
-    for (const kind of ["skills", "agents", "instructions"] as const)
-      assert(f.selected()[kind].includes(f.ids.global[kind]));
-    for (const mode of ["rpc", "print"] as const) {
-      await f.close();
-      await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new", mode);
-      if (mode === "rpc")
-        assert.equal(
-          f.session.extensionRunner!.createContext().hasUI,
-          true,
-          "RPC offers dialogs but is not an interactive terminal",
-        );
-      for (const kind of ["skills", "agents", "instructions"] as const)
-        assert(
-          !f.selected()[kind].includes(f.ids.global[kind]),
-          `${mode} excludes interactive-only ${kind}`,
-        );
-      assert(
-        f.selected().skills.includes(f.ids.sibling.skills),
-        "ordinary guidance remains available",
-      );
-    }
-  },
-);
+  }
+});

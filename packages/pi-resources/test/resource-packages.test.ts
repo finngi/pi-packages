@@ -180,27 +180,25 @@ test("custom resource directories and instruction links cannot escape a native p
   }
 });
 
-test(
-  "bounded custom metadata reads reject hard links, pipes and oversized files",
-  { timeout: 3000 },
-  () => {
-    const f = fixture();
-    try {
-      const rule = join(f.pack, "instructions/rule.md");
-      linkSync(rule, join(f.root, "linked-rule"));
-      assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
-      rmSync(join(f.root, "linked-rule"));
-      rmSync(rule);
-      execFileSync("mkfifo", [rule]);
-      assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
-      rmSync(rule);
-      put(rule, "x".repeat(1024 * 1024 + 1));
-      assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
-    } finally {
-      rmSync(f.root, { recursive: true, force: true });
-    }
-  },
-);
+test("bounded custom metadata reads reject hard links, pipes and oversized files", {
+  timeout: 3000,
+}, () => {
+  const f = fixture();
+  try {
+    const rule = join(f.pack, "instructions/rule.md");
+    linkSync(rule, join(f.root, "linked-rule"));
+    assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
+    rmSync(join(f.root, "linked-rule"));
+    rmSync(rule);
+    execFileSync("mkfifo", [rule]);
+    assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
+    rmSync(rule);
+    put(rule, "x".repeat(1024 * 1024 + 1));
+    assert.throws(() => readResourcePackage(f.pack), /bounded regular/);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
 
 test("the read cap holds when a regular file grows after its descriptor was inspected", async () => {
   const { spawnSync } = await import("node:child_process");

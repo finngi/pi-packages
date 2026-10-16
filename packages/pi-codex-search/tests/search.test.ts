@@ -147,7 +147,7 @@ describe("pi-codex-search v0.1.6 Responses port", () => {
       false,
       "unset reasoning remains omitted from the request",
     );
-    assert.deepEqual((requestBody?.tools as unknown[])[0], {
+    assert.deepEqual((requestBody!.tools as unknown[])[0], {
       type: "web_search",
       external_web_access: true,
       search_context_size: "medium",

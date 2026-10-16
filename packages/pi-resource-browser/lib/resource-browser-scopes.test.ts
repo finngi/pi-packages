@@ -127,7 +127,7 @@ test("scope controls separate explicit values from effective selection and fit n
   const previewHeading = rendered.find((line) => line.includes(" Overview "))!;
   assert.match(previewHeading, /Overview.*Instructions.*Source.*review/);
   assert.doesNotMatch(previewHeading, /\d+–\d+\//);
-  assert.doesNotMatch(controls, /[\[\]]/, "scope options use colour without brackets");
+  assert.doesNotMatch(controls, /[[\]]/, "scope options use colour without brackets");
   assert.equal(
     controls.indexOf("Project:") - controls.indexOf("Session:"),
     controls.indexOf("Global:") - controls.indexOf("Project:"),
