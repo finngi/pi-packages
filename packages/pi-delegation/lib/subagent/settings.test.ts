@@ -108,3 +108,22 @@ test("wildcards use saved scope and bundle; explicit names can select available 
   );
   assert.deepEqual(resolveSettings({ ...bundled, skills: [] }, scopes).skills, []);
 });
+
+test("explicit names cannot pull skills from packages that are off or interactive-only", () => {
+  const resolved = resolveSettings(
+    { ...agent, skills: ["open", "hidden", "terminal"] },
+    {
+      ...parent,
+      availableSkills: ["open"],
+      packageExcludedSkills: {
+        hidden: { packName: "fixture-hidden", reason: "off" },
+        terminal: { packName: "fixture-terminal", reason: "interactive" },
+      },
+    },
+  );
+  assert.deepEqual(resolved.skills, ["open"]);
+  assert.deepEqual(resolved.warnings, [
+    'Skill "hidden" is from package "fixture-hidden", which is off, and was left out of the child. Enable the package to use it.',
+    'Skill "terminal" is from interactive-only package "fixture-terminal" and was left out of the child. Its resources load only in an interactive terminal session.',
+  ]);
+});

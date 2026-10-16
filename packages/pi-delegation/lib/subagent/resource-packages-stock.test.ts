@@ -313,7 +313,7 @@ export default function(pi){let index=0;const model=${JSON.stringify(model)};pi.
       (await discoverResourcePackages(first.settings, project, agentDir)).packs,
     );
     const choice = choices.find((skill) => skill.name === "pack-public")!;
-    assert.equal(choice.defaultSelected, true);
+    assert.equal(choice.defaultSelected, false);
     assert.match(choice.packKeywords!, /bm25/);
     assert.match(choice.packKeywords!, /rpc/);
     await session!.prompt("Inspect resources before selecting the pack.");

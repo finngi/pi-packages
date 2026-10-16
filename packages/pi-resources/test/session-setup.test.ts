@@ -184,7 +184,7 @@ test("bounded exact requests reject paths, malformed arrays and unsupported oper
     assert.throws(() => validateSessionSetupRequest(value));
 });
 
-test("packs replace only public resource subsets and explicit same-call IDs union without touching tools", () => {
+test("package availability changes independently of resources and tools", () => {
   const catalogue: SessionSetupContribution[] = [
     ...contributions,
     {
@@ -200,16 +200,14 @@ test("packs replace only public resource subsets and explicit same-call IDs unio
     catalogue,
   );
   assert.deepEqual(expanded, {
-    skills: ["lexical", "native"],
-    agents: ["analyst"],
-    instructions: ["evidence"],
+    packages: ["corpus"],
+    skills: ["native"],
     tools: ["read"],
   });
   assert.deepEqual(original, { skills: ["native"], tools: ["read"] });
   assert.deepEqual(planSessionSetup({ op: "apply", packages: [] }, expanded, catalogue), {
-    skills: [],
-    agents: [],
-    instructions: [],
+    packages: [],
+    skills: ["native"],
     tools: ["read"],
   });
   assert.throws(
@@ -222,7 +220,7 @@ test("packs replace only public resource subsets and explicit same-call IDs unio
       {},
       contributions.filter((value) => value.kind !== "instructions"),
     ),
-    { skills: ["lexical"], agents: ["analyst"] },
+    { packages: ["corpus"] },
     "Selecting an agent/skill package needs no instructions extension or invisible override",
   );
 });
@@ -428,7 +426,8 @@ test("package groups are available with an instructions provider and no picker o
   assert.equal(groups[0].id, "corpus");
   assert.equal(groups[0].globalDefaultable, false);
   const receipt = f.setup.execute({ op: "apply", packages: ["corpus"] }, f.ctx);
-  assert.deepEqual(receipt.selected.instructions, ["evidence"]);
+  assert.deepEqual(receipt.selected.instructions, []);
+  assert(receipt.candidates.some((candidate) => candidate.id === "evidence"));
   assert.equal(receipt.overrides.skills, undefined);
   assert.equal(receipt.overrides.agents, undefined);
 });
@@ -665,4 +664,29 @@ test("RPC apply names interactive-only resources it leaves out", () => {
   f.ctx.mode = "tui";
   f.setup.restore(f.ctx, true);
   assert.equal(f.setup.execute({ op: "apply", skills: ["native"] }, f.ctx).warnings, undefined);
+});
+
+test("RPC apply names an interactive-only package instead of asking to enable it", () => {
+  const f = fixture();
+  f.save("global", { resourceSessionTypes: { packages: { corpus: "interactive" } } });
+  f.ctx.mode = "rpc";
+  f.setup.restore(f.ctx, true);
+  assert.throws(
+    () => f.setup.execute({ op: "apply", skills: ["lexical"] }, f.ctx),
+    /Package corpus is interactive-only; its resources load only in an interactive terminal session/,
+  );
+  const listed = f.setup.execute({ op: "apply", packages: ["corpus"], skills: ["lexical"] }, f.ctx);
+  assert.deepEqual(listed.selected.skills, []);
+  assert.deepEqual(listed.warnings, [
+    "Left out interactive-only packages: corpus. They load only in an interactive terminal session.",
+    "Left out interactive-only skills: lexical. They load only in an interactive terminal session.",
+  ]);
+  const off = fixture();
+  off.save("global", { resourcePackages: { corpus: false } });
+  off.ctx.mode = "rpc";
+  off.setup.restore(off.ctx, true);
+  assert.throws(
+    () => off.setup.execute({ op: "apply", skills: ["lexical"] }, off.ctx),
+    /Package corpus is off; enable it before selecting skills lexical/,
+  );
 });

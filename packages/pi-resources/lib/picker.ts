@@ -15,14 +15,12 @@ export interface PickerMember {
   globalDefaultable?: boolean;
 }
 
-/** One scope implementation for standalone rows and packages of known loaded members. */
+/** One scope implementation for independent resources and package availability. */
 export function resourcePickerControls(options: {
   ctx: ExtensionCommandContext;
   setup: ReturnType<typeof installSessionSetup>;
   entries: ResourceEntry[];
   members(entry: ResourceEntry): PickerMember[];
-  /** Standalone loaded choices included only in an intentional bulk save. */
-  bulkMembers?: PickerMember[];
 }) {
   const { ctx, setup, entries, members } = options;
   const aggregate = <T>(values: T[], mixed: T): T =>
@@ -88,13 +86,7 @@ export function resourcePickerControls(options: {
       throw Error("Saving defaults requires a trusted project");
     const selections: Parameters<typeof writeResourceDefaults>[0]["selections"] = {};
     const targets = rows.flatMap((entry) => eligible(entry, scope));
-    if (state === undefined)
-      targets.push(
-        ...(options.bulkMembers ?? []).filter(
-          (member) => scope !== "global" || member.globalDefaultable !== false,
-        ),
-      );
-    // Bulk saves write ON/OFF only; session types change only through the Type menu.
+    // Bulk snapshots save On/Off; session types change only through the saved-scope menu.
     for (const member of targets) {
       const selection = (selections[member.kind] ??= { knownIds: [], values: {} });
       selection.knownIds.push(member.id);

@@ -9,7 +9,7 @@ const { lock } = createRequire(import.meta.url)("proper-lockfile") as {
   lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
 };
 
-export type ResourceKind = "skills" | "agents" | "instructions";
+export type ResourceKind = "packages" | "skills" | "agents" | "instructions";
 export type ResourceDefaultState = "inherit" | "on" | "off";
 export type ResourceSelectionValue = Record<string, boolean> | undefined;
 export type ResourceMode = "any" | "interactive";
@@ -17,6 +17,7 @@ export type ResourceModeState = "inherit" | ResourceMode;
 export type ResourceModes = Record<string, ResourceMode> | undefined;
 
 type ResourceSettings = {
+  resourcePackages?: ResourceSelectionValue;
   subagents?: { agents?: ResourceSelectionValue; skills?: ResourceSelectionValue };
   localContext?: { instructions?: ResourceSelectionValue };
   resourceSessionTypes?: Partial<Record<ResourceKind, ResourceModes>>;
@@ -75,15 +76,51 @@ export function resourceApplies(
   kind: ResourceKind,
   id: string,
   interactive: boolean,
+  packName?: string,
 ): boolean {
   return (
-    interactive ||
-    resolveResourceMode(
-      readResourceModes(settings, "global", kind),
-      readResourceModes(settings, "project", kind),
-      id,
-    ).mode === "any"
+    (!packName || packageApplies(settings, packName, interactive)) &&
+    (interactive ||
+      resolveResourceMode(
+        readResourceModes(settings, "global", kind),
+        readResourceModes(settings, "project", kind),
+        id,
+      ).mode === "any")
   );
+}
+
+export function packageApplies(
+  settings: SettingsManager,
+  name: string,
+  interactive: boolean,
+): boolean {
+  return packageAvailability(settings, name, interactive) === "available";
+}
+
+/** Whether a package's resources load here, or why they do not. */
+export type PackageAvailability = "available" | "off" | "interactive";
+
+export function packageAvailability(
+  settings: SettingsManager,
+  name: string,
+  interactive: boolean,
+): PackageAvailability {
+  // Unreadable package settings fall back to the default (available), as session_setup's
+  // per-kind fallback does; session_setup reports them. Never hide resources because of them.
+  let global: ResourceSelectionValue, project: ResourceSelectionValue;
+  let globalModes: ResourceModes, projectModes: ResourceModes;
+  try {
+    global = readResourceSelection(settings, "global", "packages");
+    project = readResourceSelection(settings, "project", "packages");
+    globalModes = readResourceModes(settings, "global", "packages");
+    projectModes = readResourceModes(settings, "project", "packages");
+  } catch {
+    return "available";
+  }
+  if (!resolveResourceSelection(global, project, name, true).effective) return "off";
+  return interactive || resolveResourceMode(globalModes, projectModes, name).mode === "any"
+    ? "available"
+    : "interactive";
 }
 
 export interface SkillChoice {
@@ -109,6 +146,7 @@ function hasExplicitSelection(value: ResourceSelectionValue): boolean {
 }
 
 function selectionValue(settings: ResourceSettings, kind: ResourceKind): ResourceSelectionValue {
+  if (kind === "packages") return settings.resourcePackages;
   if (kind === "skills" || kind === "agents") {
     if (
       settings.subagents !== undefined &&
@@ -147,7 +185,7 @@ export function validateResourceSelection(
   if (value === undefined) return undefined;
   if (Array.isArray(value))
     throw Error(
-      `${kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
+      `${kind === "packages" ? "resourcePackages" : kind === "instructions" ? "localContext.instructions" : `subagents.${kind}`} in settings.json uses the old list format; edit it into an ID-to-boolean map such as {"id": true, "other": false}`,
     );
   if (!value || typeof value !== "object")
     throw Error(`${kind} selection must be an ID-to-boolean map`);
@@ -195,7 +233,10 @@ function writeSelectionValue(
   kind: ResourceKind,
   value: ResourceSelectionValue,
 ) {
-  if (kind === "skills" || kind === "agents") {
+  if (kind === "packages") {
+    if (value === undefined) delete settings.resourcePackages;
+    else settings.resourcePackages = value;
+  } else if (kind === "skills" || kind === "agents") {
     const subagents = settings.subagents;
     if (
       subagents !== undefined &&
@@ -278,7 +319,7 @@ export function writeResourceDefault(options: ResourceDefaultWrite): Promise<voi
 
 export function writeResourceDefaults(options: ResourceDefaultsWrite): Promise<void> {
   return settingsFileUpdate(options.scope, options, (settings) => {
-    for (const kind of ["skills", "agents", "instructions"] as const) {
+    for (const kind of ["packages", "skills", "agents", "instructions"] as const) {
       const selection = options.selections[kind];
       if (!selection) continue;
       const before = selectionValue(settings as ResourceSettings, kind);
@@ -366,7 +407,7 @@ export function configuredSkillChoices(
         description: details?.description ?? "Currently loaded by Pi",
         path: skill.path,
         toggleable: true,
-        defaultSelected: true,
+        defaultSelected: !pack,
         ...(details?.disableModelInvocation ? { manualOnly: true } : {}),
         ...(pack ? { packName: pack.name, packKeywords: resourcePackageKeywords(pack) } : {}),
       };
@@ -397,7 +438,7 @@ export function selectedSkills(
     .filter(
       (choice) =>
         choice.toggleable &&
-        resourceApplies(settings, "skills", choice.name, interactive) &&
+        resourceApplies(settings, "skills", choice.name, interactive, choice.packName) &&
         resolveResourceSelection(globalRaw, projectRaw, choice.name, choice.defaultSelected)
           .effective,
     )
@@ -468,7 +509,9 @@ export function filterPromptSkills<T extends { name: string }>(
   return skills.filter((skill) => names.has(skill.name));
 }
 
-export function selectedAgents<T extends { name: string; catalogueOnly?: boolean }>(
+export function selectedAgents<
+  T extends { name: string; catalogueOnly?: boolean; packName?: string },
+>(
   settings: SettingsManager,
   agents: T[],
   globalSnapshot?: GlobalSelectionSnapshot,
@@ -512,6 +555,7 @@ export function selectedAgents<T extends { name: string; catalogueOnly?: boolean
     agents: agents.filter(
       (agent) =>
         applies(agent.name) &&
+        (!agent.packName || packageApplies(settings, agent.packName, interactive)) &&
         resolveResourceSelection(globalRaw, projectRaw, agent.name, !agent.catalogueOnly).effective,
     ),
     configured,

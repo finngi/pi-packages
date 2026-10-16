@@ -24,7 +24,13 @@ import {
   type ResourcePackage,
   resourcePackageKeywords,
 } from "pi-resources/discovery";
-import { selectedSkills, resourceApplies, selectedAgents } from "pi-resources/selection";
+import {
+  configuredSkillChoices,
+  packageAvailability,
+  resourceApplies,
+  selectedAgents,
+  selectedSkills,
+} from "pi-resources/selection";
 import { resourcePickerControls } from "pi-resources/picker";
 import { savedInstructionContext } from "pi-resources/instructions";
 import { installSessionSetup } from "pi-resources/session-setup";
@@ -508,15 +514,26 @@ export default function (pi: ExtensionAPI) {
   ) =>
     ctx.modelRegistry.getAvailableOfType("chat").then((available) => {
       // New children use saved personal/project choices, never this parent's session override.
-      const choices = skills().map((skill) => ({
-        ...skill,
-        description: skill.description ?? "",
-        toggleable: true,
-        defaultSelected: true,
-      }));
+      // Package skills keep the parent's default (off until chosen) and package availability;
+      // children are headless, so interactive-only packages stay out.
+      const choices = configuredSkillChoices(
+        ctx.cwd,
+        getAgentDir(),
+        skills(),
+        packageResources.packs,
+      );
       const manager = settingsManager(ctx);
       const inheritedSkills = selectedSkills(manager, choices, false, undefined, false).map(
         (skill) => skill.name,
+      );
+      const packageExcludedSkills = Object.fromEntries(
+        choices.flatMap((skill) => {
+          if (!skill.packName) return [];
+          const availability = packageAvailability(manager, skill.packName, false);
+          return availability === "available"
+            ? []
+            : [[skill.name, { packName: skill.packName, reason: availability }] as const];
+        }),
       );
       const resolved = resolveSettings(
         agent,
@@ -527,11 +544,14 @@ export default function (pi: ExtensionAPI) {
           tools: pi.getActiveTools(),
           skills: inheritedSkills,
           availableSkills: choices
-            .filter((skill) => resourceApplies(manager, "skills", skill.name, false))
+            .filter((skill) =>
+              resourceApplies(manager, "skills", skill.name, false, skill.packName),
+            )
             .map((skill) => skill.name),
           interactiveOnlySkills: choices
             .filter((skill) => !resourceApplies(manager, "skills", skill.name, false))
             .map((skill) => skill.name),
+          packageExcludedSkills,
         },
         model,
       );
@@ -749,6 +769,13 @@ export default function (pi: ExtensionAPI) {
         }
       }
       const full = discoverAgents(ctx);
+      const available = new Set(
+        setup
+          .inspect(ctx)
+          .find((value) => value.kind === "agents")
+          ?.candidates.map((candidate) => candidate.id),
+      );
+      full.agents = full.agents.filter((agent) => !agent.packName || available.has(agent.name));
       const manager = settingsManager(ctx);
       let current = selectedAgents(manager, full.agents, undefined, ctx.mode === "tui");
       const sessionNames = setup.selection("agents");

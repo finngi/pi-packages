@@ -16,6 +16,8 @@ export interface ParentResources {
   availableSkills?: string[];
   /** Native skills saved as interactive-only; children never receive them. */
   interactiveOnlySkills?: string[];
+  /** Package skills left out because their package is off or interactive-only. */
+  packageExcludedSkills?: Record<string, { packName: string; reason: "off" | "interactive" }>;
 }
 const isAlias = (id: string) => id.endsWith("-latest") || !/-\d{8}$/.test(id);
 export function matchModel(pattern: string, available: ModelRef[]): ModelRef | undefined {
@@ -80,11 +82,16 @@ export function resolveSettings(agent: AgentDef, parent: ParentResources, reques
       : agent.skills;
   const missing = requested.filter((name) => !availableSkills.has(name));
   const interactiveOnly = new Set(parent.interactiveOnlySkills);
-  const warnings = missing.map((name) =>
-    interactiveOnly.has(name)
+  const warnings = missing.map((name) => {
+    const packaged = parent.packageExcludedSkills?.[name];
+    if (packaged?.reason === "off")
+      return `Skill "${name}" is from package "${packaged.packName}", which is off, and was left out of the child. Enable the package to use it.`;
+    if (packaged)
+      return `Skill "${name}" is from interactive-only package "${packaged.packName}" and was left out of the child. Its resources load only in an interactive terminal session.`;
+    return interactiveOnly.has(name)
       ? `Skill "${name}" is interactive-only and was left out of the child.`
-      : `Skill "${name}" was not found in the agent bundle or native project/personal resources; omitted.`,
-  );
+      : `Skill "${name}" was not found in the agent bundle or native project/personal resources; omitted.`;
+  });
   return {
     model: { provider: model.provider, id: model.id },
     thinking: agent.thinking ?? level ?? parent.thinking,
