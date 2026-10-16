@@ -48,8 +48,8 @@ export {
 } from "pi-contracts";
 
 const kinds = ["packages", "skills", "agents", "instructions", "tools"] as const;
-const selections = ["skills", "agents", "instructions", "tools"] as const;
-const resources = ["skills", "agents", "instructions"] as const;
+const selections = ["packages", "skills", "agents", "instructions", "tools"] as const;
+const resources = ["packages", "skills", "agents", "instructions"] as const;
 type ResourceStates = Partial<Record<SessionSetupResourceKind, Record<string, boolean>>>;
 type ResourceSessionModes = Partial<Record<SessionSetupResourceKind, ResourceModes>>;
 const ids = (value: unknown, label: string): string[] => {
@@ -102,9 +102,7 @@ export function planSessionSetup(
 ): SessionSetupOverrides {
   const next = request.op === "reset" && !request.kinds ? {} : structuredClone(current);
   if (request.op === "reset" && request.kinds) {
-    for (const kind of selections)
-      if (request.kinds.includes(kind) || (kind !== "tools" && request.kinds.includes("packages")))
-        delete next[kind];
+    for (const kind of selections) if (request.kinds.includes(kind)) delete next[kind];
   }
   const candidates = contributions.flatMap((value) => value.candidates);
   const known = (kind: (typeof kinds)[number], selected: string[]) => {
@@ -133,21 +131,24 @@ export function planSessionSetup(
   };
   if (request.op === "apply") {
     for (const kind of kinds) if (request[kind] !== undefined) known(kind, request[kind]!);
-    const packs = request.packages && new Set(request.packages);
+    const availablePackages = new Set(
+      request.packages ??
+        current.packages ??
+        contributions.find((value) => value.kind === "packages")?.selected ??
+        [],
+    );
+    for (const kind of ["skills", "agents", "instructions"] as const)
+      for (const id of request[kind] ?? []) {
+        const candidate = candidates.find(
+          (candidate) => candidate.kind === kind && candidate.id === id,
+        );
+        if (candidate?.packName && !availablePackages.has(candidate.packName))
+          throw Error(
+            `Package ${candidate.packName} is off; enable it before selecting ${kind} ${id}`,
+          );
+      }
     for (const kind of selections) {
-      if (packs && kind !== "tools" && contributions.some((value) => value.kind === kind))
-        next[kind] = [
-          ...new Set([
-            ...candidates
-              .filter(
-                (candidate) =>
-                  candidate.kind === kind && candidate.packName && packs.has(candidate.packName),
-              )
-              .map((candidate) => candidate.id),
-            ...(request[kind] ?? []),
-          ]),
-        ];
-      else if (request[kind] !== undefined) next[kind] = [...request[kind]!];
+      if (request[kind] !== undefined) next[kind] = [...request[kind]!];
       if (next[kind] !== undefined) ids(next[kind], kind);
     }
   }
@@ -249,7 +250,17 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       sessionState: resourceSelectionState(sessionValue, id),
       projectState: chosen.projectState,
       globalState: chosen.globalState,
-      selected: chosen.effective && (mode.mode !== "interactive" || interactive),
+      selected:
+        chosen.effective &&
+        (mode.mode !== "interactive" || interactive) &&
+        (kind === "packages" ||
+          !(resourceUniverse ?? []).some(
+            (candidate) =>
+              candidate.kind === kind &&
+              candidate.id === id &&
+              candidate.packName &&
+              !state("packages", candidate.packName, true).selected,
+          )),
       effectiveSource: chosen.source,
       projectMode: resourceModeState(defaultModes.project[kind], id),
       globalMode: resourceModeState(defaultModes.global[kind], id),
@@ -275,7 +286,10 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
   pi.events.on(SESSION_SETUP_SERVICE, (value: any) => {
     if (value?.version === 1) value.respond(service);
   });
-  const collect = (ctx: ExtensionContext): SessionSetupContribution[] => {
+  const collect = (
+    ctx: ExtensionContext,
+    includeUnavailable = false,
+  ): SessionSetupContribution[] => {
     const values: SessionSetupContribution[] = [];
     pi.events.emit(SESSION_SETUP_CONTRIBUTIONS, {
       version: 1,
@@ -310,6 +324,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
             .map((member) => `${member.name} ${member.description} ${member.keywords ?? ""}`)
             .join(" "),
           globalDefaultable: members.every((member) => member.globalDefaultable !== false),
+          nativeDefault: true,
         })),
         selected: [],
       });
@@ -359,6 +374,21 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
           value.candidates.some((candidate) => candidate.id === id),
         );
       }
+    for (const value of values) {
+      if (value.kind === "packages")
+        value.selected = value.candidates
+          .filter((candidate) => state("packages", candidate.id, true).selected)
+          .map((candidate) => candidate.id);
+      else if (!includeUnavailable && value.kind !== "tools") {
+        value.candidates = value.candidates.filter(
+          (candidate) =>
+            !candidate.packName || state("packages", candidate.packName, true).selected,
+        );
+        value.selected = value.selected.filter((id) =>
+          value.candidates.some((candidate) => candidate.id === id),
+        );
+      }
+    }
     return values;
   };
   const tools = (selected: string[]) => [
@@ -394,7 +424,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
       .reverse()
       .find((entry) => entry.type === "custom" && entry.customType === SESSION_SETUP_STATE);
     try {
-      const contributions = collect(ctx);
+      const contributions = collect(ctx, true);
       if (!initialized) {
         snapshotDefaults(
           ctx,
@@ -453,7 +483,8 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
           nativeDefaults[kind] = Object.fromEntries(
             contribution.candidates.map((candidate) => [
               candidate.id,
-              candidate.nativeDefault ?? contribution.selected.includes(candidate.id),
+              candidate.nativeDefault ??
+                (kind === "packages" || contribution.selected.includes(candidate.id)),
             ]),
           );
         }
@@ -527,7 +558,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
     },
     execute(input: unknown, ctx: ExtensionContext) {
       const request = validateSessionSetupRequest(input),
-        contributions = collect(ctx),
+        contributions = collect(ctx, true),
         warnings = [...defaultErrors];
       if (request.op !== "list") {
         ids(baseTools, "baseTools");
@@ -539,16 +570,8 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
             next[kind] = overrides[kind];
         const nextStates = structuredClone(states);
         for (const kind of resources) {
-          const reset =
-            request.op === "reset" &&
-            (!request.kinds || request.kinds.includes(kind) || request.kinds.includes("packages"));
-          if (
-            reset ||
-            (request.op === "apply" &&
-              (request[kind] !== undefined ||
-                (request.packages !== undefined &&
-                  contributions.some((value) => value.kind === kind))))
-          )
+          const reset = request.op === "reset" && (!request.kinds || request.kinds.includes(kind));
+          if (reset || (request.op === "apply" && request[kind] !== undefined))
             delete nextStates[kind];
           if (request.op === "reset" && !reset && overrides[kind] !== undefined)
             next[kind] = overrides[kind];
@@ -595,7 +618,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         ]),
       );
       const candidates = new ResourceSearch(
-        contributions
+        collect(ctx)
           .flatMap((value) => value.candidates)
           .filter((candidate) => !request.kinds || request.kinds.includes(candidate.kind)),
       )
@@ -617,8 +640,8 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
           tools:
             "Tool selection is immediate. If Pi's CLI filters reject a tool, the previous selection is restored. Permissions and deferred/codemode access are unchanged.",
           resources:
-            "Skill commands and agent lookup change immediately; the parent prompt refreshes on the next run. Package selections replace skill, agent and instruction selections with public package members plus individual IDs in this request. Package selection leaves tools unchanged; a tools array in this request applies separately.",
-          packages: `Select public resources from configured packages already loaded here. Available resource types: ${
+            "Skill commands and agent lookup change immediately; the parent prompt refreshes on the next run. Packages control discoverability only. Skills, agents and instructions retain their independent selections; enabling a package never selects its contents. Package selection leaves tools unchanged; a tools array in this request applies separately.",
+          packages: `Choose availability of resources from native packages already loaded here. Available resource types: ${
             contributions
               .filter((value) => value.kind !== "packages" && value.kind !== "tools")
               .map((value) => value.kind)

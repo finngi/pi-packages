@@ -203,7 +203,6 @@ export async function discoverResourcePackages(
       const pack = readResourcePackage(root, [...new Set(skills)]);
       pack.globalDefaultable = personalRoots.has(root);
       pack.personalSkills = personalSkills.get(root) ?? [];
-      if (!pack.skills.length && !pack.agents.length && !pack.instructions.length) continue;
       // Explicit CLI content takes precedence over another configured copy of that package.
       if (names.has(pack.name) && !temporaryRoots.has(root) && temporaryNames.has(pack.name))
         continue;

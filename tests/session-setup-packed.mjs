@@ -144,9 +144,11 @@ try {
   await run([
     { op: "list", query: "bm25", kinds: ["packages"] },
     { op: "apply", packages: ["fixture"], tools: ["read"] },
+    { op: "apply", skills: ["pack-proof"] },
   ]);
   assert.equal(JSON.parse(results[0].content[0].text).candidates[0].id, "fixture");
-  assert.deepEqual(JSON.parse(results[1].content[0].text).selected.skills, ["pack-proof"]);
+  assert.deepEqual(JSON.parse(results[1].content[0].text).selected.skills, []);
+  assert.deepEqual(JSON.parse(results[2].content[0].text).selected.skills, ["pack-proof"]);
   assert.deepEqual(new Set(session.getActiveToolNames()), new Set(["read", "session_setup"]));
   const file = session.sessionManager.getSessionFile();
   assert(file);

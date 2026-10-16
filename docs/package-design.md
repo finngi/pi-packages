@@ -32,8 +32,7 @@ with `autoload: false` it applies the project's filters to the personal entry in
 identity, installation and filters. We read the resolved roots and never search other directories
 or install missing packages.
 
-`/packages` lists packages that provide skills, agents or instructions. A package with only
-extensions still loads, but has nothing to select there. Packages passed with `pi -e SOURCE` are
+`/packages` lists native packages, including extension-only packages. Packages passed with `pi -e SOURCE` are
 grouped too, with no project registration or extra profile needed.
 
 ## Package layout
@@ -79,49 +78,35 @@ installs MCP servers. The picker shows guidance separately from code loading and
 
 ## Selecting guidance is not loading code
 
-`session_setup` runs only in the parent. Its `packages` option selects the public resources of
-packages already loaded in that process. It saves the choice in the session history, not in
-project settings. Tools are chosen separately through Pi's active-tool API, and permissions do not
-change. Running children keep what they started with. New children use saved personal and
-project guidance plus their own bundle, narrowed by their agent definition; the parent's
-session-only choices do not carry over.
+`session_setup` runs only in the parent. Its `packages` array controls which already-loaded
+packages expose their resources. It never expands a package into selected skills, agents or
+instructions. Select those IDs separately, in the same request if needed. Package resources
+start off until chosen; standalone native skills keep Pi's defaults.
+
+Turning a package off hides its resources and removes them from effective model context. Their
+individual choices are retained: turning the package back on restores those choices. This is an
+availability gate, not a code loader. Already-loaded extensions, tools and permissions do not
+change; native executable changes require a new invocation or deliberate idle reload.
 
 `pi-resources` owns `/packages` and `/skills`. Delegation owns `/agents` and context owns
-`/instructions`. Each adds its resources to one shared setup service without loading the others.
-Shared discovery, saving and session selection live in `pi-resources` library subpaths, which
-never import its extension entrypoint. Pi still owns installation, code loading and reload.
+`/instructions`. They use the same scope controls and session history. Each resource or package
+has independent Session, Project and Global On/Off/Inherit choices. Saved Project and Global scopes also
+offer Any session or Interactive only. Package choices save as `resourcePackages` and package session types as
+`resourceSessionTypes.packages`; saving package defaults never writes member defaults or Pi's
+native `packages` source list.
 
-### The `/packages` picker
+Global defaults apply across projects; explicit project choices override them. Session overrides
+apply only to that conversation. Resume or native `/reload` refreshes inherited defaults while preserving
+explicit session choices. New children use saved project/personal resource and package choices
+plus their agent bundle. Parent-only selections do not pass to children.
 
-Enter or Space turns the highlighted package's public skills, agents and instructions on or off
-for this session. Other individual choices stay as they are. A partial marker means only some of
-the package's resources are on. Changes are saved in the session history, like `session_setup`,
-and survive resume. The model's `session_setup` `packages` option works differently: it replaces
-all three categories with the listed packages plus any individual choices in the same call.
+## Why availability and selection are separate
 
-Ctrl+S saves the current selections from loaded extensions as project defaults in the trusted
-project's `.pi/settings.json`. It saves each resource ID as an explicit On or Off, not a package
-name, so new resources added to a package later are not turned on silently. Package registrations,
-tools and permission settings are left alone. Session choices still win; reset one to use the
-saved default. Ctrl+Shift+S saves personal defaults for new sessions in any project, leaving out
-project-only resources. Explicit project choices still win over personal ones.
-
-Saving never reloads code or changes running children.
-
-| Change | How | Takes effect |
-|---|---|---|
-| Turn package guidance on or off | `/packages` | Lookups now; prompt sections at the next parent run |
-| Reuse the current selection in new project sessions | Ctrl+S in `/packages` | Saved project defaults; explicit session choices stay intact |
-| Reread saved defaults without reloading code | Leave and resume | Inherited choices update; explicit session choices and running children stay intact |
-| Select or remove loaded guidance from the model | `session_setup` apply or reset | Lookups now; prompt sections at the next parent run |
-| Try a package once | `pi -e SOURCE` | That invocation only; nothing saved |
-| Install or remove a package | `pi install SOURCE` / `pi remove SOURCE`, `--local` for the project | Next start or idle `/reload` |
-| Change extension code | Idle `/reload` | Replaces the extension runtime |
-| Replace code while children run | Stage and test it; let running processes exit first | Restart or resume |
-
-We never install or unload code during a tool call. Pi's reload shuts down extensions and
-invalidates their contexts, including the tool doing the setup, and can stop owned children. When
-a package is missing, the reply tells you which Pi command to run instead.
+A package is a distribution unit; its curator may include several unrelated-to-this-task skills
+or instructions. Expanding it into On selections silently adds context and overwrites individual
+choices. The former group-checkbox implementation did that and is removed. Availability uses
+the existing scope/state machinery, with one package ID per row; no second installer, manifest
+format or dependency resolver is introduced. Pi's native filters still bound discovery.
 
 ## Keep code with its owner
 
@@ -145,15 +130,3 @@ Pi 1.2.0 references: [packages](https://github.com/earendil-works/pi/blob/v1.2.0
 [extensions](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md),
 [package resolver](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/src/core/package-manager.ts)
 and [session reload](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/src/core/agent-session.ts).
-
-## Planned: separate standalone and package resources
-
-This design is agreed but only exists as a TUI preview. Standalone instructions, skills and agents
-would stay separate from package resources in the pickers and in saved selections. You would
-select a package as a whole and inspect its members inside the package view. Package changes would
-not touch standalone choices, and standalone changes would not leave a package partly selected.
-Authors can share or copy content on purpose; the extensions do not guess links between resources.
-
-Today the planner and saved selections still expand packages into individual members, as
-described above. Those parts, and their resume and default tests, must change before this design
-ships.

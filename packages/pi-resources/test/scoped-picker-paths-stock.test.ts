@@ -107,7 +107,10 @@ async function fixture(t: any, mixed = false) {
     await writeFile(path, body);
   };
   const packs: Record<string, string> = {};
-  const ids: Record<string, { skills: string; agents: string; instructions: string }> = {};
+  const ids: Record<
+    string,
+    { skills: string; agents: string; instructions: string; packages: string }
+  > = {};
   for (const label of ["global", "sibling", "project", "temporary"]) {
     const rootPath = join(root, `pack-${label}`);
     packs[label] = rootPath;
@@ -137,6 +140,7 @@ async function fixture(t: any, mixed = false) {
       `---\ntitle: ${label}-guidance\n---\nGUIDANCE_${label}`,
     );
     ids[label] = {
+      packages: `scope-${label}`,
       skills: `${label}-check`,
       agents: `${label}-worker`,
       instructions: catalogueInstructionId(join(rootPath, "instructions"), "rule.md"),
@@ -337,7 +341,11 @@ const choices = [
   { command: "packages", query: "scope-global", kind: "packages" },
 ] as const;
 const leaf = (settings: any, kind: string) =>
-  kind === "instructions" ? settings.localContext?.instructions : settings.subagents?.[kind];
+  kind === "packages"
+    ? settings.resourcePackages
+    : kind === "instructions"
+      ? settings.localContext?.instructions
+      : settings.subagents?.[kind];
 
 test("stock commands drive scoped defaults through native keyboard and mouse paths", {
   timeout: 60000,
@@ -360,10 +368,7 @@ test("stock commands drive scoped defaults through native keyboard and mouse pat
     await t.test(`/${choice.command}: independent scope and session-type controls`, async () => {
       await f.run(choice.command, async (browser) => {
         await search(browser, choice.query);
-        const targetKinds =
-          choice.kind === "packages"
-            ? (["skills", "agents", "instructions"] as const)
-            : [choice.kind];
+        const targetKinds = [choice.kind];
         const state = (kind: (typeof targetKinds)[number]) =>
           f.setup.state(kind, f.ids.global[kind]);
         await chooseDefault(browser, "session", "off", true);
@@ -486,8 +491,7 @@ test("stock commands drive scoped defaults through native keyboard and mouse pat
                   : `scope-${scope}`;
           await f.run(choice.command, async (browser) => {
             await search(browser, query);
-            const kinds =
-              choice.kind === "packages" ? ["skills", "agents", "instructions"] : [choice.kind];
+            const kinds = [choice.kind];
             if (!kinds.every((kind) => f.selected()[kind].includes(f.ids[scope][kind]))) {
               await chooseDefault(browser, "session", "on");
             }
@@ -541,12 +545,16 @@ test("stock commands drive scoped defaults through native keyboard and mouse pat
     resumedChoices,
     "resume restores session choices despite saved defaults",
   );
-  for (const choice of choices)
-    await f.run(choice.command, async (browser) => {
-      await search(browser, choice.query);
-      assert.match(text(browser), /Session:\s+OFF/);
-      f.capture(`${choice.command}-resumed`, browser);
-    });
+  await f.run("packages", async (browser) => {
+    await search(browser, "scope-global");
+    assert.match(text(browser), /Session:\s+OFF/);
+    f.capture("packages-resumed", browser);
+  });
+  assert(
+    !f.setup
+      .execute({ op: "list", kinds: ["skills"] }, f.session.extensionRunner!.createContext())
+      .candidates.some((c) => c.id === f.ids.global.skills),
+  );
   await f.close();
   await f.open(sdk.SessionManager.create(f.cwd, join(f.agentDir, "sessions")), "new");
   for (const kind of ["skills", "agents", "instructions"] as const)
@@ -560,7 +568,7 @@ test("stock commands drive scoped defaults through native keyboard and mouse pat
     });
 });
 
-test("stock mixed-eligibility package exposes its member scopes before global snapshots", {
+test("global package availability does not select or save its temporary members", {
   timeout: 30000,
 }, async (t) => {
   const f = await fixture(t, true);
@@ -575,35 +583,15 @@ test("stock mixed-eligibility package exposes its member scopes before global sn
   assert.equal(extra?.globalDefaultable, false);
   await f.run("packages", async (browser) => {
     await search(browser, "scope-global");
-    assert.match(text(browser), /\[-\] scope-global/);
-    const partialBefore = await f.settings();
-    setKittyProtocolActive(true);
-    browser.handleInput("\x1b[115;6u");
-    await settled(browser);
-    setKittyProtocolActive(false);
-    assert.match(text(browser), /selected skipped/);
-    assert.equal(
-      leaf((await f.settings()).global, "skills")?.["global-check"],
-      leaf(partialBefore.global, "skills")?.["global-check"],
-    );
-    await chooseDefault(browser, "session", "on");
-    assert(f.selected().skills.includes("global-extra"));
-    browser.handleInput("g");
-    assert.match(text(browser), /Global default unavailable/);
-    f.capture("mixed-package-before-global-snapshot", browser);
+    assert.match(text(browser), /\[x\] scope-global/);
     const before = await f.settings();
-    setKittyProtocolActive(true);
-    browser.handleInput("\x1b[115;6u");
-    await settled(browser);
-    setKittyProtocolActive(false);
-    f.capture("mixed-package-after-global-snapshot", browser);
+    await chooseDefault(browser, "global", "on");
     const after = await f.settings();
-    assert.equal(leaf(after.global, "skills")?.["global-extra"], undefined);
-    assert.equal(
-      leaf(after.global, "skills")?.["global-check"],
-      leaf(before.global, "skills")?.["global-check"],
-      "a package reported as skipped must not save its eligible members behind the disabled control",
-    );
+    assert.equal(after.global.resourcePackages["scope-global"], true);
+    assert.deepEqual(after.global.subagents, before.global.subagents);
+    assert.deepEqual(after.global.localContext, before.global.localContext);
+    assert(!f.selected().skills.includes("global-extra"));
+    f.capture("mixed-package-before-global-snapshot", browser);
   });
 });
 

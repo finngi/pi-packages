@@ -205,6 +205,7 @@ export default function (pi: ExtensionAPI) {
         description: pack.description,
         keywords: resourcePackageKeywords(pack),
         globalDefaultable: pack.globalDefaultable,
+        nativeDefault: true,
       })),
       selected: [],
     });
@@ -224,12 +225,18 @@ export default function (pi: ExtensionAPI) {
         action?.action === "none" || action?.action === "all" || action?.action === "inherit";
       const manager = settingsManager(ctx);
       const loaded = skills().map((skill) => ({ name: skill.name, path: skill.path }));
+      const available = new Set(
+        setup
+          .inspect(ctx)
+          .find((value) => value.kind === "skills")
+          ?.candidates.map((candidate) => candidate.id),
+      );
       const choices = configuredSkillChoices(
         ctx.cwd,
         getAgentDir(),
         loaded,
         packageResources.packs,
-      );
+      ).filter((choice) => available.has(choice.name));
       const selected = selectedSkills(
         manager,
         choices,
