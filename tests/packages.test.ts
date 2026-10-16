@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { responsesFixture } from "../packages/pi-codex-search/tests/fixtures/responses-sse.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const releaseScope = process.env.PI_PACKAGE_SCOPE;
 const stockPeers = [
   "@earendil-works/pi-coding-agent@1.2.0",
   "@earendil-works/pi-ai@1.2.0",
@@ -16,10 +17,17 @@ const stockPeers = [
 ];
 before(() => {
   for (const script of ["build.mjs", "pack.mjs"]) {
-    const result = spawnSync(process.execPath, [join(root, "scripts", script)], {
-      cwd: root,
-      encoding: "utf8",
-    });
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(root, "scripts", script),
+        ...(script === "pack.mjs" && releaseScope ? ["--scope", releaseScope] : []),
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    );
     assert.equal(result.status, 0, result.stdout + result.stderr);
   }
 });
@@ -39,8 +47,15 @@ test("each artifact installs alone and its public API works on stock Pi", {
     "pi-runtime",
     "pi-resource-browser",
   ];
-  for (const name of artifactNames)
+  for (const name of artifactNames.filter(
+    (entry) =>
+      !releaseScope || !["pi-contracts", "pi-runtime", "pi-resource-browser"].includes(entry),
+  ))
     await t.test(name, { timeout: 60000 }, async () => {
+      const installedName = releaseScope ? `@${releaseScope}/${name}` : name;
+      const filename = releaseScope
+        ? `${releaseScope}-${name}-0.1.0-alpha.0.tgz`
+        : `${name}-0.1.0.tgz`;
       const directory = await mkdtemp(join(tmpdir(), `pi-independent-${name}-`));
       try {
         await writeFile(
@@ -58,24 +73,35 @@ test("each artifact installs alone and its public API works on stock Pi", {
             "--no-fund",
             ...stockPeers,
             `typebox@${JSON.parse(await readFile(join(root, "node_modules/typebox/package.json"), "utf8")).version}`,
-            join(root, ".artifacts/packages", `${name}-0.1.0.tgz`),
+            join(root, ".artifacts/packages", filename),
           ],
           { cwd: directory, encoding: "utf8", timeout: 45000 },
         );
         assert.equal(install.status, 0, install.stdout + install.stderr);
         const consumer = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
         assert.deepEqual(
-          Object.keys(consumer.dependencies).filter((dependency) => dependency.startsWith("pi-")),
-          [name],
+          Object.keys(consumer.dependencies).filter(
+            (dependency) =>
+              dependency.startsWith("pi-") || dependency.startsWith("@" + releaseScope + "/"),
+          ),
+          [installedName],
         );
-        for (const sibling of artifactNames.filter((entry) => entry !== name))
+        for (const sibling of artifactNames.filter((entry) => entry !== name || releaseScope))
           await assert.rejects(readFile(join(directory, "node_modules", sibling, "package.json")), {
             code: "ENOENT",
           });
+        if (releaseScope) {
+          const manifest = JSON.parse(
+            await readFile(join(directory, "node_modules", installedName, "package.json"), "utf8"),
+          );
+          assert.deepEqual(manifest.keywords, ["pi-package"]);
+          assert.equal(manifest.publishConfig.tag, "alpha");
+          assert.deepEqual(manifest.bundleDependencies, [name]);
+        }
         const script = join(directory, "independent-package-packed.mjs");
         await writeFile(script, await readFile(join(root, "tests/independent-package-packed.mjs")));
         await writeFile(join(directory, "responses-sse.txt"), responsesFixture);
-        const check = spawnSync(process.execPath, [script, directory, name], {
+        const check = spawnSync(process.execPath, [script, directory, name, installedName], {
           cwd: directory,
           encoding: "utf8",
           timeout: 30000,

@@ -49,6 +49,39 @@ child tools across packages. The projects may share npm's download cache but nev
 The three library tarballs are checked through their public APIs; they are not Pi extensions.
 Nothing is published.
 
+## Prepare a public alpha
+
+Only the seven capability packages are gallery entries. Their shared libraries stay bundled;
+users do not install or register those separately. Source manifests remain private to prevent
+accidentally publishing the TypeScript development layout.
+
+After the ordinary package checks pass, prepare scoped npm artifacts:
+
+```sh
+node scripts/pack.mjs --scope YOUR_NPM_ACCOUNT
+PI_PACKAGE_SCOPE=YOUR_NPM_ACCOUNT node --test --test-name-pattern="each artifact" tests/packages.test.ts
+```
+
+Use a lowercase npm account or organization name. This creates seven
+`ACCOUNT-pi-NAME-0.1.0-alpha.0.tgz` files in `.artifacts/packages`. Each is a native Pi package
+that points to its bundled extension, preserving the existing internal package names and imports.
+The published README includes an exact installation command and links to the public documentation.
+The `pi-package` keyword makes these packages eligible for Pi's gallery; the `alpha` tag and
+prerelease version identify their status. No helper-library gallery entries are created.
+
+The scoped check installs each artifact alone and exercises its actual stock-Pi behavior, including
+launching a child. It does not measure real search quality or classifier/evaluator judgement.
+Review the tarball contents and check npm authentication before publishing the tested files:
+
+```sh
+npm whoami
+npm publish .artifacts/packages/ACCOUNT-pi-background-0.1.0-alpha.0.tgz --access public --tag alpha
+```
+
+Repeat the publish command only for the capability artifacts selected for release. Packing and
+testing do not publish, activate the local harness, or change running sessions. Publication requires
+an authenticated npm account with permission to use that scope.
+
 A Git checkout can run the TypeScript helpers directly with Node 24. Installed packages run the
 built JavaScript from `node_modules`. See [packages](../reference/packages.md) for dependencies and
 versions.
