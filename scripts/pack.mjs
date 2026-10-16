@@ -9,8 +9,16 @@ const { values } = parseArgs({ options: { scope: { type: "string" } } });
 const scope = values.scope;
 if (scope && !/^[a-z0-9][a-z0-9-]*$/.test(scope)) throw Error("Invalid npm scope");
 
-const root = fileURLToPath(new URL("../", import.meta.url)),
-  output = join(root, ".artifacts", "packages");
+const root = fileURLToPath(new URL("../", import.meta.url));
+const release = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+if (
+  scope &&
+  !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-alpha\.(0|[1-9]\d*)$/.test(release.version)
+)
+  throw Error("Public alpha builds require a root version such as 0.1.0-alpha.1");
+const output = join(root, ".artifacts", scope ? "public-packages" : "packages");
+// Keep previous versions and unscoped development artifacts out of a public release batch.
+if (scope) await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 const manifests = new Map();
 for (const entry of await readdir(join(root, "packages"))) {
@@ -19,8 +27,8 @@ for (const entry of await readdir(join(root, "packages"))) {
   manifests.set(manifest.name, { source, manifest });
 }
 
-// These packages are unreleased. npm's standard bundleDependencies lets one local
-// artifact carry its declared workspace helpers without a registry or sibling install.
+// npm's standard bundleDependencies lets each artifact carry its workspace helpers
+// without publishing those helpers or requiring a sibling install.
 async function stagePackage(name, stage, ancestors = []) {
   if (ancestors.includes(name))
     throw Error(`Cyclic workspace dependencies: ${[...ancestors, name]}`);
@@ -87,7 +95,7 @@ for (const name of manifests.keys()) {
       const dependency = join(stage, "node_modules", name);
       await stagePackage(name, dependency);
       const packed = JSON.parse(await readFile(join(dependency, "package.json"), "utf8"));
-      const version = `${original.version}-alpha.0`;
+      const version = release.version;
       const manifest = {
         name: `@${scope}/${name}`,
         version,

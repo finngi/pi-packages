@@ -13,15 +13,27 @@ load only what a session needs:
 
 Shared libraries hold common code. Importing one never turns on an extension.
 
-These packages are experimental. They are not released, and passing tests only shows what those
-tests cover.
+Published versions are experimental alpha releases. Passing tests only shows what those tests
+cover; it does not establish real-provider search quality or model judgement.
 
 A parent session can hand work to child sessions. By default a child works in its own scratch
 directory and the parent reviews what it produces. A child can also work directly in the project
 ([workspace modes](docs/guides/delegation.md#choose-where-files-go)). Either way, tools run with
 your normal user permissions. The optional permission package can check calls before they run.
 
-## Quick start
+## Install
+
+With Node 24 and Pi 1.2.0, install only the capabilities you need:
+
+```sh
+pi install npm:@finngi/pi-background@alpha
+pi install npm:@finngi/pi-delegation@alpha
+```
+
+All seven extensions use the `@finngi` scope and `alpha` tag. Shared libraries are bundled;
+you do not install them separately. See [packages](docs/reference/packages.md) for the full list.
+
+## Develop from the checkout
 
 You need Node 24. The repository pins Pi 1.2.0.
 
@@ -38,10 +50,9 @@ On macOS, `npm run test:e2e` runs the full integration check. See [testing](docs
 - [Documentation](docs/index.md): guides, architecture and reference.
 - [Packages](docs/reference/packages.md): what each package does and depends on.
 - [Install and distribute](docs/guides/distribution.md): load from Git or build local tarballs.
+- [Release development](docs/guides/releases.md): test locally, download CI artifacts and prepare versions.
 - [Development layout](docs/guides/development-packages.md): how the repository is organised.
 - [Design decisions](docs/decisions/native-thin-slices.md): why the packages are split this way.
-
-The packages are not published to npm.
 
 ## Personal settings
 

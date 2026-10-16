@@ -10,6 +10,7 @@ npm run check:boundary
 npm run check:docs
 npm test
 npm run test:packages
+npm run test:alpha
 npm run test:e2e
 ```
 
@@ -39,7 +40,8 @@ captures real RPC child prompts: interactive-only skill/instruction markers must
 parent and be absent from children, including explicit public-skill requests. It also checks that
 rereading defaults leaves live children running. Neither test uses the normal profile or existing sessions.
 
-CI runs on macOS and Linux with Node 24. It does not set up a sandbox. A CI job that did not run is
+CI runs on macOS and Linux with Node 24 and saves the tested public alpha tarballs.
+See [develop and release](guides/releases.md) for local trials and versioning. It does not set up a sandbox. A CI job that did not run is
 not a pass.
 
 For UI changes, look at captures rendered by Pi's real components, and in a real terminal where

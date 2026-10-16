@@ -51,10 +51,11 @@ Nothing is published.
 
 ## Prepare a public alpha
 
-Only the seven capability packages are gallery entries. Their shared libraries stay bundled;
+Only the seven capability packages receive gallery metadata. Their shared libraries stay bundled;
 users do not install or register those separately. Source manifests remain private to prevent
 accidentally publishing the TypeScript development layout.
 
+See [develop and release](releases.md) for versioning, local trials and CI downloads.
 After the ordinary package checks pass, prepare scoped npm artifacts:
 
 ```sh
@@ -63,7 +64,8 @@ PI_PACKAGE_SCOPE=YOUR_NPM_ACCOUNT node --test --test-name-pattern="each artifact
 ```
 
 Use a lowercase npm account or organization name. This creates seven
-`ACCOUNT-pi-NAME-0.1.0-alpha.0.tgz` files in `.artifacts/packages`. Each is a native Pi package
+`ACCOUNT-pi-NAME-VERSION.tgz` files in `.artifacts/public-packages`. `VERSION` is the root
+manifest version. Each is a native Pi package
 that points to its bundled extension, preserving the existing internal package names and imports.
 The published README includes an exact installation command and links to the public documentation.
 The `pi-package` keyword makes these packages eligible for Pi's gallery; the `alpha` tag and
@@ -75,7 +77,7 @@ Review the tarball contents and check npm authentication before publishing the t
 
 ```sh
 npm whoami
-npm publish .artifacts/packages/ACCOUNT-pi-background-0.1.0-alpha.0.tgz --access public --tag alpha
+npm publish .artifacts/public-packages/ACCOUNT-pi-background-VERSION.tgz --access public --tag alpha
 ```
 
 Repeat the publish command only for the capability artifacts selected for release. Packing and
@@ -85,6 +87,19 @@ an authenticated npm account with permission to use that scope.
 A Git checkout can run the TypeScript helpers directly with Node 24. Installed packages run the
 built JavaScript from `node_modules`. See [packages](../reference/packages.md) for dependencies and
 versions.
+
+## Verify catalog discovery separately
+
+An npm release and its Pi catalog listing are separate checks. Verify the public version and
+download first, then npm name search and Pi's catalog filter. A working direct Pi detail page does
+not establish that the package appears in catalog search.
+
+The `pi-package` keyword establishes eligibility, not a listing guarantee. npm documents that new
+packages [can take up to two weeks to appear in search](https://docs.npmjs.com/searching-for-and-choosing-packages-to-download/).
+`searchScore` is a query-ranking value, not a code-quality verdict. If discovery remains missing,
+collect package names, publish times, metadata and failing search queries for
+[npm registry support](https://www.npmjs.com/support). A metadata-only version bump is not a
+documented indexing fix; publish again when a concrete package change justifies it.
 
 ## Embed with the Pi 1.2.0 SDK
 

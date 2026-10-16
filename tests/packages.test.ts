@@ -9,6 +9,8 @@ import { responsesFixture } from "../packages/pi-codex-search/tests/fixtures/res
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const releaseScope = process.env.PI_PACKAGE_SCOPE;
+const releaseVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+const artifactDirectory = join(root, ".artifacts", releaseScope ? "public-packages" : "packages");
 const stockPeers = [
   "@earendil-works/pi-coding-agent@1.2.0",
   "@earendil-works/pi-ai@1.2.0",
@@ -53,9 +55,12 @@ test("each artifact installs alone and its public API works on stock Pi", {
   ))
     await t.test(name, { timeout: 60000 }, async () => {
       const installedName = releaseScope ? `@${releaseScope}/${name}` : name;
+      const sourceVersion = JSON.parse(
+        await readFile(join(root, "packages", name, "package.json"), "utf8"),
+      ).version;
       const filename = releaseScope
-        ? `${releaseScope}-${name}-0.1.0-alpha.0.tgz`
-        : `${name}-0.1.0.tgz`;
+        ? `${releaseScope}-${name}-${releaseVersion}.tgz`
+        : `${name}-${sourceVersion}.tgz`;
       const directory = await mkdtemp(join(tmpdir(), `pi-independent-${name}-`));
       try {
         await writeFile(
@@ -73,7 +78,7 @@ test("each artifact installs alone and its public API works on stock Pi", {
             "--no-fund",
             ...stockPeers,
             `typebox@${JSON.parse(await readFile(join(root, "node_modules/typebox/package.json"), "utf8")).version}`,
-            join(root, ".artifacts/packages", filename),
+            join(artifactDirectory, filename),
           ],
           { cwd: directory, encoding: "utf8", timeout: 45000 },
         );
@@ -94,6 +99,7 @@ test("each artifact installs alone and its public API works on stock Pi", {
           const manifest = JSON.parse(
             await readFile(join(directory, "node_modules", installedName, "package.json"), "utf8"),
           );
+          assert.equal(manifest.version, releaseVersion);
           assert.deepEqual(manifest.keywords, ["pi-package"]);
           assert.equal(manifest.publishConfig.tag, "alpha");
           assert.deepEqual(manifest.bundleDependencies, [name]);
