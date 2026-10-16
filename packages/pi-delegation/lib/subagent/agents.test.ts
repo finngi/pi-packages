@@ -522,59 +522,53 @@ test("metadata targets filter deployment copies and invalid authored tools/modes
   );
 });
 
-test(
-  "pack agent discovery bounds definition reads while preserving valid native bundle parsing",
-  { timeout: 3000 },
-  async () => {
-    const { execFileSync } = await import("node:child_process");
-    const { linkSync, rmSync } = await import("node:fs");
-    const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "pack-agent-boundary-"))),
-      namespace = join(root, "namespace"),
-      dir = join(namespace, "agents");
-    try {
-      mkdirSync(join(dir, "worker"), { recursive: true });
-      writeFileSync(join(dir, "worker/worker.md"), agentFile("worker"));
-      const outside = join(root, "outside.md");
-      writeFileSync(outside, agentFile("outside", "SECRET_DESCRIPTION"));
-      symlinkSync(outside, join(dir, "outside.md"));
-      execFileSync("mkfifo", [join(dir, "pipe.md")]);
-      symlinkSync("pipe.md", join(dir, "fifo.md"));
-      writeFileSync(join(dir, "linked.md"), agentFile("linked"));
-      linkSync(join(dir, "linked.md"), join(root, "another-name"));
-      const found = discoverAgents(dir, parseFrontmatter, namespace);
-      assert.deepEqual(
-        found.agents.map((a) => a.name),
-        ["worker"],
-      );
-      assert.match(found.warnings.join(), /escapes resource pack/);
-      assert.match(found.problems.join(), /bounded regular/);
-      assert.doesNotMatch(JSON.stringify(found), /SECRET_DESCRIPTION/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
+test("pack agent discovery bounds definition reads while preserving valid native bundle parsing", {
+  timeout: 3000,
+}, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { linkSync, rmSync } = await import("node:fs");
+  const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "pack-agent-boundary-"))),
+    namespace = join(root, "namespace"),
+    dir = join(namespace, "agents");
+  try {
+    mkdirSync(join(dir, "worker"), { recursive: true });
+    writeFileSync(join(dir, "worker/worker.md"), agentFile("worker"));
+    const outside = join(root, "outside.md");
+    writeFileSync(outside, agentFile("outside", "SECRET_DESCRIPTION"));
+    symlinkSync(outside, join(dir, "outside.md"));
+    execFileSync("mkfifo", [join(dir, "pipe.md")]);
+    symlinkSync("pipe.md", join(dir, "fifo.md"));
+    writeFileSync(join(dir, "linked.md"), agentFile("linked"));
+    linkSync(join(dir, "linked.md"), join(root, "another-name"));
+    const found = discoverAgents(dir, parseFrontmatter, namespace);
+    assert.deepEqual(
+      found.agents.map((a) => a.name),
+      ["worker"],
+    );
+    assert.match(found.warnings.join(), /escapes resource pack/);
+    assert.match(found.problems.join(), /bounded regular/);
+    assert.doesNotMatch(JSON.stringify(found), /SECRET_DESCRIPTION/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-test(
-  "pack private-skill preflight refuses unsafe native read inputs in a bounded subprocess",
-  { timeout: 10000 },
-  async () => {
-    const { spawnSync, execFileSync } = await import("node:child_process");
-    const { linkSync, rmSync } = await import("node:fs");
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "pack-ignore-boundary-"))),
-      namespace = join(root, "namespace"),
-      dir = join(namespace, "agents"),
-      skills = join(dir, "worker/skills");
-    try {
-      mkdirSync(join(skills, "private-check"), { recursive: true });
-      writeFileSync(join(dir, "worker/worker.md"), agentFile("worker"));
-      const file = join(skills, "private-check/SKILL.md");
-      writeFileSync(
-        file,
-        "---\nname: private-check\ndescription: Check privately.\n---\nLAZY_BODY",
-      );
-      const code = `
+test("pack private-skill preflight refuses unsafe native read inputs in a bounded subprocess", {
+  timeout: 10000,
+}, async () => {
+  const { spawnSync, execFileSync } = await import("node:child_process");
+  const { linkSync, rmSync } = await import("node:fs");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "pack-ignore-boundary-"))),
+    namespace = join(root, "namespace"),
+    dir = join(namespace, "agents"),
+    skills = join(dir, "worker/skills");
+  try {
+    mkdirSync(join(skills, "private-check"), { recursive: true });
+    writeFileSync(join(dir, "worker/worker.md"), agentFile("worker"));
+    const file = join(skills, "private-check/SKILL.md");
+    writeFileSync(file, "---\nname: private-check\ndescription: Check privately.\n---\nLAZY_BODY");
+    const code = `
       import assert from "node:assert/strict";
       import {parseFrontmatter} from "@earendil-works/pi-coding-agent";
       import {discoverAgents} from ${JSON.stringify(new URL("./agents.ts", import.meta.url).href)};
@@ -584,32 +578,31 @@ test(
       assert.equal(found.agents[0].privateSkills.length,unsafe?0:1);
       assert.equal(found.warnings.length,unsafe?1:0);
     `;
-      const run = (unsafe: boolean) => {
-        const result = spawnSync(
-          process.execPath,
-          ["--input-type=module", "-e", code, unsafe ? "unsafe" : "safe"],
-          { encoding: "utf8", timeout: 2000, killSignal: "SIGKILL" },
-        );
-        assert.equal(result.error, undefined, `discovery must terminate: ${result.error}`);
-        assert.equal(result.status, 0, result.stderr);
-      };
-      run(false);
-      for (const name of [".ignore", ".gitignore", ".fdignore"]) {
-        const ignore = join(skills, name);
-        execFileSync("mkfifo", [ignore]);
-        run(true);
-        rmSync(ignore);
-      }
-      writeFileSync(file, "x".repeat(1024 * 1024 + 1));
+    const run = (unsafe: boolean) => {
+      const result = spawnSync(
+        process.execPath,
+        ["--input-type=module", "-e", code, unsafe ? "unsafe" : "safe"],
+        { encoding: "utf8", timeout: 2000, killSignal: "SIGKILL" },
+      );
+      assert.equal(result.error, undefined, `discovery must terminate: ${result.error}`);
+      assert.equal(result.status, 0, result.stderr);
+    };
+    run(false);
+    for (const name of [".ignore", ".gitignore", ".fdignore"]) {
+      const ignore = join(skills, name);
+      execFileSync("mkfifo", [ignore]);
       run(true);
-      writeFileSync(file, "---\nname: private-check\ndescription: Check privately.\n---\nBODY");
-      linkSync(file, join(root, "another-skill-name"));
-      run(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(ignore);
     }
-  },
-);
+    writeFileSync(file, "x".repeat(1024 * 1024 + 1));
+    run(true);
+    writeFileSync(file, "---\nname: private-check\ndescription: Check privately.\n---\nBODY");
+    linkSync(file, join(root, "another-skill-name"));
+    run(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("agent tools may name selected native extension tools; availability is checked at launch", () => {
   const definition = parseAgent(agentFile("worker"), "/fixture/worker.md", () => ({

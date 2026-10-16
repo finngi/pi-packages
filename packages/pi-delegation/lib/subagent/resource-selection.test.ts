@@ -214,7 +214,7 @@ test("custom project agent selection preserves unrelated settings and refuses se
   writeFileSync(join(project, ".pi/settings.json"), JSON.stringify({ theme: "dark", skills: [] }));
   try {
     await saveProjectAgents(project, ["general-purpose"], ["general-purpose", "reviewer"]);
-    let config = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
+    const config = JSON.parse(readFileSync(join(project, ".pi/settings.json"), "utf8"));
     assert.deepEqual(config.subagents.agents, { "general-purpose": true, reviewer: false });
     assert.equal(config.theme, "dark");
     assert.deepEqual(config.skills, []);
