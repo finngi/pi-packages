@@ -32,8 +32,9 @@ with `autoload: false` it applies the project's filters to the personal entry in
 identity, installation and filters. We read the resolved roots and never search other directories
 or install missing packages.
 
-`/packages` lists native packages, including extension-only packages. Packages passed with `pi -e SOURCE` are
-grouped too, with no project registration or extra profile needed.
+`/packages` lists packages that provide skills, agents or instructions. A package with only
+extensions still loads, but has nothing to make available there. Packages passed with
+`pi -e SOURCE` are grouped too, with no project registration or extra profile needed.
 
 ## Package layout
 

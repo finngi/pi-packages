@@ -8,8 +8,9 @@ Pi's loaded resources and the shared resource browser.
   demand, and `/skill:name` is refused for skills that are off.
 - `/packages` makes package resources available or hides them. It does not select their skills,
   agents or instructions. Those choices stay independent, and return when a disabled package is
-  enabled again. Extension-only packages appear too; native extension code still loads at startup.
-  Agents need `pi-delegation` and instructions need `pi-context`. Opening the picker loads neither.
+  enabled again. Packages with only extensions are not listed: availability never changes which
+  extension code loads. Agents need `pi-delegation` and instructions need `pi-context`. Opening
+  the picker loads neither.
 
 ## Saving choices
 

@@ -219,7 +219,7 @@ test("package scope and bulk saves never rewrite member settings or native packa
   });
 });
 
-test("an extension-only package is selectable and session type never selects its contents", async (t) => {
+test("a package session type never selects standalone resources", async (t) => {
   const f = await fixture(t, true, (contributions) => {
     for (const value of contributions)
       if (value.kind !== "packages") value.candidates = value.candidates.filter((c) => !c.packName);

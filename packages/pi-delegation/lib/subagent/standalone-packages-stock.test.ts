@@ -82,7 +82,10 @@ test("stock Pi selects an agent-only package without an instructions provider", 
     assert.deepEqual(receipt.selected.agents, ["worker"]);
     assert.deepEqual(receipt.overrides.instructions, before);
     assert.match(receipt.effects.packages, /Available resource types: agents/);
-    assert.match(receipt.effects.packages, /Unloaded extensions stay off/);
+    assert.match(
+      receipt.effects.packages,
+      /availability never loads, unloads or changes extension code/,
+    );
     assert.equal(
       session.getAllTools().some((tool) => tool.name === "background_process"),
       false,

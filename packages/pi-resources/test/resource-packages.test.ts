@@ -133,6 +133,24 @@ test("agent-only native packages work and missing configured remote packages are
   }
 });
 
+test("extension-only packages are not listed because availability never gates code", async () => {
+  const f = fixture();
+  try {
+    put(
+      join(f.pack, "package.json"),
+      JSON.stringify({ ...f.manifest, pi: { extensions: ["extensions"] } }),
+    );
+    rmSync(join(f.pack, "skills"), { recursive: true });
+    rmSync(join(f.pack, "agents"), { recursive: true });
+    rmSync(join(f.pack, "instructions"), { recursive: true });
+    const found = await discover(f);
+    assert.deepEqual(found.problems, []);
+    assert.deepEqual(found.packs, []);
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test("custom-only npm and Git packages use Pi's installed roots without native-resource placeholders", async () => {
   const f = fixture();
   try {

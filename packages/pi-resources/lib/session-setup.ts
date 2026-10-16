@@ -646,7 +646,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
               .filter((value) => value.kind !== "packages" && value.kind !== "tools")
               .map((value) => value.kind)
               .join(", ") || "none"
-          }. Unloaded extensions stay off. Native skills loaded with -e can be selected individually. For new packages, use pi install followed by idle /reload; executable extension changes or running children need a restart. This tool does not install or reload.`,
+          }. Only packages with skills, agents or instructions are listed; availability never loads, unloads or changes extension code. Native skills loaded with -e can be selected individually. For new packages, use pi install followed by idle /reload; executable extension changes or running children need a restart. This tool does not install or reload.`,
           children:
             "Existing children keep their launch settings. New children use saved personal/project skill and instruction choices plus their agent bundle. Temporary parent guidance selections are not inherited. Task tools still follow the parent active tool selection.",
         },
