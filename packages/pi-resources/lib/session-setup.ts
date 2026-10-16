@@ -99,6 +99,8 @@ export function planSessionSetup(
   request: SessionSetupRequest,
   current: SessionSetupOverrides,
   contributions: SessionSetupContribution[],
+  /** Packages saved as interactive-only, when this session is not interactive. */
+  interactiveOnlyPackages: ReadonlySet<string> = new Set(),
 ): SessionSetupOverrides {
   const next = request.op === "reset" && !request.kinds ? {} : structuredClone(current);
   if (request.op === "reset" && request.kinds) {
@@ -144,7 +146,9 @@ export function planSessionSetup(
         );
         if (candidate?.packName && !availablePackages.has(candidate.packName))
           throw Error(
-            `Package ${candidate.packName} is off; enable it before selecting ${kind} ${id}`,
+            interactiveOnlyPackages.has(candidate.packName)
+              ? `Package ${candidate.packName} is interactive-only; its resources load only in an interactive terminal session, so ${kind} ${id} cannot be selected here`
+              : `Package ${candidate.packName} is off; enable it before selecting ${kind} ${id}`,
           );
       }
     for (const kind of selections) {
@@ -562,7 +566,17 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         warnings = [...defaultErrors];
       if (request.op !== "list") {
         ids(baseTools, "baseTools");
-        const next = planSessionSetup(request, {}, contributions),
+        // In RPC/print, an interactive-only package cannot be enabled; say so instead.
+        const interactiveOnlyPackages = new Set(
+          interactive
+            ? []
+            : contributions
+                .filter((value) => value.kind === "packages")
+                .flatMap((value) => value.candidates)
+                .filter((candidate) => state("packages", candidate.id, true).mode === "interactive")
+                .map((candidate) => candidate.id),
+        );
+        const next = planSessionSetup(request, {}, contributions, interactiveOnlyPackages),
           previousTools = pi.getActiveTools();
         // Planning validates this request; sparse picker overrides in untouched kinds remain intact.
         for (const kind of selections)
@@ -602,9 +616,15 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
         if (request.op === "apply" && !interactive)
           for (const kind of resources) {
             if (request[kind] === undefined && request.packages === undefined) continue;
-            const skipped = (overrides[kind] ?? []).filter(
-              (id) => state(kind, id).mode === "interactive",
-            );
+            const skipped = (overrides[kind] ?? []).filter((id) => {
+              const packName = contributions
+                .find((value) => value.kind === kind)
+                ?.candidates.find((candidate) => candidate.id === id)?.packName;
+              return (
+                state(kind, id).mode === "interactive" ||
+                (!!packName && interactiveOnlyPackages.has(packName))
+              );
+            });
             if (skipped.length)
               warnings.push(
                 `Left out interactive-only ${kind}: ${skipped.join(", ")}. They load only in an interactive terminal session.`,

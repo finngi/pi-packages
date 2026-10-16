@@ -665,3 +665,28 @@ test("RPC apply names interactive-only resources it leaves out", () => {
   f.setup.restore(f.ctx, true);
   assert.equal(f.setup.execute({ op: "apply", skills: ["native"] }, f.ctx).warnings, undefined);
 });
+
+test("RPC apply names an interactive-only package instead of asking to enable it", () => {
+  const f = fixture();
+  f.save("global", { resourceSessionTypes: { packages: { corpus: "interactive" } } });
+  f.ctx.mode = "rpc";
+  f.setup.restore(f.ctx, true);
+  assert.throws(
+    () => f.setup.execute({ op: "apply", skills: ["lexical"] }, f.ctx),
+    /Package corpus is interactive-only; its resources load only in an interactive terminal session/,
+  );
+  const listed = f.setup.execute({ op: "apply", packages: ["corpus"], skills: ["lexical"] }, f.ctx);
+  assert.deepEqual(listed.selected.skills, []);
+  assert.deepEqual(listed.warnings, [
+    "Left out interactive-only packages: corpus. They load only in an interactive terminal session.",
+    "Left out interactive-only skills: lexical. They load only in an interactive terminal session.",
+  ]);
+  const off = fixture();
+  off.save("global", { resourcePackages: { corpus: false } });
+  off.ctx.mode = "rpc";
+  off.setup.restore(off.ctx, true);
+  assert.throws(
+    () => off.setup.execute({ op: "apply", skills: ["lexical"] }, off.ctx),
+    /Package corpus is off; enable it before selecting skills lexical/,
+  );
+});
