@@ -55,6 +55,7 @@ Only the seven capability packages receive gallery metadata. Their shared librar
 users do not install or register those separately. Source manifests remain private to prevent
 accidentally publishing the TypeScript development layout.
 
+See [develop and release](releases.md) for versioning, local trials and CI downloads.
 After the ordinary package checks pass, prepare scoped npm artifacts:
 
 ```sh
@@ -63,7 +64,8 @@ PI_PACKAGE_SCOPE=YOUR_NPM_ACCOUNT node --test --test-name-pattern="each artifact
 ```
 
 Use a lowercase npm account or organization name. This creates seven
-`ACCOUNT-pi-NAME-0.1.0-alpha.0.tgz` files in `.artifacts/packages`. Each is a native Pi package
+`ACCOUNT-pi-NAME-VERSION.tgz` files in `.artifacts/public-packages`. `VERSION` is the root
+manifest version. Each is a native Pi package
 that points to its bundled extension, preserving the existing internal package names and imports.
 The published README includes an exact installation command and links to the public documentation.
 The `pi-package` keyword makes these packages eligible for Pi's gallery; the `alpha` tag and
@@ -75,7 +77,7 @@ Review the tarball contents and check npm authentication before publishing the t
 
 ```sh
 npm whoami
-npm publish .artifacts/packages/ACCOUNT-pi-background-0.1.0-alpha.0.tgz --access public --tag alpha
+npm publish .artifacts/public-packages/ACCOUNT-pi-background-VERSION.tgz --access public --tag alpha
 ```
 
 Repeat the publish command only for the capability artifacts selected for release. Packing and

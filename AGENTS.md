@@ -40,3 +40,8 @@ Review the diff and stage specific files, preserving unrelated work. Source upda
 builds may proceed while Pi runs; leave active processes and runtime/cache bindings unchanged.
 Activate only after affected processes exit and activation is requested. Keep source manifests
 `private: true`; publishing npm packages requires explicit user authorization.
+
+The root version is the shared public alpha version; private workspace versions are internal
+bundle identities. Use `npm run version:alpha` when preparing the next release and record its
+changes in `CHANGELOG.md`. CI builds and tests tarballs but never publishes them. See
+[release development](docs/guides/releases.md) before publishing or tagging a release.

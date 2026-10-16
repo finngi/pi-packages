@@ -50,6 +50,7 @@ On macOS, `npm run test:e2e` runs the full integration check. See [testing](docs
 - [Documentation](docs/index.md): guides, architecture and reference.
 - [Packages](docs/reference/packages.md): what each package does and depends on.
 - [Install and distribute](docs/guides/distribution.md): load from Git or build local tarballs.
+- [Release development](docs/guides/releases.md): test locally, download CI artifacts and prepare versions.
 - [Development layout](docs/guides/development-packages.md): how the repository is organised.
 - [Design decisions](docs/decisions/native-thin-slices.md): why the packages are split this way.
 
