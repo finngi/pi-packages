@@ -35,4 +35,5 @@ jobs:
       - run: npm run check:docs
       - run: npm test
       - run: npm run test:packages
+      - run: PI_PACKAGE_SCOPE=fixture node --test --test-name-pattern="each artifact" tests/packages.test.ts
       - run: npm run test:e2e

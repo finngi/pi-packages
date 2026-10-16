@@ -7,5 +7,6 @@
     "rootDir": "lib",
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["lib/**/*.ts"]
+  "include": ["lib/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
 }

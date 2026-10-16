@@ -3,6 +3,11 @@ import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+
+const { values } = parseArgs({ options: { scope: { type: "string" } } });
+const scope = values.scope;
+if (scope && !/^[a-z0-9][a-z0-9-]*$/.test(scope)) throw Error("Invalid npm scope");
 
 const root = fileURLToPath(new URL("../", import.meta.url)),
   output = join(root, ".artifacts", "packages");
@@ -69,10 +74,59 @@ async function stagePackage(name, stage, ancestors = []) {
 }
 
 for (const name of manifests.keys()) {
+  const { manifest: original } = manifests.get(name);
+  // Gallery entries are capabilities, not the libraries they carry.
+  if (scope && !original.pi?.extensions?.length) continue;
   // npm needs the canonical macOS temporary path to include bundled dependencies.
   const stage = await realpath(await mkdtemp(join(tmpdir(), "pi-package-")));
   try {
-    await stagePackage(name, stage);
+    if (!scope) await stagePackage(name, stage);
+    else {
+      // A native wrapper keeps workspace import identities intact, including self-imports.
+      // npm bundles the complete existing package; no helper needs a registry release.
+      const dependency = join(stage, "node_modules", name);
+      await stagePackage(name, dependency);
+      const packed = JSON.parse(await readFile(join(dependency, "package.json"), "utf8"));
+      const version = `${original.version}-alpha.0`;
+      const manifest = {
+        name: `@${scope}/${name}`,
+        version,
+        description: original.description,
+        license: original.license,
+        repository: original.repository,
+        bugs: original.bugs,
+        engines: original.engines,
+        keywords: ["pi-package"],
+        publishConfig: { access: "public", tag: "alpha" },
+        peerDependencies: original.peerDependencies,
+        dependencies: { [name]: original.version },
+        bundleDependencies: [name],
+        pi: Object.fromEntries(
+          Object.entries(packed.pi).map(([kind, paths]) => [
+            kind,
+            paths.map((path) => `./node_modules/${name}/${path.replace(/^\.\//, "")}`),
+          ]),
+        ),
+      };
+      await writeFile(join(stage, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+      const repository = original.repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
+      const readme = (await readFile(join(dependency, "README.md"), "utf8")).replace(
+        /\]\((?![a-z][a-z0-9+.-]*:|#)([^\s)]+)\)/gi,
+        (_match, target) => {
+          const url = new URL(target, `${repository}/blob/main/packages/${name}/`);
+          return `](${url.href})`;
+        },
+      );
+      await writeFile(
+        join(stage, "README.md"),
+        `# @${scope}/${name}\n\nExperimental alpha; tested with Node 24 and stock Pi 1.2.0.\n\n` +
+          `\`pi install npm:@${scope}/${name}@${version}\`\n\n` +
+          `This download includes its workspace dependencies. No sibling packages are required.\n\n` +
+          readme.replace(/^# [^\n]+\n/, ""),
+      );
+      for (const filename of await readdir(dependency))
+        if (/^LICENSE/.test(filename)) await cp(join(dependency, filename), join(stage, filename));
+    }
     const result = spawnSync(
       "npm",
       ["pack", stage, "--pack-destination", output, "--ignore-scripts", "--json"],

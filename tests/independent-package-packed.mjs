@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import * as sdk from "@earendil-works/pi-coding-agent";
 
-const [consumer, name] = process.argv.slice(2);
+const [consumer, name, installedName = name] = process.argv.slice(2);
 const agentDir = join(consumer, "agent"),
   cwd = join(consumer, "project");
 await mkdir(agentDir);
@@ -163,7 +163,7 @@ runtime.registerProvider(model.provider, {
     return output(typeof call === "function" ? call(context) : call);
   },
 });
-const packagePath = join(consumer, "node_modules", name);
+const packagePath = join(consumer, "node_modules", installedName);
 new sdk.ProjectTrustStore(agentDir).set(cwd, true);
 const settings = sdk.SettingsManager.create(cwd, agentDir, { projectTrusted: true });
 if (name === "pi-context") {
@@ -360,7 +360,8 @@ try {
     await run([]);
     assert.match(currentSystemPrompt(), /PACKED_LOCAL_CONTEXT/);
     assert.match(currentSystemPrompt(), /PACKED_SELECTED_INSTRUCTION/);
-    const help = join(packagePath, "skills/pi-help/scripts/paths.mjs");
+    const manifest = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
+    const help = join(packagePath, manifest.pi.skills[0], "pi-help/scripts/paths.mjs");
     await access(help);
   } else if (name === "pi-goal") {
     // Native user commands create and pause a real session goal without a host shim.
