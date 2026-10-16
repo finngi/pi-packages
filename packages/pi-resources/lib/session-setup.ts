@@ -668,7 +668,7 @@ export function installSessionSetup(pi: ExtensionAPI): SessionSetupService {
               .join(", ") || "none"
           }. Only packages with skills, agents or instructions are listed; availability never loads, unloads or changes extension code. Native skills loaded with -e can be selected individually. For new packages, use pi install followed by idle /reload; executable extension changes or running children need a restart. This tool does not install or reload.`,
           children:
-            "Existing children keep their launch settings. New children use saved personal/project skill and instruction choices plus their agent bundle. Temporary parent guidance selections are not inherited. Task tools still follow the parent active tool selection.",
+            "Existing children keep their launch settings. New children use saved personal/project skill, instruction and package choices plus their agent bundle. Children are headless: packages that are off or interactive-only stay out, package skills with no saved choice stay off, and an agent's skills list cannot bring in a skill from a hidden package. Temporary parent guidance selections are not inherited, including package choices. Task tools still follow the parent active tool selection.",
         },
       };
     },

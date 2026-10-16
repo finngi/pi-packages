@@ -53,6 +53,10 @@ register its source in personal settings with Pi and include the resource in any
 Saving defaults does not register sources. Package availability is saved separately in
 `resourcePackages`; it never rewrites individual resource defaults or the native source list.
 
+New delegated children follow saved package availability as headless sessions, so packages that
+are off or Interactive only stay out. Package skills with no saved choice are off in children too.
+An agent's explicit `skills` list cannot pull a skill from a hidden package; the launch warns.
+
 ## Picking is not installing
 
 `pi install SOURCE` saves a personal package source, `pi install --local SOURCE` a project one,

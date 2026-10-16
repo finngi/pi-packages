@@ -98,8 +98,13 @@ native `packages` source list.
 
 Global defaults apply across projects; explicit project choices override them. Session overrides
 apply only to that conversation. Resume or native `/reload` refreshes inherited defaults while preserving
-explicit session choices. New children use saved project/personal resource and package choices
-plus their agent bundle. Parent-only selections do not pass to children.
+explicit session choices. Parent-only selections do not pass to children.
+
+New children use saved project/personal resource and package choices plus their agent bundle.
+They run headless, so a package saved as Interactive only stays out, like one that is off.
+A package skill with no saved choice stays off in children too. An agent that names a skill from
+a hidden package does not get it; the launch result warns that the package is off or
+interactive-only.
 
 ## Why availability and selection are separate
 
