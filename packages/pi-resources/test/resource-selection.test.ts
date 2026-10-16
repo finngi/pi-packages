@@ -5,9 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
+  packageApplies,
+  packageAvailability,
   readResourceSelection,
   resolveResourceSelection,
   resourceSelectionState,
+  selectedAgents,
+  selectedSkills,
   validateResourceSelection,
   writeResourceDefault,
   writeResourceDefaults,
@@ -306,4 +310,50 @@ test("the old list format names the setting to edit", () => {
     () => validateResourceSelection(["a"], "instructions"),
     /localContext\.instructions in settings\.json/,
   );
+});
+
+test("unreadable package settings leave packages available instead of failing", () => {
+  const choices = [
+    { name: "native", description: "", path: "/n", toggleable: true, defaultSelected: true },
+    {
+      name: "lexical",
+      description: "",
+      path: "/l",
+      toggleable: true,
+      defaultSelected: true,
+      packName: "corpus",
+    },
+  ];
+  const agents = [{ name: "worker" }, { name: "analyst", packName: "corpus" }];
+  for (const settings of [
+    { resourcePackages: ["corpus"] },
+    { resourcePackages: "corpus" },
+    { resourcePackages: { corpus: "yes" } },
+    { resourcePackages: { corpus: false }, resourceSessionTypes: { packages: { corpus: "tui" } } },
+  ]) {
+    const manager = SettingsManager.inMemory(settings as any);
+    for (const interactive of [true, false]) {
+      assert.equal(packageAvailability(manager, "corpus", interactive), "available");
+      assert.equal(packageApplies(manager, "corpus", interactive), true);
+      assert.deepEqual(
+        selectedSkills(manager, choices, false, undefined, interactive).map((s) => s.name),
+        ["lexical", "native"],
+      );
+      assert.deepEqual(selectedAgents(manager, agents, undefined, interactive), {
+        agents,
+        configured: false,
+      });
+    }
+  }
+});
+
+test("package availability reports whether a package is off or interactive-only", () => {
+  const manager = SettingsManager.inMemory({
+    resourcePackages: { hidden: false },
+    resourceSessionTypes: { packages: { terminal: "interactive" } },
+  } as any);
+  assert.equal(packageAvailability(manager, "open", false), "available");
+  assert.equal(packageAvailability(manager, "hidden", true), "off");
+  assert.equal(packageAvailability(manager, "terminal", true), "available");
+  assert.equal(packageAvailability(manager, "terminal", false), "interactive");
 });

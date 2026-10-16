@@ -94,14 +94,33 @@ export function packageApplies(
   name: string,
   interactive: boolean,
 ): boolean {
-  return (
-    resolveResourceSelection(
-      readResourceSelection(settings, "global", "packages"),
-      readResourceSelection(settings, "project", "packages"),
-      name,
-      true,
-    ).effective && resourceApplies(settings, "packages", name, interactive)
-  );
+  return packageAvailability(settings, name, interactive) === "available";
+}
+
+/** Whether a package's resources load here, or why they do not. */
+export type PackageAvailability = "available" | "off" | "interactive";
+
+export function packageAvailability(
+  settings: SettingsManager,
+  name: string,
+  interactive: boolean,
+): PackageAvailability {
+  // Unreadable package settings fall back to the default (available), as session_setup's
+  // per-kind fallback does; session_setup reports them. Never hide resources because of them.
+  let global: ResourceSelectionValue, project: ResourceSelectionValue;
+  let globalModes: ResourceModes, projectModes: ResourceModes;
+  try {
+    global = readResourceSelection(settings, "global", "packages");
+    project = readResourceSelection(settings, "project", "packages");
+    globalModes = readResourceModes(settings, "global", "packages");
+    projectModes = readResourceModes(settings, "project", "packages");
+  } catch {
+    return "available";
+  }
+  if (!resolveResourceSelection(global, project, name, true).effective) return "off";
+  return interactive || resolveResourceMode(globalModes, projectModes, name).mode === "any"
+    ? "available"
+    : "interactive";
 }
 
 export interface SkillChoice {
