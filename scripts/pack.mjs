@@ -19,8 +19,8 @@ for (const entry of await readdir(join(root, "packages"))) {
   manifests.set(manifest.name, { source, manifest });
 }
 
-// These packages are unreleased. npm's standard bundleDependencies lets one local
-// artifact carry its declared workspace helpers without a registry or sibling install.
+// npm's standard bundleDependencies lets each artifact carry its workspace helpers
+// without publishing those helpers or requiring a sibling install.
 async function stagePackage(name, stage, ancestors = []) {
   if (ancestors.includes(name))
     throw Error(`Cyclic workspace dependencies: ${[...ancestors, name]}`);

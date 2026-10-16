@@ -1,7 +1,8 @@
 # Packages
 
 Ten workspaces share one lockfile: seven extensions and three libraries. Each extension loads on
-its own on stock Pi 1.2.0. The packages are experimental and not published to npm.
+its own on stock Pi 1.2.0. The seven user-facing downloads are experimental npm alpha releases:
+use `@finngi/<extension-name>@alpha`. Libraries stay bundled and are not separate gallery entries.
 
 | Package | What it does | Works with |
 |---|---|---|

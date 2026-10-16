@@ -3,7 +3,7 @@
 This repository contains independent Pi extensions and shared libraries under `packages/`.
 Use [the package reference](docs/reference/packages.md) to find their responsibilities and
 entrypoints. Package READMEs describe usage and limits; `docs/decisions/` records architectural
-choices. These packages are experimental and unreleased.
+choices. Published packages are experimental alpha releases.
 
 ## Principles
 
