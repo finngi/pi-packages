@@ -1,6 +1,6 @@
 # Testing
 
-Use Node 24 and the root lockfile, which pins Pi 1.2.0:
+Use Node 24 and the root lockfile, which pins Pi 1.3.0:
 
 ```sh
 npm ci --ignore-scripts
@@ -50,7 +50,7 @@ you can. A browser mock-up does not show terminal layout or input behaviour.
 ## Installed-package checks
 
 `npm run test:packages` builds the packages and installs exactly one tarball into each fresh
-project, next to stock Pi 1.2.0. No sibling package is installed at the top level. Tests import and
+project, next to stock Pi 1.3.0. No sibling package is installed at the top level. Tests import and
 run the installed files; the checkout is never used to resolve them. Projects may share npm's
 download cache but not `node_modules`.
 

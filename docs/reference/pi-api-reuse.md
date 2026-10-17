@@ -1,6 +1,6 @@
 # Pi API reuse
 
-Tested against Pi 1.2.0. Pi modules are peer dependencies.
+Tested against Pi 1.3.0. Pi modules are peer dependencies.
 
 | Area | Taken from Pi | Added here |
 |---|---|---|

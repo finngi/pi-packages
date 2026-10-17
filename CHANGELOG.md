@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.1.0-alpha.1 candidate
 
+- Pin development and installed-package checks to Pi 1.3.0.
+
 - Public alpha versions come from the root manifest rather than a fixed packer suffix.
 - CI saves the seven tested public downloads with checksums for local trials and later publication.
 - Local development and version bumps do not publish or activate packages.

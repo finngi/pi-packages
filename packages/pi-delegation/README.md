@@ -90,4 +90,4 @@ npm run typecheck --workspace=pi-delegation
 ```
 
 Entrypoint: [extensions/subagent.ts](extensions/subagent.ts). See [testing](../../docs/testing.md)
-for the Pi 1.2.0 integration tests.
+for the Pi 1.3.0 integration tests.

@@ -127,7 +127,7 @@ for (const name of manifests.keys()) {
       );
       await writeFile(
         join(stage, "README.md"),
-        `# @${scope}/${name}\n\nExperimental alpha; tested with Node 24 and stock Pi 1.2.0.\n\n` +
+        `# @${scope}/${name}\n\nExperimental alpha; tested with Node 24 and stock Pi ${release.devDependencies["@earendil-works/pi-coding-agent"]}.\n\n` +
           `\`pi install npm:@${scope}/${name}@${version}\`\n\n` +
           `This download includes its workspace dependencies. No sibling packages are required.\n\n` +
           readme.replace(/^# [^\n]+\n/, ""),

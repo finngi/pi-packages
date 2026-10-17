@@ -1,6 +1,6 @@
 # Development packages
 
-These are experimental source packages, not releases. Use Node 24 and the pinned Pi 1.2.0. Hosting
+These are experimental source packages, not releases. Use Node 24 and the pinned Pi 1.3.0. Hosting
 the source, testing it and switching your own Pi over to it are separate steps.
 
 ## Layout

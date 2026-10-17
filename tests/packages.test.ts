@@ -9,14 +9,15 @@ import { responsesFixture } from "../packages/pi-codex-search/tests/fixtures/res
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const releaseScope = process.env.PI_PACKAGE_SCOPE;
-const releaseVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+const rootManifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+const releaseVersion = rootManifest.version;
 const artifactDirectory = join(root, ".artifacts", releaseScope ? "public-packages" : "packages");
 const stockPeers = [
-  "@earendil-works/pi-coding-agent@1.2.0",
-  "@earendil-works/pi-ai@1.2.0",
-  "@earendil-works/pi-tui@1.2.0",
-  "@earendil-works/pi-mcp@1.2.0",
-];
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-tui",
+  "@earendil-works/pi-mcp",
+].map((name) => `${name}@${rootManifest.devDependencies[name]}`);
 before(() => {
   for (const script of ["build.mjs", "pack.mjs"]) {
     const result = spawnSync(
@@ -147,10 +148,7 @@ test("combined packed extensions preserve session setup and compiled child tooli
         "install",
         "--ignore-scripts",
         ...names.map((name) => join(root, ".artifacts/packages", `${name}-0.1.0.tgz`)),
-        "@earendil-works/pi-coding-agent@1.2.0",
-        "@earendil-works/pi-ai@1.2.0",
-        "@earendil-works/pi-tui@1.2.0",
-        "@earendil-works/pi-mcp@1.2.0",
+        ...stockPeers,
         `typebox@${JSON.parse(await readFile(join(root, "node_modules/typebox/package.json"), "utf8")).version}`,
       ],
       { cwd: directory, encoding: "utf8" },

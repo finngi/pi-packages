@@ -17,7 +17,7 @@ npm run test:alpha
 Run the affected package's tests while iterating. Before merging, also run `npm run check:docs`,
 `npm run check:boundary` and `npm run test:e2e`, as CI does. The last command already includes
 `test:packages`, so CI runs that installed-consumer suite once. Installed-package tests use fresh
-projects with stock Pi 1.2.0 and scripted providers; they do not call your real models.
+projects with stock Pi 1.3.0 and scripted providers; they do not call your real models.
 
 To try the source in a new session without saving package settings, from the checkout:
 
