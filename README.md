@@ -23,7 +23,7 @@ your normal user permissions. The optional permission package can check calls be
 
 ## Install
 
-With Node 24 and Pi 1.2.0, install only the capabilities you need:
+With Node 24 and Pi 1.3.0, install only the capabilities you need:
 
 ```sh
 pi install npm:@finngi/pi-background@alpha
@@ -35,7 +35,7 @@ you do not install them separately. See [packages](docs/reference/packages.md) f
 
 ## Develop from the checkout
 
-You need Node 24. The repository pins Pi 1.2.0.
+You need Node 24. The repository pins Pi 1.3.0.
 
 ```sh
 npm ci --ignore-scripts

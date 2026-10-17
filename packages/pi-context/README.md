@@ -51,7 +51,7 @@ documentation section to one line, keeping custom prompts and explicit overrides
 - [Local context](../../docs/guides/context.md): file order, turning it off, and optional Git excludes.
 - [Prompt context](../../docs/guides/prompts.md): `pi-help` and on-demand skills.
 - [Settings](../../docs/reference/configuration.md#local-context-settings).
-- [SDK embedding](../../docs/guides/distribution.md#embed-with-the-pi-120-sdk): why you must pass
+- [SDK embedding](../../docs/guides/distribution.md#embed-with-the-pi-sdk): why you must pass
   `--no-context-files` in the arguments.
 
 ## Tests
@@ -64,5 +64,5 @@ npm run typecheck --workspace=pi-context
 npm run test:e2e --workspace=pi-context
 ```
 
-The integration test runs Pi 1.2.0 prompt and reload and real Git metadata with isolated resources
+The integration test runs Pi 1.3.0 prompt and reload and real Git metadata with isolated resources
 and no model calls. Entrypoint: [extensions/context.ts](extensions/context.ts).

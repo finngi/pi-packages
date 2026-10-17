@@ -16,7 +16,7 @@ npm run check
 npm test
 ```
 
-The lockfile installs Pi 1.2.0 and the development tools. `npm run build` writes JavaScript and
+The lockfile installs Pi 1.3.0 and the development tools. `npm run build` writes JavaScript and
 type declarations for each package. Pi can also load the TypeScript entrypoints straight from the
 checkout.
 
@@ -53,7 +53,7 @@ node node_modules/@earendil-works/pi-coding-agent/dist/cli.js \
   -e packages/pi-delegation/extensions/subagent.ts
 ```
 
-This runs the pinned Pi 1.2.0 from the checkout, whatever global `pi` you have installed.
+This runs the pinned Pi 1.3.0 from the checkout, whatever global `pi` you have installed.
 `--no-extensions` turns off extension discovery and Pi's built-in extensions; the `-e` paths still
 load. The parent keeps its default tools and gains the delegation tools.
 

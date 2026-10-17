@@ -6,11 +6,11 @@ Pi provides the SDK. The shared libraries never install or start Pi for you.
 ## Load from the checkout
 
 Run the pinned CLI as in [getting started](../getting-started.md), or pass absolute entrypoint
-paths to an existing Pi 1.2.0. Listing paths explicitly makes clear which extensions are on.
+paths to an existing Pi 1.3.0. Listing paths explicitly makes clear which extensions are on.
 
 ## Load from Git
 
-Pi 1.2.0 accepts a Git source with an extension filter in its package settings:
+Pi 1.3.0 accepts a Git source with an extension filter in its package settings:
 
 ```json
 {
@@ -101,7 +101,7 @@ collect package names, publish times, metadata and failing search queries for
 [npm registry support](https://www.npmjs.com/support). A metadata-only version bump is not a
 documented indexing fix; publish again when a concrete package change justifies it.
 
-## Embed with the Pi 1.2.0 SDK
+## Embed with the Pi SDK
 
 Create a `DefaultResourceLoader` with `noExtensions: true` and explicit
 `additionalExtensionPaths`, and reload it before `createAgentSession`. As on the CLI, this skips
@@ -112,7 +112,7 @@ To use `builtin:` entrypoint aliases, pass Pi's built-in extension factories thr
 from the pinned SDK's `dist/extensions/index.js`.
 
 Pi modules are peer dependencies with `*` ranges because the running Pi supplies them. That is not
-a promise that every SDK version works; development and tests use Pi 1.2.0. Do not install a
+a promise that every SDK version works; development and tests use Pi 1.3.0. Do not install a
 separate copy of Pi inside each extension, or tools and services will clash.
 
 Use Pi's settings and ModelRuntime for login and models. The permission package reads your

@@ -1,7 +1,7 @@
 # Packages
 
 Ten workspaces share one lockfile: seven extensions and three libraries. Each extension loads on
-its own on stock Pi 1.2.0. The seven user-facing downloads are experimental npm alpha releases:
+its own on stock Pi 1.3.0. The seven user-facing downloads are experimental npm alpha releases:
 use `@finngi/<extension-name>@alpha`. Libraries stay bundled and are not separate gallery entries.
 
 | Package | What it does | Works with |
@@ -34,7 +34,7 @@ its own fresh project and exercise what it actually does.
 
 ## Versions
 
-Tested with Node 24, Pi coding-agent, AI, TUI and MCP 1.2.0, TypeScript 7.0.2 and Biome 2.3.5. Pi
+Tested with Node 24, Pi coding-agent, AI, TUI and MCP 1.3.0, TypeScript 7.0.2 and Biome 2.5.15. Pi
 modules are peer dependencies with `*` ranges, which does not promise every Pi release works. The
 manifests and root lockfile hold the exact versions. Run the installed-package checks when you
 change entrypoints or dependencies.
