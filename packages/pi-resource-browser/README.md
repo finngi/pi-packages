@@ -13,6 +13,11 @@ the component itself, for custom layouts.
 Each entry has an internal `id`, a shown `name` and `description`, selected and default state, and
 an async preview. Enter or Space in the list toggles it.
 
+Search uses Pi's own fuzzy matcher over each entry's name, description and `keywords`. Every
+space-separated query word must match in order, so abbreviations such as `bh` find `build-helper`;
+an empty query keeps the host's order. `ResourceSearch` from `pi-resource-browser/search` exposes
+the same matching to hosts without the picker.
+
 | Option | Meaning |
 | --- | --- |
 | `selectionScope` | `project` (default) or `session` |

@@ -123,9 +123,10 @@ resource's description, source and instructions. For agents it also shows the mo
 level, tools, skills, conversation setting and scope, plus any error. Skills marked manual-only are
 labelled: selecting one does not advertise it to the model.
 
-Type to search, or press `/` to focus the search box. Search ranks names, descriptions and agent
-metadata with BM25 and matches partial words. It does not search instruction text or the network.
-Clear the search to see everything.
+Type to search, or press `/` to focus the search box. Search uses Pi's native fuzzy matcher over
+names, descriptions and keywords. Every whitespace- or slash-separated query token must match
+characters in order, allowing gaps for abbreviations. It does not search instruction text or the
+network. Clear the search to see everything.
 
 | Key | Action |
 |---|---|

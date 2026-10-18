@@ -65,7 +65,7 @@ download cache but not `node_modules`.
 | `pi-permissions` | Allow a read and deny a write before the file is created |
 | `pi-contracts` | Import event names and exchange a payload on one event |
 | `pi-runtime` | Record token usage and run a managed subprocess |
-| `pi-resource-browser` | Search resources with the exported BM25 and prefix API |
+| `pi-resource-browser` | Search resources with the exported fuzzy typeahead API |
 
 Only the seven extensions load as extensions; the other three are plain libraries. A separate
 combined install checks shared session setup, resume and reset, and compiled child tools. Scripted
