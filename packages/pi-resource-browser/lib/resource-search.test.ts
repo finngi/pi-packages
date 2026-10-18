@@ -22,17 +22,30 @@ const records = [
     keywords: "bash sol",
   },
 ];
-test("BM25 ranks complete terms across names, descriptions and agent metadata", () => {
+test("matches names, descriptions and keywords with Pi's fuzzy matcher", () => {
   const search = new ResourceSearch(records);
-  assert.equal(search.search("project documentation")[0].id, "docs");
+  assert.equal(search.search("documentation")[0].id, "docs");
   assert.equal(search.search("security")[0].id, "review");
   assert.equal(search.search("bash")[0].id, "build");
   assert.deepEqual(search.search("unknown vocabulary"), []);
 });
-test("typeahead supports prefixes, punctuation and case without changing an empty catalogue", () => {
+test("abbreviations and prefixes match in order, regardless of case", () => {
   const search = new ResourceSearch(records);
+  assert.deepEqual(
+    search.search("bh").map((record) => record.id),
+    ["build"],
+  );
   assert.equal(search.search("DOCUM")[0].id, "docs");
-  assert.equal(search.search("code_review")[0].id, "review");
+  assert.equal(search.search("code-review")[0].id, "review");
+});
+test("every query token must match, and an empty query keeps the catalogue order", () => {
+  const search = new ResourceSearch(records);
+  assert.deepEqual(
+    search.search("project typescript").map((record) => record.id),
+    ["build"],
+  );
+  assert.deepEqual(search.search("review nowhere"), []);
   assert.deepEqual(search.search(""), records);
+  assert.deepEqual(search.search("   "), records);
   assert.deepEqual(new ResourceSearch([]).search("review"), []);
 });
