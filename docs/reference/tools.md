@@ -12,9 +12,10 @@ instructions and `pi-delegation` adds agents. Each of them installs the same sha
 loading one does not load the others. Package groups are built from whatever is available, so they
 work in a session with only context or only delegation.
 
-Search uses the same BM25 ranking as the pickers, over names and metadata. It never returns skill
-bodies or an agent's private skills and scripts. Manual-only skills are labelled; selecting one
-does not list it for the model or load its body.
+Search uses the same native Pi fuzzy matcher as the pickers, over names, descriptions and keywords.
+Every whitespace- or slash-separated query token must match characters in order, allowing gaps.
+It never returns skill bodies or an agent's private skills and scripts. Manual-only skills are
+labelled; selecting one does not list it for the model or load its body.
 
 ```json
 {"op":"list","query":"evidence","kinds":["packages"],"limit":10}
